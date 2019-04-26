@@ -1,0 +1,11 @@
+{
+  "name": "wasm2lua",
+  "version": "0.0.1",
+  "description": "",
+  "main": "js/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "swadical",
+  "license": "UNLICENSED"
+}
