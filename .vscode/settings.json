@@ -1,0 +1,5 @@
+{
+    "typescript.tsdk": "node_modules\\typescript\\lib",
+    "todo-tree.flat": false,
+    "todo-tree.expanded": true
+}

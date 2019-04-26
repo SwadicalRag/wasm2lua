@@ -1,0 +1,24 @@
+{
+    "compilerOptions": {
+        "removeComments": true,
+        "preserveConstEnums": true,
+        "sourceMap": true,
+        "outDir": "js",
+        "module": "commonjs",
+        "moduleResolution": "node",
+        "target": "es2015",
+        "experimentalDecorators": true,
+        "emitDecoratorMetadata": true,
+        "allowSyntheticDefaultImports": true,
+        "lib": [
+            
+        ]
+    },
+    "include": [
+        "src/**/*"
+    ],
+    "exclude": [
+        "node_modules",
+        "**/*.spec.ts"
+    ]
+}

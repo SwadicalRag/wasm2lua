@@ -7,5 +7,12 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "swadical",
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@types/node": "^11.13.7",
+    "typescript": "^3.4.5"
+  },
+  "dependencies": {
+    "@webassemblyjs/wasm-parser": "^1.8.5"
+  }
 }
