@@ -109,8 +109,36 @@ export class wasm2lua {
             else if(field.type == "ModuleImport") {
                 this.processModuleImport(field,state);
             }
-            else {
-                throw new Error("TODO " + field.type);
+            else if (field.type == "Table") {
+                console.log(">>>",field);
+            }
+            else if (field.type == "Memory") {
+                console.log(">>>",field);
+            }
+            else if (field.type == "Global") {
+                this.write("-- global");
+                this.indent();
+                this.newLine();
+                
+                // :thonk:
+                let state: WASMFuncState = {
+                    id: "____global", 
+                    locals: [],
+                    varRemaps: new Map(),
+                };
+
+                this.processInstructions(field.init,state);
+
+                this.outdent();
+                this.newLine();
+            }
+            else if (field.type == "Elem") {
+                console.log(">>>",field);
+            }
+            else if (field.type == "Data") {
+                console.log(">>>",field.init.values);
+            } else {
+                throw new Error("TODO - Module Section - " + field.type);
             }
         }
     }
@@ -170,6 +198,33 @@ export class wasm2lua {
             switch(ins.type) {
                 case "Instr": {
                     switch(ins.id) {
+                        case "local": {
+                            this.write("-- LOCALS: "+JSON.stringify(ins.args));
+                            this.newLine();
+                            break;
+                        }
+                        case "const": {
+                            let _const = (ins.args[0] as NumberLiteral).value;
+                            this.write(this.getPushStack());
+                            this.write(_const);
+                            this.write(";");
+                            this.newLine();
+                            break;
+                        }
+                        case "get_global": {
+                            let globID = (ins.args[0] as NumberLiteral).value;
+                            this.write(this.getPushStack());
+                            this.write("GLOBALS["+globID+"]");
+                            this.write(";");
+                            this.newLine();
+                            break;
+                        }
+                        case "set_global": {
+                            let globID = (ins.args[0] as NumberLiteral).value;
+                            this.write("GLOBALS["+globID+"] = "+this.getPop()+";");
+                            this.newLine();
+                            break;
+                        }
                         case "get_local": {
                             let locID = (ins.args[0] as NumberLiteral).value;
                             this.write(this.getPushStack());
@@ -178,10 +233,33 @@ export class wasm2lua {
                             this.newLine();
                             break;
                         }
-                        case "add": {
+                        case "set_local": {
+                            let locID = (ins.args[0] as NumberLiteral).value;
+                            this.write(state.locals[locID] || `loc${locID}`);
+                            this.write(" = "+this.getPop()+";");
+                            this.newLine();
+                            break;
+                        }
+                        case "tee_local": {
+                            let locID = (ins.args[0] as NumberLiteral).value;
+                            // write local
+                            this.write(state.locals[locID] || `loc${locID}`);
+                            this.write(" = "+this.getPop()+" ; ");
+                            // read back
+                            this.write(this.getPushStack());
+                            this.write(state.locals[locID] || `loc${locID}`);
+                            this.write(";");
+                            this.newLine();
+                            break;
+                        }
+                        case "add":
+                        case "sub":
+                        {
+                            let op = (ins.id=="add" ? "+" : "-");
+
                             this.write("__TMP__ = ");
                             this.write(this.getPop());
-                            this.write(" + ");
+                            this.write(" "+op+" ");
                             this.write(this.getPop());
                             this.write("; ");
                             this.write(this.getPushStack());
@@ -202,14 +280,34 @@ export class wasm2lua {
                             return;
                         }
                         default: {
-                            throw new Error("TODO " + ins.id);
+                            //throw new Error("TODO - Instr - " + ins.id);
+                            //break;
+                            this.write("-- TODO "+ins.id+" "+JSON.stringify(ins));
+                            this.newLine();
                             break;
                         }
                     }
                     break;
                 }
+                case "CallInstruction": {
+                    this.write("-- CALL "+ins.index.value+" (TODO ARG/RET)");
+                    this.newLine();
+                    break;
+                }
+                case "BlockInstruction": {
+                    this.write(`-- BLOCK BEGIN (${ins.label.value})`);
+                    this.indent();
+                    this.newLine();
+                    this.processInstructions(ins.instr,state);
+                    this.outdent();
+                    this.newLine();
+                    this.write(`::${ins.label.value}:: -- BLOCK END`);
+                    this.newLine();
+                    break;
+                }
                 default: {
-                    throw new Error("TODO " + ins.type);
+                    this.write("-- TODO (!) "+ins.type+" "+JSON.stringify(ins));
+                    this.newLine();
                     break;
                 }
             }
@@ -232,8 +330,16 @@ export class wasm2lua {
                 }
                 break;
             }
+            case "Mem": {
+                console.log("memory",node);
+                break;
+            }
+            case "Global": {
+                console.log("memory",node);
+                break;
+            }
             default: {
-                throw new Error("TODO " + node.descr.exportType);
+                throw new Error("TODO - Export - " + node.descr.exportType);
                 break;
             }
         }
@@ -246,9 +352,13 @@ export class wasm2lua {
     }
 }
 
+// Allow custom in/out file while defaulting to swad's meme :)
+let infile  = process.argv[2] || (__dirname + "/../addTwo.wasm");
+let outfile = process.argv[3] || (__dirname + "/../test.lua");
+
 // let wasm = fs.readFileSync(__dirname + "/../ammo.wasm")
-let wasm = fs.readFileSync(__dirname + "/../addTwo.wasm")
+let wasm = fs.readFileSync(infile)
 let ast = decode(wasm)
 
 let inst = new wasm2lua(ast);
-fs.writeFileSync(__dirname + "/../test.lua",inst.outBuf.join(""));
+fs.writeFileSync(outfile,inst.outBuf.join(""));

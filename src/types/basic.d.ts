@@ -84,4 +84,4 @@ type FuncMetadata = {
   bodySize: number
 };
 
-type ExportDescrType = "Func" | "Table" | "Memory" | "Global";
+type ExportDescrType = "Func" | "Table" | "Mem" | "Global";
