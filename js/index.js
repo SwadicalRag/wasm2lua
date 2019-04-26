@@ -7,6 +7,7 @@ class wasm2lua {
         this.ast = ast;
         this.outBuf = [];
         this.indentLevel = 0;
+        this.moduleStates = [];
         this.process();
     }
     assert(cond, err = "assertion failed") {
@@ -36,7 +37,16 @@ class wasm2lua {
         this.writeHeader();
         for (let mod of this.ast.body) {
             if (mod.type == "Module") {
+                this.write("do");
+                this.indent();
+                this.newLine();
+                this.write("local __EXPORTS__ = {};");
+                this.newLine();
                 this.processModule(mod);
+                this.outdent();
+                this.newLine();
+                this.write("end");
+                this.newLine();
             }
             else {
                 throw new Error("TODO");
@@ -44,36 +54,44 @@ class wasm2lua {
         }
     }
     processModule(node) {
+        let state = {
+            funcStates: [],
+        };
         for (let section of node.metadata.sections) {
-            this.processModuleSection(section);
+            this.processModuleMetadataSection(section);
         }
         for (let field of node.fields) {
             if (field.type == "TypeInstruction") {
                 this.processTypeInstruction(field);
             }
             else if (field.type == "Func") {
-                this.processFunc(field);
+                this.processFunc(field, state);
             }
             else if (field.type == "ModuleExport") {
-                this.processModuleExport(field);
+                this.processModuleExport(field, state);
+            }
+            else if (field.type == "ModuleImport") {
+                this.processModuleImport(field, state);
             }
             else {
                 throw new Error("TODO " + field.type);
             }
         }
     }
-    processModuleSection(node) {
+    processModuleMetadataSection(node) {
     }
     processTypeInstruction(node) {
     }
-    processFunc(node) {
+    processFunc(node, modState) {
         this.write("function ");
         this.write(node.name.value);
         this.write("(");
         let state = {
+            id: typeof node.name.value === "string" ? node.name.value : "func" + modState.funcStates.length,
             locals: [],
             varRemaps: new Map(),
         };
+        modState.funcStates.push(state);
         if (node.signature.type == "Signature") {
             let i = 0;
             for (let param of node.signature.params) {
@@ -95,6 +113,7 @@ class wasm2lua {
         this.outdent();
         this.newLine();
         this.write("end");
+        this.newLine();
     }
     processInstructions(insArr, state) {
         for (let ins of insArr) {
@@ -145,7 +164,30 @@ class wasm2lua {
             }
         }
     }
-    processModuleExport(node) {
+    processModuleExport(node, modState) {
+        this.write("__EXPORTS__.");
+        this.write(node.name);
+        this.write(" = ");
+        switch (node.descr.exportType) {
+            case "Func": {
+                if (node.descr.id.type == "NumberLiteral") {
+                    this.assert(modState.funcStates[node.descr.id.value], "attempt to export non existant function");
+                    this.write(`${modState.funcStates[node.descr.id.value].id}`);
+                }
+                else {
+                    this.write(node.descr.id.value);
+                }
+                break;
+            }
+            default: {
+                throw new Error("TODO " + node.descr.exportType);
+                break;
+            }
+        }
+        this.write(";");
+        this.newLine();
+    }
+    processModuleImport(node, modState) {
     }
 }
 exports.wasm2lua = wasm2lua;

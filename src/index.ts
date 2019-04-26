@@ -1,7 +1,12 @@
 import {decode} from "@webassemblyjs/wasm-parser"
 import * as fs from "fs"
 
+interface WASMModuleState {
+    funcStates: WASMFuncState[];
+}
+
 interface WASMFuncState {
+    id: string;
     locals: string[];
     varRemaps: Map<string,string>;
 }
@@ -9,6 +14,8 @@ interface WASMFuncState {
 export class wasm2lua {
     outBuf: string[] = [];
     indentLevel = 0;
+    // funcTypes: any[] = [];
+    moduleStates: WASMModuleState[] = [];
     globalRemaps: Map<string,string>;
 
     constructor(public ast: Program) {
@@ -50,7 +57,16 @@ export class wasm2lua {
 
         for(let mod of this.ast.body) {
             if(mod.type == "Module") {
+                this.write("do");
+                this.indent();
+                this.newLine();
+                this.write("local __EXPORTS__ = {};")
+                this.newLine();
                 this.processModule(mod);
+                this.outdent();
+                this.newLine();
+                this.write("end");
+                this.newLine();
             }
             else {
                 throw new Error("TODO");
@@ -59,8 +75,12 @@ export class wasm2lua {
     }
 
     processModule(node: Module) {
+        let state: WASMModuleState = {
+            funcStates: [],
+        };
+
         for(let section of node.metadata.sections) {
-            this.processModuleSection(section);
+            this.processModuleMetadataSection(section);
         }
         
         for(let field of node.fields) {
@@ -68,10 +88,13 @@ export class wasm2lua {
                 this.processTypeInstruction(field);
             }
             else if(field.type == "Func") {
-                this.processFunc(field);
+                this.processFunc(field,state);
             }
             else if(field.type == "ModuleExport") {
-                this.processModuleExport(field);
+                this.processModuleExport(field,state);
+            }
+            else if(field.type == "ModuleImport") {
+                this.processModuleImport(field,state);
             }
             else {
                 throw new Error("TODO " + field.type);
@@ -79,23 +102,25 @@ export class wasm2lua {
         }
     }
 
-    processModuleSection(node: SectionMetadata) {
-        
+    processModuleMetadataSection(node: SectionMetadata) {
+        // TODO: is ignoring this the right thing to do?
     }
 
     processTypeInstruction(node: TypeInstruction) {
-        
+        // TODO: is ignoring this the right thing to do?
     }
 
-    processFunc(node: Func) {
+    processFunc(node: Func,modState: WASMModuleState) {
         this.write("function ");
         this.write(node.name.value);
         this.write("(");
 
         let state: WASMFuncState = {
+            id: typeof node.name.value === "string" ? node.name.value : "func" + modState.funcStates.length, 
             locals: [],
             varRemaps: new Map(),
         };
+        modState.funcStates.push(state);
 
         if(node.signature.type == "Signature") {
             let i = 0;
@@ -124,6 +149,7 @@ export class wasm2lua {
         this.newLine();
 
         this.write("end");
+        this.newLine();
     }
 
     processInstructions(insArr: Instruction[],state: WASMFuncState) {
@@ -177,11 +203,37 @@ export class wasm2lua {
         }
     }
 
-    processModuleExport(node: ModuleExport) {
+    processModuleExport(node: ModuleExport,modState: WASMModuleState) {
+        this.write("__EXPORTS__.");
+        this.write(node.name)
+        this.write(" = ");
+
+        switch(node.descr.exportType) {
+            case "Func": {
+                if(node.descr.id.type == "NumberLiteral") {
+                    this.assert(modState.funcStates[node.descr.id.value],"attempt to export non existant function");
+                    this.write(`${modState.funcStates[node.descr.id.value].id}`);
+                }
+                else {
+                    this.write(node.descr.id.value);
+                }
+                break;
+            }
+            default: {
+                throw new Error("TODO " + node.descr.exportType);
+                break;
+            }
+        }
+        this.write(";");
+        this.newLine();
+    }
+
+    processModuleImport(node: ModuleImport,modState: WASMModuleState) {
         
     }
 }
 
+// let wasm = fs.readFileSync(__dirname + "/../ammo.wasm")
 let wasm = fs.readFileSync(__dirname + "/../addTwo.wasm")
 let ast = decode(wasm)
 
