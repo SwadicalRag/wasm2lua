@@ -22,6 +22,8 @@ class wasm2lua {
     }
     write(str) { this.outBuf.push(str); }
     writeHeader() {
+        this.write("__MODULES__ = __MODULES__ or {};");
+        this.newLine();
         this.write("local __TMP__,__STACK__ = nil,{};");
         this.newLine();
         this.write("local function __STACK_POP__()local v=__STACK__[#__STACK__];__STACK__[#__STACK__]=nil;return v;end;");
@@ -40,8 +42,6 @@ class wasm2lua {
                 this.write("do");
                 this.indent();
                 this.newLine();
-                this.write("local __EXPORTS__ = {};");
-                this.newLine();
                 this.processModule(mod);
                 this.outdent();
                 this.newLine();
@@ -57,6 +57,18 @@ class wasm2lua {
         let state = {
             funcStates: [],
         };
+        if (node.id) {
+            this.write("local __EXPORTS__ = {};");
+            this.newLine();
+            this.write("__MODULES__." + node.id + " = __EXPORTS__");
+            this.newLine();
+        }
+        else {
+            this.write("__MODULES__.UNKNOWN = __MODULES__.UNKNOWN or {}");
+            this.newLine();
+            this.write("local __EXPORTS__ = __MODULES__.UNKNOWN;");
+            this.newLine();
+        }
         for (let section of node.metadata.sections) {
             this.processModuleMetadataSection(section);
         }
