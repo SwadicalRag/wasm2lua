@@ -263,12 +263,41 @@ class wasm2lua {
                 }
                 case "BlockInstruction": {
                     this.write(`-- BLOCK BEGIN (${ins.label.value})`);
+                    this.newLine();
+                    this.write("do");
                     this.indent();
                     this.newLine();
                     this.processInstructions(ins.instr, state);
                     this.outdent();
                     this.newLine();
+                    this.write("end");
+                    this.newLine();
                     this.write(`::${ins.label.value}:: -- BLOCK END`);
+                    this.newLine();
+                    break;
+                }
+                case "IfInstruction": {
+                    if (ins.test.length > 0) {
+                        this.write("-- WARNING: 'if test' present, and was not handled");
+                        this.newLine();
+                    }
+                    this.write("if ");
+                    this.write(this.getPop());
+                    this.write(" then");
+                    this.indent();
+                    this.newLine();
+                    this.processInstructions(ins.consequent, state);
+                    this.outdent();
+                    this.newLine();
+                    if (ins.alternate.length > 0) {
+                        this.write("else");
+                        this.indent();
+                        this.newLine();
+                        this.processInstructions(ins.alternate, state);
+                        this.outdent();
+                        this.newLine();
+                    }
+                    this.write("end");
                     this.newLine();
                     break;
                 }
