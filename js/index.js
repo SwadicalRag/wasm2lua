@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const wasm_parser_1 = require("@webassemblyjs/wasm-parser");
 const fs = require("fs");
+const util_1 = require("util");
 class wasm2lua {
     constructor(ast) {
         this.ast = ast;
@@ -16,39 +17,44 @@ class wasm2lua {
         }
     }
     indent() { this.indentLevel++; }
-    outdent() { this.indentLevel--; }
-    newLine() {
-        this.outBuf.push("\n" + (("    ").repeat(this.indentLevel)));
+    outdent(buf) {
+        this.indentLevel--;
+        if (util_1.isArray(buf)) {
+            let mat = buf[buf.length - 1].match(/^([\s\S]*?)\n(?:    )*$/);
+            if (mat) {
+                buf[buf.length - 1] = mat[1] + "\n" + (("    ").repeat(this.indentLevel));
+            }
+        }
     }
-    write(str) { this.outBuf.push(str); }
-    writeHeader() {
-        this.write("__MODULES__ = __MODULES__ or {};");
-        this.newLine();
-        this.write("__GLOBALS__ = __GLOBALS__ or {};");
-        this.newLine();
-        this.write("local __TMP__,__STACK__ = nil,{};");
-        this.newLine();
-        this.write("local function __STACK_POP__()local v=__STACK__[#__STACK__];__STACK__[#__STACK__]=nil;return v;end;");
-        this.newLine();
+    newLine(buf) {
+        buf.push("\n" + (("    ").repeat(this.indentLevel)));
+    }
+    write(buf, str) { buf.push(str); }
+    writeHeader(buf) {
+        this.write(buf, "__MODULES__ = __MODULES__ or {};");
+        this.newLine(buf);
+        this.write(buf, "__GLOBALS__ = __GLOBALS__ or {};");
+        this.newLine(buf);
+        this.write(buf, "local function __STACK_POP__(__STACK__)local v=__STACK__[#__STACK__];__STACK__[#__STACK__]=nil;return v;end;");
+        this.newLine(buf);
     }
     getPushStack() {
         return "__STACK__[#__STACK__ + 1] = ";
     }
     getPop() {
-        return "__STACK_POP__()";
+        return "__STACK_POP__(__STACK__)";
     }
     process() {
-        this.writeHeader();
+        this.writeHeader(this.outBuf);
         for (let mod of this.ast.body) {
             if (mod.type == "Module") {
-                this.write("do");
+                this.write(this.outBuf, "do");
                 this.indent();
-                this.newLine();
-                this.processModule(mod);
-                this.outdent();
-                this.newLine();
-                this.write("end");
-                this.newLine();
+                this.newLine(this.outBuf);
+                this.write(this.outBuf, this.processModule(mod));
+                this.outdent(this.outBuf);
+                this.write(this.outBuf, "end");
+                this.newLine(this.outBuf);
             }
             else {
                 throw new Error("TODO");
@@ -56,37 +62,38 @@ class wasm2lua {
         }
     }
     processModule(node) {
+        let buf = [];
         let state = {
             funcStates: [],
             funcByName: new Map(),
         };
         if (node.id) {
-            this.write("local __EXPORTS__ = {};");
-            this.newLine();
-            this.write("__MODULES__." + node.id + " = __EXPORTS__");
-            this.newLine();
+            this.write(buf, "local __EXPORTS__ = {};");
+            this.newLine(buf);
+            this.write(buf, "__MODULES__." + node.id + " = __EXPORTS__");
+            this.newLine(buf);
         }
         else {
-            this.write("__MODULES__.UNKNOWN = __MODULES__.UNKNOWN or {}");
-            this.newLine();
-            this.write("local __EXPORTS__ = __MODULES__.UNKNOWN;");
-            this.newLine();
+            this.write(buf, "__MODULES__.UNKNOWN = __MODULES__.UNKNOWN or {}");
+            this.newLine(buf);
+            this.write(buf, "local __EXPORTS__ = __MODULES__.UNKNOWN;");
+            this.newLine(buf);
         }
         for (let section of node.metadata.sections) {
             this.processModuleMetadataSection(section);
         }
         for (let field of node.fields) {
             if (field.type == "TypeInstruction") {
-                this.processTypeInstruction(field);
+                this.write(buf, this.processTypeInstruction(field));
             }
             else if (field.type == "Func") {
-                this.processFunc(field, state);
+                this.write(buf, this.processFunc(field, state));
             }
             else if (field.type == "ModuleExport") {
-                this.processModuleExport(field, state);
+                this.write(buf, this.processModuleExport(field, state));
             }
             else if (field.type == "ModuleImport") {
-                this.processModuleImport(field, state);
+                this.write(buf, this.processModuleImport(field, state));
             }
             else if (field.type == "Table") {
                 console.log(">>>", field);
@@ -95,18 +102,17 @@ class wasm2lua {
                 console.log(">>>", field);
             }
             else if (field.type == "Global") {
-                this.write("-- global");
+                this.write(buf, "-- global");
                 this.indent();
-                this.newLine();
+                this.newLine(buf);
                 let state = {
                     id: "__GLOBALS_INIT__",
                     locals: [],
                     blocks: [],
                     varRemaps: new Map(),
                 };
-                this.processInstructions(field.init, state);
-                this.outdent();
-                this.newLine();
+                this.write(buf, this.processInstructions(field.init, state));
+                this.outdent(buf);
             }
             else if (field.type == "Elem") {
                 console.log(">>>", field);
@@ -118,15 +124,16 @@ class wasm2lua {
                 throw new Error("TODO - Module Section - " + field.type);
             }
         }
+        return buf.join("");
     }
     processModuleMetadataSection(node) {
+        return "";
     }
     processTypeInstruction(node) {
+        return "";
     }
     processFunc(node, modState) {
-        this.write("function ");
-        this.write(node.name.value);
-        this.write("(");
+        let buf = [];
         let state = {
             id: typeof node.name.value === "string" ? node.name.value : "func_u" + modState.funcStates.length,
             locals: [],
@@ -135,13 +142,16 @@ class wasm2lua {
         };
         modState.funcStates.push(state);
         modState.funcByName.set(state.id, state);
+        this.write(buf, "function ");
+        this.write(buf, state.id);
+        this.write(buf, "(");
         if (node.signature.type == "Signature") {
             let i = 0;
             for (let param of node.signature.params) {
-                this.write(`arg${i}`);
+                this.write(buf, `arg${i}`);
                 state.locals[i] = `arg${i}`;
                 if ((i + 1) !== node.signature.params.length) {
-                    this.write(", ");
+                    this.write(buf, ", ");
                 }
                 i++;
             }
@@ -149,197 +159,199 @@ class wasm2lua {
         else {
             throw new Error("TODO " + node.signature.type);
         }
-        this.write(")");
+        this.write(buf, ")");
         this.indent();
-        this.newLine();
-        this.processInstructions(node.body, state);
-        this.endAllBlocks(state);
-        this.outdent();
-        this.newLine();
-        this.write("end");
-        this.newLine();
+        this.newLine(buf);
+        this.write(buf, "local __TMP__,__STACK__ = nil,{};");
+        this.newLine(buf);
+        this.write(buf, this.processInstructions(node.body, state));
+        this.endAllBlocks(buf, state);
+        this.outdent(buf);
+        this.write(buf, "end");
+        this.newLine(buf);
+        return buf.join("");
     }
-    beginBlock(state, block) {
-        this.write(`-- BLOCK BEGIN (${block.id})`);
-        this.newLine();
-        this.write(`::${block.id}_start:: -- BLOCK START`);
+    beginBlock(buf, state, block) {
+        this.write(buf, `-- BLOCK BEGIN (${block.id})`);
+        this.newLine(buf);
+        this.write(buf, `::${block.id}_start:: -- BLOCK START`);
         state.blocks.push(block);
-        this.newLine();
-        this.write("do");
+        this.newLine(buf);
+        this.write(buf, "do");
         this.indent();
-        this.newLine();
+        this.newLine(buf);
     }
-    endAllBlocks(state) {
+    endAllBlocks(buf, state) {
         while (state.blocks.length > 0) {
-            this.endBlock(state);
+            this.endBlock(buf, state);
         }
     }
-    endBlock(state) {
+    endBlock(buf, state) {
         let block = state.blocks.pop();
         if (block) {
-            this.endBlockInternal(block);
+            this.endBlockInternal(buf, block);
             return true;
         }
         return false;
     }
-    endBlockInternal(block) {
-        this.outdent();
-        this.newLine();
-        this.write("end");
-        this.newLine();
-        this.write(`::${block.id}_fin:: -- BLOCK END`);
-        this.newLine();
+    endBlockInternal(buf, block) {
+        this.outdent(buf);
+        this.write(buf, "end");
+        this.newLine(buf);
+        this.write(buf, `::${block.id}_fin:: -- BLOCK END`);
+        this.newLine(buf);
     }
     processInstructions(insArr, state) {
+        let buf = [];
         for (let ins of insArr) {
             switch (ins.type) {
                 case "Instr": {
                     switch (ins.id) {
                         case "local": {
                             if (ins.args.length > 0) {
-                                this.write("local ");
+                                this.write(buf, "local ");
                                 let i = 0;
                                 for (let loc of ins.args) {
                                     i++;
-                                    this.write(`loc${state.locals.length}`);
+                                    this.write(buf, `loc${state.locals.length}`);
                                     state.locals.push(`loc${state.locals.length}`);
                                     if (i !== ins.args.length) {
-                                        this.write(",");
+                                        this.write(buf, ",");
                                     }
                                 }
-                                this.write(";");
+                                this.write(buf, ";");
                             }
-                            this.newLine();
+                            this.newLine(buf);
                             break;
                         }
                         case "const": {
                             if (ins.args[0].type == "LongNumberLiteral") {
                                 let _const = ins.args[0].value.low;
-                                this.write("--[[WARNING: high bits of int64 dropped]]");
-                                this.write(this.getPushStack());
-                                this.write(_const);
-                                this.write(";");
-                                this.newLine();
+                                this.write(buf, "--[[WARNING: high bits of int64 dropped]]");
+                                this.write(buf, this.getPushStack());
+                                this.write(buf, _const.toString());
+                                this.write(buf, ";");
+                                this.newLine(buf);
                             }
                             else {
                                 let _const = ins.args[0].value;
-                                this.write(this.getPushStack());
-                                this.write(_const);
-                                this.write(";");
-                                this.newLine();
+                                this.write(buf, this.getPushStack());
+                                this.write(buf, _const.toString());
+                                this.write(buf, ";");
+                                this.newLine(buf);
                             }
                             break;
                         }
                         case "get_global": {
                             let globID = ins.args[0].value;
-                            this.write(this.getPushStack());
-                            this.write("__GLOBALS__[" + globID + "]");
-                            this.write(";");
-                            this.newLine();
+                            this.write(buf, this.getPushStack());
+                            this.write(buf, "__GLOBALS__[" + globID + "]");
+                            this.write(buf, ";");
+                            this.newLine(buf);
                             break;
                         }
                         case "set_global": {
                             let globID = ins.args[0].value;
-                            this.write("__GLOBALS__[" + globID + "] = " + this.getPop() + ";");
-                            this.newLine();
+                            this.write(buf, "__GLOBALS__[" + globID + "] = " + this.getPop() + ";");
+                            this.newLine(buf);
                             break;
                         }
                         case "get_local": {
                             let locID = ins.args[0].value;
-                            this.write(this.getPushStack());
-                            this.write(state.locals[locID] || `loc${locID}`);
-                            this.write(";");
-                            this.newLine();
+                            this.write(buf, this.getPushStack());
+                            this.write(buf, state.locals[locID] || `loc${locID}`);
+                            this.write(buf, ";");
+                            this.newLine(buf);
                             break;
                         }
                         case "set_local": {
                             let locID = ins.args[0].value;
-                            this.write(state.locals[locID] || `loc${locID}`);
-                            this.write(" = " + this.getPop() + ";");
-                            this.newLine();
+                            this.write(buf, state.locals[locID] || `loc${locID}`);
+                            this.write(buf, " = " + this.getPop() + ";");
+                            this.newLine(buf);
                             break;
                         }
                         case "tee_local": {
                             let locID = ins.args[0].value;
-                            this.write(state.locals[locID] || `loc${locID}`);
-                            this.write(" = " + this.getPop() + " ; ");
-                            this.write(this.getPushStack());
-                            this.write(state.locals[locID] || `loc${locID}`);
-                            this.write(";");
-                            this.newLine();
+                            this.write(buf, state.locals[locID] || `loc${locID}`);
+                            this.write(buf, " = " + this.getPop() + " ; ");
+                            this.write(buf, this.getPushStack());
+                            this.write(buf, state.locals[locID] || `loc${locID}`);
+                            this.write(buf, ";");
+                            this.newLine(buf);
                             break;
                         }
                         case "add":
                         case "sub":
                             {
                                 let op = wasm2lua.instructionBinOpRemap[ins.id];
-                                this.write("__TMP__ = ");
-                                this.write(this.getPop());
-                                this.write(" " + op + " ");
-                                this.write(this.getPop());
-                                this.write("; ");
-                                this.write(this.getPushStack());
-                                this.write("__TMP__;");
-                                this.newLine();
+                                this.write(buf, "__TMP__ = ");
+                                this.write(buf, this.getPop());
+                                this.write(buf, " " + op + " ");
+                                this.write(buf, this.getPop());
+                                this.write(buf, "; ");
+                                this.write(buf, this.getPushStack());
+                                this.write(buf, "__TMP__;");
+                                this.newLine(buf);
                                 break;
                             }
                         case "br_if": {
-                            this.write("if ");
-                            this.write(this.getPop());
-                            this.write(" then ");
+                            this.write(buf, "if ");
+                            this.write(buf, this.getPop());
+                            this.write(buf, " then ");
                             let blocksToExit = ins.args[0].value;
                             let targetBlock = state.blocks[state.blocks.length - blocksToExit - 1];
                             if (targetBlock) {
-                                this.write("goto ");
+                                this.write(buf, "goto ");
                                 if (targetBlock.blockType == "loop") {
-                                    this.write(`${targetBlock.id}_start`);
+                                    this.write(buf, `${targetBlock.id}_start`);
                                 }
                                 else {
-                                    this.write(`${targetBlock.id}_fin`);
+                                    this.write(buf, `${targetBlock.id}_fin`);
                                 }
                             }
                             else {
-                                this.write("goto ____UNRESOLVED_DEST____");
+                                this.write(buf, "goto ____UNRESOLVED_DEST____");
                             }
-                            this.write(" end;");
-                            this.newLine();
+                            this.write(buf, " end;");
+                            this.newLine(buf);
                             break;
                         }
                         case "return": {
-                            this.write("do return ");
+                            this.write(buf, "do return ");
                             if (ins.args.length > 1) {
-                                this.write("--[[WARNING: return arguments more than 1???]]");
+                                this.write(buf, "--[[WARNING: return arguments more than 1???]]");
                             }
                             let nRets = ins.args.length == 1 ? ins.args[0].value : 0;
                             for (let i = 0; i < nRets; i++) {
-                                this.write(this.getPop());
+                                this.write(buf, this.getPop());
                                 if (nRets !== (i + 1)) {
-                                    this.write(",");
+                                    this.write(buf, ",");
                                 }
                             }
-                            this.write("; end;");
-                            this.newLine();
+                            this.write(buf, "; end;");
+                            this.newLine(buf);
                             break;
                         }
                         case "end": {
-                            this.endBlock(state);
-                            return;
+                            this.endBlock(buf, state);
+                            break;
                         }
                         default: {
-                            this.write("-- TODO " + ins.id + " " + JSON.stringify(ins));
-                            this.newLine();
+                            this.write(buf, "-- TODO " + ins.id + " " + JSON.stringify(ins));
+                            this.newLine(buf);
                             break;
                         }
                     }
                     break;
                 }
                 case "CallInstruction": {
-                    this.write("-- CALL " + ins.index.value + " (TODO ARG/RET)");
-                    this.newLine();
+                    this.write(buf, "-- CALL " + ins.index.value + " (TODO ARG/RET)");
+                    this.newLine(buf);
                     break;
                 }
                 case "BlockInstruction": {
-                    this.beginBlock(state, {
+                    this.beginBlock(buf, state, {
                         id: ins.label.value,
                         blockType: "block",
                     });
@@ -347,64 +359,64 @@ class wasm2lua {
                 }
                 case "IfInstruction": {
                     if (ins.test.length > 0) {
-                        this.write("-- WARNING: 'if test' present, and was not handled");
-                        this.newLine();
+                        this.write(buf, "-- WARNING: 'if test' present, and was not handled");
+                        this.newLine(buf);
                     }
-                    this.write("if ");
-                    this.write(this.getPop());
-                    this.write(" then");
-                    this.beginBlock(state, {
+                    this.write(buf, "if ");
+                    this.write(buf, this.getPop());
+                    this.write(buf, " then");
+                    this.beginBlock(buf, state, {
                         id: `if_${ins.loc.start.line}_${ins.loc.start.column}`,
                         blockType: "if",
                     });
                     this.indent();
-                    this.newLine();
+                    this.newLine(buf);
                     this.processInstructions(ins.consequent, state);
-                    this.outdent();
-                    this.newLine();
+                    this.outdent(buf);
                     if (ins.alternate.length > 0) {
-                        this.write("else");
+                        this.write(buf, "else");
                         this.indent();
-                        this.newLine();
-                        this.beginBlock(state, {
+                        this.newLine(buf);
+                        this.beginBlock(buf, state, {
                             id: `else_${ins.loc.start.line}_${ins.loc.start.column}`,
                             blockType: "if",
                         });
                         this.processInstructions(ins.alternate, state);
-                        this.outdent();
-                        this.newLine();
+                        this.outdent(buf);
                     }
-                    this.write("end");
-                    this.newLine();
+                    this.write(buf, "end");
+                    this.newLine(buf);
                     break;
                 }
                 default: {
-                    this.write("-- TODO (!) " + ins.type + " " + JSON.stringify(ins));
-                    this.newLine();
+                    this.write(buf, "-- TODO (!) " + ins.type + " " + JSON.stringify(ins));
+                    this.newLine(buf);
                     break;
                 }
             }
         }
+        return buf.join("");
     }
     processModuleExport(node, modState) {
-        this.write("__EXPORTS__.");
-        this.write(node.name);
-        this.write(" = ");
+        let buf = [];
+        this.write(buf, "__EXPORTS__.");
+        this.write(buf, node.name);
+        this.write(buf, " = ");
         switch (node.descr.exportType) {
             case "Func": {
                 if (node.descr.id.type == "NumberLiteral") {
                     if (modState.funcByName.get(`func_${node.descr.id.value}`)) {
-                        this.write(`${modState.funcByName.get(`func_${node.descr.id.value}`).id}`);
+                        this.write(buf, `${modState.funcByName.get(`func_${node.descr.id.value}`).id}`);
                     }
                     else if (modState.funcByName.get(`func_u${node.descr.id.value}`)) {
-                        this.write(`${modState.funcByName.get(`func_u${node.descr.id.value}`).id}`);
+                        this.write(buf, `${modState.funcByName.get(`func_u${node.descr.id.value}`).id}`);
                     }
                     else {
-                        this.write("--[[EXPORT_FAIL]] func_u" + node.descr.id.value);
+                        this.write(buf, "--[[EXPORT_FAIL]] func_u" + node.descr.id.value);
                     }
                 }
                 else {
-                    this.write(node.descr.id.value);
+                    this.write(buf, node.descr.id.value);
                 }
                 break;
             }
@@ -421,10 +433,13 @@ class wasm2lua {
                 break;
             }
         }
-        this.write(";");
-        this.newLine();
+        this.write(buf, ";");
+        this.newLine(buf);
+        return buf.join("");
     }
     processModuleImport(node, modState) {
+        let buf = [];
+        return buf.join("");
     }
 }
 wasm2lua.instructionBinOpRemap = {
