@@ -115,6 +115,11 @@ class wasm2lua {
             this.processModuleMetadataSection(section);
         }
         for (let field of node.fields) {
+            if (field.type == "Func") {
+                this.initFunc(field, state);
+            }
+        }
+        for (let field of node.fields) {
             if (field.type == "TypeInstruction") {
                 this.write(buf, this.processTypeInstruction(field));
             }
@@ -165,32 +170,53 @@ class wasm2lua {
         this.globalTypes.push(node.functype);
         return "";
     }
-    processFunc(node, modState) {
-        let buf = [];
+    getFuncByIndex(modState, index) {
+        if (index.type == "NumberLiteral") {
+            if (modState.funcByName.get(`func_${index.value}`)) {
+                return modState.funcByName.get(`func_${index.value}`);
+            }
+            else if (modState.funcByName.get(`func_u${index.value}`)) {
+                return modState.funcByName.get(`func_u${index.value}`);
+            }
+        }
+        else {
+            return modState.funcByName.get(index.value) || false;
+        }
+        return false;
+    }
+    initFunc(node, state) {
         let funcType;
         if (node.signature.type == "Signature") {
             funcType = node.signature;
         }
-        else if (node.signature.type == "NumberLiteral") {
-            funcType = this.globalTypes[node.signature.value];
-            if (!funcType) {
+        let fstate = {
+            id: typeof node.name.value === "string" ? node.name.value : "func_u" + state.funcStates.length,
+            locals: [],
+            blocks: [],
+            varRemaps: new Map(),
+            funcType,
+            modState: state,
+        };
+        state.funcStates.push(fstate);
+        state.funcByName.set(fstate.id, fstate);
+        return fstate;
+    }
+    processFunc(node, modState) {
+        let buf = [];
+        if (node.signature.type == "NumberLiteral") {
+            if (!this.globalTypes[node.signature.value]) {
                 this.write(buf, "-- WARNING: Function type signature read failed (1)");
                 this.newLine(buf);
             }
         }
-        else {
+        else if (node.signature.type !== "Signature") {
             this.write(buf, "-- WARNING: Function type signature read failed (2)");
             this.newLine(buf);
         }
-        let state = {
-            id: typeof node.name.value === "string" ? node.name.value : "func_u" + modState.funcStates.length,
-            funcType,
-            locals: [],
-            blocks: [],
-            varRemaps: new Map(),
-        };
-        modState.funcStates.push(state);
-        modState.funcByName.set(state.id, state);
+        let state = modState.funcByName.get(typeof node.name.value === "string" ? node.name.value : "func_u" + modState.funcStates.length);
+        if (!state) {
+            state = this.initFunc(node, modState);
+        }
         this.write(buf, "function ");
         this.write(buf, state.id);
         this.write(buf, "(");
@@ -392,8 +418,38 @@ class wasm2lua {
                     break;
                 }
                 case "CallInstruction": {
-                    this.write(buf, "-- CALL " + ins.index.value + " (TODO ARG/RET)");
-                    this.newLine(buf);
+                    let fstate = this.getFuncByIndex(state.modState, ins.index);
+                    if (fstate && fstate.funcType) {
+                        if (fstate.funcType.results.length > 1) {
+                            this.write(buf, "__TMP__ = {");
+                        }
+                        else {
+                            this.write(buf, this.getPushStack());
+                        }
+                        this.write(buf, fstate.id + "(");
+                        for (let i = 0; i < fstate.funcType.params.length; i++) {
+                            this.write(buf, this.getPop());
+                            if (i !== (fstate.funcType.params.length - 1)) {
+                                this.write(buf, ",");
+                            }
+                        }
+                        this.write(buf, ")");
+                        if (fstate.funcType.results.length > 1) {
+                            this.write(buf, "};");
+                            for (let i = 0; i < fstate.funcType.results.length; i++) {
+                                this.write(buf, this.getPushStack());
+                                this.write(buf, "__TMP__[" + (i + 1) + "];");
+                            }
+                        }
+                        else {
+                            this.write(buf, ";");
+                        }
+                        this.newLine(buf);
+                    }
+                    else {
+                        this.write(buf, "-- WARNING: UNABLE TO RESOLVE CALL " + ins.index.value + " (TODO ARG/RET)");
+                        this.newLine(buf);
+                    }
                     break;
                 }
                 case "BlockInstruction": {
@@ -450,19 +506,12 @@ class wasm2lua {
         this.write(buf, " = ");
         switch (node.descr.exportType) {
             case "Func": {
-                if (node.descr.id.type == "NumberLiteral") {
-                    if (modState.funcByName.get(`func_${node.descr.id.value}`)) {
-                        this.write(buf, `${modState.funcByName.get(`func_${node.descr.id.value}`).id}`);
-                    }
-                    else if (modState.funcByName.get(`func_u${node.descr.id.value}`)) {
-                        this.write(buf, `${modState.funcByName.get(`func_u${node.descr.id.value}`).id}`);
-                    }
-                    else {
-                        this.write(buf, "--[[EXPORT_FAIL]] func_u" + node.descr.id.value);
-                    }
+                let fstate = this.getFuncByIndex(modState, node.descr.id);
+                if (fstate) {
+                    this.write(buf, fstate.id);
                 }
                 else {
-                    this.write(buf, node.descr.id.value);
+                    this.write(buf, "--[[EXPORT_FAIL]] func_u" + node.descr.id.value);
                 }
                 break;
             }
@@ -485,6 +534,8 @@ class wasm2lua {
     }
     processModuleImport(node, modState) {
         let buf = [];
+        this.write(buf, "-- IMPORT " + JSON.stringify(node));
+        this.newLine(buf);
         return buf.join("");
     }
 }
