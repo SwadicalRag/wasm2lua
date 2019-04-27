@@ -450,8 +450,6 @@ export class wasm2lua {
                             break;
                         }
                         default: {
-                            //throw new Error("TODO - Instr - " + ins.id);
-                            //break;
                             this.write(buf,"-- TODO "+ins.id+" "+JSON.stringify(ins));
                             this.newLine(buf);
                             break;
