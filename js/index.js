@@ -3,6 +3,34 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const wasm_parser_1 = require("@webassemblyjs/wasm-parser");
 const fs = require("fs");
 const util_1 = require("util");
+class ArrayMap extends Map {
+    constructor() {
+        super(...arguments);
+        this.numSize = 0;
+    }
+    set(k, v) {
+        super.set(k, v);
+        if (typeof k === "number") {
+            if (k === this.numSize) {
+                if ((typeof v !== "undefined") && (v !== null)) {
+                    this.numSize++;
+                }
+            }
+            else if (k === (this.numSize - 1)) {
+                if ((typeof v === "undefined") || (v === null)) {
+                    this.numSize--;
+                }
+            }
+        }
+        return this;
+    }
+    push(v) {
+        this.set(this.numSize, v);
+    }
+    pop() {
+        super.set(this.numSize - 1, undefined);
+    }
+}
 class wasm2lua {
     constructor(ast) {
         this.ast = ast;
