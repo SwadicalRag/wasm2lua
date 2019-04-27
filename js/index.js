@@ -58,6 +58,7 @@ class wasm2lua {
     processModule(node) {
         let state = {
             funcStates: [],
+            funcByName: new Map(),
         };
         if (node.id) {
             this.write("local __EXPORTS__ = {};");
@@ -126,11 +127,12 @@ class wasm2lua {
         this.write(node.name.value);
         this.write("(");
         let state = {
-            id: typeof node.name.value === "string" ? node.name.value : "func" + modState.funcStates.length,
+            id: typeof node.name.value === "string" ? node.name.value : "func_u" + modState.funcStates.length,
             locals: [],
             varRemaps: new Map(),
         };
         modState.funcStates.push(state);
+        modState.funcByName.set(state.id, state);
         if (node.signature.type == "Signature") {
             let i = 0;
             for (let param of node.signature.params) {
@@ -316,8 +318,15 @@ class wasm2lua {
         switch (node.descr.exportType) {
             case "Func": {
                 if (node.descr.id.type == "NumberLiteral") {
-                    this.assert(modState.funcStates[node.descr.id.value], "attempt to export non existant function");
-                    this.write(`${modState.funcStates[node.descr.id.value].id}`);
+                    if (modState.funcByName.get(`func_${node.descr.id.value}`)) {
+                        this.write(`${modState.funcByName.get(`func_${node.descr.id.value}`).id}`);
+                    }
+                    else if (modState.funcByName.get(`func_u${node.descr.id.value}`)) {
+                        this.write(`${modState.funcByName.get(`func_u${node.descr.id.value}`).id}`);
+                    }
+                    else {
+                        this.write("--[[EXPORT_FAIL]] func_u" + node.descr.id.value);
+                    }
                 }
                 else {
                     this.write(node.descr.id.value);
@@ -351,7 +360,7 @@ wasm2lua.instructionBinOpRemap = {
 };
 wasm2lua.instructionBinOpFuncRemap = {};
 exports.wasm2lua = wasm2lua;
-let infile = process.argv[2] || (__dirname + "/../ammo.wasm");
+let infile = process.argv[2] || (__dirname + "/../dispersion.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test.lua");
 let wasm = fs.readFileSync(infile);
 let ast = wasm_parser_1.decode(wasm);
