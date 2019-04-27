@@ -326,7 +326,7 @@ export class wasm2lua {
                             this.newLine();
                         }
                         case "return": {
-                            this.write("return ");
+                            this.write("do return ");
                             if(ins.args.length > 1) {
                                 this.write("--[[WARNING: return arguments more than 1???]]");
                             }
@@ -337,7 +337,7 @@ export class wasm2lua {
                                     this.write(",");
                                 }
                             }
-                            this.write(";");
+                            this.write("; end;");
                             this.newLine();
                             break;
                         }
