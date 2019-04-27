@@ -63,11 +63,7 @@ class wasm2lua {
     }
     write(buf, str) { buf.push(str); }
     writeHeader(buf) {
-        this.write(buf, "__MODULES__ = __MODULES__ or {};");
-        this.newLine(buf);
-        this.write(buf, "__GLOBALS__ = __GLOBALS__ or {};");
-        this.newLine(buf);
-        this.write(buf, "local function __STACK_POP__(__STACK__)local v=__STACK__[#__STACK__];__STACK__[#__STACK__]=nil;return v;end;");
+        this.write(buf, wasm2lua.fileHeader);
         this.newLine(buf);
     }
     getPushStack() {
@@ -98,6 +94,7 @@ class wasm2lua {
         let state = {
             funcStates: [],
             funcByName: new Map(),
+            memoryAllocations: new ArrayMap(),
         };
         if (node.id) {
             this.write(buf, "local __EXPORTS__ = {};");
@@ -136,7 +133,22 @@ class wasm2lua {
                 console.log(">>>", field);
             }
             else if (field.type == "Memory") {
-                console.log(">>>", field);
+                let memID;
+                if (field.id) {
+                    if (field.id.type == "NumberLiteral") {
+                        memID = "mem_" + field.id.value;
+                    }
+                    else {
+                        memID = field.id.value;
+                    }
+                    state.memoryAllocations.set(field.id.value, memID);
+                }
+                else {
+                    memID = "mem_u" + state.memoryAllocations.numSize;
+                    state.memoryAllocations.push(memID);
+                }
+                this.write(buf, "local " + memID + " = __MEMORY_ALLOC__(" + field.limits.max + ");");
+                this.newLine(buf);
             }
             else if (field.type == "Global") {
                 this.write(buf, "-- global");
@@ -184,13 +196,23 @@ class wasm2lua {
         }
         return false;
     }
-    initFunc(node, state) {
+    initFunc(node, state, renameTo) {
         let funcType;
         if (node.signature.type == "Signature") {
             funcType = node.signature;
         }
+        let funcID;
+        if (typeof node.name.value === "string") {
+            funcID = node.name.value;
+        }
+        else if (typeof node.name.value === "number") {
+            funcID = "func_" + node.name.value;
+        }
+        else {
+            funcID = "func_u" + state.funcStates.length;
+        }
         let fstate = {
-            id: typeof node.name.value === "string" ? node.name.value : "func_u" + state.funcStates.length,
+            id: renameTo ? renameTo : funcID,
             locals: [],
             blocks: [],
             varRemaps: new Map(),
@@ -198,7 +220,7 @@ class wasm2lua {
             modState: state,
         };
         state.funcStates.push(fstate);
-        state.funcByName.set(fstate.id, fstate);
+        state.funcByName.set(funcID, fstate);
         return fstate;
     }
     processFunc(node, modState) {
@@ -534,11 +556,35 @@ class wasm2lua {
     }
     processModuleImport(node, modState) {
         let buf = [];
-        this.write(buf, "-- IMPORT " + JSON.stringify(node));
-        this.newLine(buf);
+        switch (node.descr.type) {
+            case "Memory": {
+                let memID = `__MODULES__.${node.module}.${node.name}`;
+                if (node.descr.id) {
+                    modState.memoryAllocations.set(node.descr.id.value, memID);
+                }
+                else {
+                    modState.memoryAllocations.push(memID);
+                }
+                break;
+            }
+            case "FuncImportDescr": {
+                this.initFunc({
+                    signature: node.descr.signature,
+                    name: { value: node.descr.id },
+                }, modState, `__MODULES__.${node.module}.${node.name}`);
+                break;
+            }
+            default: {
+                this.write(buf, "-- IMPORT " + JSON.stringify(node));
+                this.newLine(buf);
+                break;
+            }
+        }
         return buf.join("");
     }
 }
+wasm2lua.fileHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
+wasm2lua.funcHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
 wasm2lua.instructionBinOpRemap = {
     add: "+",
     sub: "-",
@@ -547,8 +593,8 @@ wasm2lua.instructionBinOpRemap = {
 };
 wasm2lua.instructionBinOpFuncRemap = {};
 exports.wasm2lua = wasm2lua;
-let infile = process.argv[2] || (__dirname + "/../dispersion.wasm");
-let outfile = process.argv[3] || (__dirname + "/../test.lua");
+let infile = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
+let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
 let wasm = fs.readFileSync(infile);
 let ast = wasm_parser_1.decode(wasm);
 let inst = new wasm2lua(ast);

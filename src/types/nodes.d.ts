@@ -246,7 +246,7 @@ interface Memory extends BaseNode {
 
 interface FuncImportDescr extends BaseNode {
   type: "FuncImportDescr",
-  id: Identifier,
+  id: string,
   signature: Signature
 }
 

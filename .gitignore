@@ -83,5 +83,4 @@ typings/
 # DynamoDB Local files
 .dynamodb/
 
-*.wasm
-*.lua
+test/
