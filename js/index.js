@@ -153,9 +153,41 @@ class wasm2lua {
         this.indent();
         this.newLine();
         this.processInstructions(node.body, state);
+        this.endAllBlocks(state);
         this.outdent();
         this.newLine();
         this.write("end");
+        this.newLine();
+    }
+    beginBlock(state, block) {
+        this.write(`-- BLOCK BEGIN (${block.id})`);
+        this.newLine();
+        this.write(`::${block.id}_start:: -- BLOCK START`);
+        state.blocks.push(block);
+        this.newLine();
+        this.write("do");
+        this.indent();
+        this.newLine();
+    }
+    endAllBlocks(state) {
+        while (state.blocks.length > 0) {
+            this.endBlock(state);
+        }
+    }
+    endBlock(state) {
+        let block = state.blocks.pop();
+        if (block) {
+            this.endBlockInternal(block);
+            return true;
+        }
+        return false;
+    }
+    endBlockInternal(block) {
+        this.outdent();
+        this.newLine();
+        this.write("end");
+        this.newLine();
+        this.write(`::${block.id}_fin:: -- BLOCK END`);
         this.newLine();
     }
     processInstructions(insArr, state) {
@@ -181,11 +213,21 @@ class wasm2lua {
                             break;
                         }
                         case "const": {
-                            let _const = ins.args[0].value;
-                            this.write(this.getPushStack());
-                            this.write(_const);
-                            this.write(";");
-                            this.newLine();
+                            if (ins.args[0].type == "LongNumberLiteral") {
+                                let _const = ins.args[0].value.low;
+                                this.write("--[[WARNING: high bits of int64 dropped]]");
+                                this.write(this.getPushStack());
+                                this.write(_const);
+                                this.write(";");
+                                this.newLine();
+                            }
+                            else {
+                                let _const = ins.args[0].value;
+                                this.write(this.getPushStack());
+                                this.write(_const);
+                                this.write(";");
+                                this.newLine();
+                            }
                             break;
                         }
                         case "get_global": {
@@ -244,21 +286,24 @@ class wasm2lua {
                         case "br_if": {
                             this.write("if ");
                             this.write(this.getPop());
-                            this.write(" then goto ");
-                            if (state.blocks[ins.args[0].value]) {
-                                let block = state.blocks[ins.args[0].value];
-                                if (block.blockType == "loop") {
-                                    this.write(`${block.id}_start`);
+                            this.write(" then ");
+                            let blocksToExit = ins.args[0].value;
+                            let targetBlock = state.blocks[state.blocks.length - blocksToExit - 1];
+                            if (targetBlock) {
+                                this.write("goto ");
+                                if (targetBlock.blockType == "loop") {
+                                    this.write(`${targetBlock.id}_start`);
                                 }
                                 else {
-                                    this.write(`${block.id}_fin`);
+                                    this.write(`${targetBlock.id}_fin`);
                                 }
                             }
                             else {
-                                this.write("____UNRESOLVED_DEST____");
+                                this.write("goto ____UNRESOLVED_DEST____");
                             }
                             this.write(" end;");
                             this.newLine();
+                            break;
                         }
                         case "return": {
                             this.write("do return ");
@@ -277,15 +322,7 @@ class wasm2lua {
                             break;
                         }
                         case "end": {
-                            let block = state.blocks.pop();
-                            if (block) {
-                                this.outdent();
-                                this.newLine();
-                                this.write("end");
-                                this.newLine();
-                                this.write(`::${block.id}_fin:: -- BLOCK END`);
-                                this.newLine();
-                            }
+                            this.endBlock(state);
                             return;
                         }
                         default: {
@@ -302,18 +339,10 @@ class wasm2lua {
                     break;
                 }
                 case "BlockInstruction": {
-                    this.write(`-- BLOCK BEGIN (${ins.label.value})`);
-                    this.newLine();
-                    this.write(`::${ins.label.value}_start:: -- BLOCK END`);
-                    state.blocks.push({
+                    this.beginBlock(state, {
                         id: ins.label.value,
                         blockType: "block",
                     });
-                    this.newLine();
-                    this.write("do");
-                    this.indent();
-                    this.newLine();
-                    this.processInstructions(ins.instr, state);
                     break;
                 }
                 case "IfInstruction": {
@@ -324,18 +353,10 @@ class wasm2lua {
                     this.write("if ");
                     this.write(this.getPop());
                     this.write(" then");
-                    let ifLabel = `if_${ins.loc.start.line}_${ins.loc.start.column}`;
-                    this.write(`-- BLOCK BEGIN (${ifLabel})`);
-                    this.newLine();
-                    this.write(`::${ifLabel}_start:: -- BLOCK END`);
-                    state.blocks.push({
-                        id: ifLabel,
-                        blockType: "block",
+                    this.beginBlock(state, {
+                        id: `if_${ins.loc.start.line}_${ins.loc.start.column}`,
+                        blockType: "if",
                     });
-                    this.newLine();
-                    this.write("do");
-                    this.indent();
-                    this.newLine();
                     this.indent();
                     this.newLine();
                     this.processInstructions(ins.consequent, state);
@@ -345,18 +366,10 @@ class wasm2lua {
                         this.write("else");
                         this.indent();
                         this.newLine();
-                        let elseLabel = `else_${ins.loc.start.line}_${ins.loc.start.column}`;
-                        this.write(`-- BLOCK BEGIN (${elseLabel})`);
-                        this.newLine();
-                        this.write(`::${elseLabel}_start:: -- BLOCK END`);
-                        state.blocks.push({
-                            id: elseLabel,
-                            blockType: "block",
+                        this.beginBlock(state, {
+                            id: `else_${ins.loc.start.line}_${ins.loc.start.column}`,
+                            blockType: "if",
                         });
-                        this.newLine();
-                        this.write("do");
-                        this.indent();
-                        this.newLine();
                         this.processInstructions(ins.alternate, state);
                         this.outdent();
                         this.newLine();
@@ -422,7 +435,7 @@ wasm2lua.instructionBinOpRemap = {
 };
 wasm2lua.instructionBinOpFuncRemap = {};
 exports.wasm2lua = wasm2lua;
-let infile = process.argv[2] || (__dirname + "/../dispersion.wasm");
+let infile = process.argv[2] || (__dirname + "/../addTwo.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test.lua");
 let wasm = fs.readFileSync(infile);
 let ast = wasm_parser_1.decode(wasm);
