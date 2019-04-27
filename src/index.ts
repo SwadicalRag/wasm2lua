@@ -12,6 +12,7 @@ interface WASMFuncState {
     locals: string[];
     blocks: WASMBlockState[];
     varRemaps: Map<string,string>;
+    // stack: StackEntry[] // TODO: use this to fold the stack;
     funcType?: Signature;
 }
 
