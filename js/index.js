@@ -9,6 +9,7 @@ class wasm2lua {
         this.outBuf = [];
         this.indentLevel = 0;
         this.moduleStates = [];
+        this.globalTypes = [];
         this.process();
     }
     assert(cond, err = "assertion failed") {
@@ -130,12 +131,29 @@ class wasm2lua {
         return "";
     }
     processTypeInstruction(node) {
+        this.globalTypes.push(node.functype);
         return "";
     }
     processFunc(node, modState) {
         let buf = [];
+        let funcType;
+        if (node.signature.type == "Signature") {
+            funcType = node.signature;
+        }
+        else if (node.signature.type == "NumberLiteral") {
+            funcType = this.globalTypes[node.signature.value];
+            if (!funcType) {
+                this.write(buf, "-- WARNING: Function type signature read failed (1)");
+                this.newLine(buf);
+            }
+        }
+        else {
+            this.write(buf, "-- WARNING: Function type signature read failed (2)");
+            this.newLine(buf);
+        }
         let state = {
             id: typeof node.name.value === "string" ? node.name.value : "func_u" + modState.funcStates.length,
+            funcType,
             locals: [],
             blocks: [],
             varRemaps: new Map(),
@@ -319,10 +337,7 @@ class wasm2lua {
                         }
                         case "return": {
                             this.write(buf, "do return ");
-                            if (ins.args.length > 1) {
-                                this.write(buf, "--[[WARNING: return arguments more than 1???]]");
-                            }
-                            let nRets = ins.args.length == 1 ? ins.args[0].value : 0;
+                            let nRets = state.funcType ? state.funcType.results.length : 0;
                             for (let i = 0; i < nRets; i++) {
                                 this.write(buf, this.getPop());
                                 if (nRets !== (i + 1)) {

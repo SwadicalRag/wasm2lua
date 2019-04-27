@@ -12,6 +12,7 @@ interface WASMFuncState {
     locals: string[];
     blocks: WASMBlockState[];
     varRemaps: Map<string,string>;
+    funcType?: Signature;
 }
 
 interface WASMBlockState {
@@ -25,6 +26,7 @@ export class wasm2lua {
     // funcTypes: any[] = [];
     moduleStates: WASMModuleState[] = [];
     globalRemaps: Map<string,string>;
+    globalTypes: Signature[] = [];
 
     constructor(public ast: Program) {
         this.process()
@@ -175,15 +177,32 @@ export class wasm2lua {
     }
 
     processTypeInstruction(node: TypeInstruction) {
-        // TODO: is ignoring this the right thing to do?
+        this.globalTypes.push(node.functype);
         return "";
     }
 
     processFunc(node: Func,modState: WASMModuleState) {
         let buf = [];
 
+        let funcType: Signature;
+        if(node.signature.type == "Signature") {
+            funcType = node.signature;
+        }
+        else if(node.signature.type == "NumberLiteral") {
+            funcType = this.globalTypes[node.signature.value];
+            if(!funcType) {
+                this.write(buf,"-- WARNING: Function type signature read failed (1)");
+                this.newLine(buf);
+            }
+        }
+        else {
+            this.write(buf,"-- WARNING: Function type signature read failed (2)");
+            this.newLine(buf);
+        }
+
         let state: WASMFuncState = {
             id: typeof node.name.value === "string" ? node.name.value : "func_u" + modState.funcStates.length, 
+            funcType,
             locals: [],
             blocks: [],
             varRemaps: new Map(),
@@ -411,19 +430,16 @@ export class wasm2lua {
                             break;
                         }
                         case "return": {
-                            // TODO: fix this
-                            // return count should be obtained from the function type def
                             this.write(buf,"do return ");
-                            if(ins.args.length > 1) {
-                                this.write(buf,"--[[WARNING: return arguments more than 1???]]");
-                            }
-                            let nRets = ins.args.length == 1 ? (ins.args[0] as NumberLiteral).value : 0;
+
+                            let nRets = state.funcType ? state.funcType.results.length : 0;
                             for(let i=0;i < nRets;i++) {
                                 this.write(buf,this.getPop());
                                 if(nRets !== (i + 1)) {
                                     this.write(buf,",");
                                 }
                             }
+
                             this.write(buf,"; end;");
                             this.newLine(buf);
                             break;
