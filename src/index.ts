@@ -40,6 +40,8 @@ export class wasm2lua {
     writeHeader() {
         this.write("__MODULES__ = __MODULES__ or {};");
         this.newLine();
+        this.write("__GLOBALS__ = __GLOBALS__ or {};");
+        this.newLine();
         this.write("local __TMP__,__STACK__ = nil,{};");
         this.newLine();
         this.write("local function __STACK_POP__()local v=__STACK__[#__STACK__];__STACK__[#__STACK__]=nil;return v;end;");
@@ -122,7 +124,7 @@ export class wasm2lua {
                 
                 // :thonk:
                 let state: WASMFuncState = {
-                    id: "____global", 
+                    id: "__GLOBALS_INIT__", 
                     locals: [],
                     varRemaps: new Map(),
                 };
@@ -193,13 +195,36 @@ export class wasm2lua {
         this.newLine();
     }
 
+    static instructionBinOpRemap = {
+        add: "+",
+        sub: "-",
+        mul: "*",
+        div: "/",
+    };
+
+    static instructionBinOpFuncRemap = {
+        
+    };
+
     processInstructions(insArr: Instruction[],state: WASMFuncState) {
         for(let ins of insArr) {
             switch(ins.type) {
                 case "Instr": {
                     switch(ins.id) {
                         case "local": {
-                            this.write("-- LOCALS: "+JSON.stringify(ins.args));
+                            if(ins.args.length > 0) {
+                                this.write("local ");
+                                let i = 0;
+                                for(let loc of ins.args) {
+                                    i++;
+                                    this.write(`loc${state.locals.length}`);
+                                    state.locals.push(`loc${state.locals.length}`);
+                                    if(i !== ins.args.length) {
+                                        this.write(",");
+                                    }
+                                }
+                                this.write(";");
+                            }
                             this.newLine();
                             break;
                         }
@@ -214,14 +239,14 @@ export class wasm2lua {
                         case "get_global": {
                             let globID = (ins.args[0] as NumberLiteral).value;
                             this.write(this.getPushStack());
-                            this.write("GLOBALS["+globID+"]");
+                            this.write("__GLOBALS__["+globID+"]");
                             this.write(";");
                             this.newLine();
                             break;
                         }
                         case "set_global": {
                             let globID = (ins.args[0] as NumberLiteral).value;
-                            this.write("GLOBALS["+globID+"] = "+this.getPop()+";");
+                            this.write("__GLOBALS__["+globID+"] = "+this.getPop()+";");
                             this.newLine();
                             break;
                         }
@@ -255,7 +280,7 @@ export class wasm2lua {
                         case "add":
                         case "sub":
                         {
-                            let op = (ins.id=="add" ? "+" : "-");
+                            let op = wasm2lua.instructionBinOpRemap[ins.id];
 
                             this.write("__TMP__ = ");
                             this.write(this.getPop());
@@ -353,10 +378,10 @@ export class wasm2lua {
 }
 
 // Allow custom in/out file while defaulting to swad's meme :)
-let infile  = process.argv[2] || (__dirname + "/../addTwo.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../addTwo.wasm");
+let infile  = process.argv[2] || (__dirname + "/../ammo.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test.lua");
 
-// let wasm = fs.readFileSync(__dirname + "/../ammo.wasm")
 let wasm = fs.readFileSync(infile)
 let ast = decode(wasm)
 

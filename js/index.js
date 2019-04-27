@@ -24,6 +24,8 @@ class wasm2lua {
     writeHeader() {
         this.write("__MODULES__ = __MODULES__ or {};");
         this.newLine();
+        this.write("__GLOBALS__ = __GLOBALS__ or {};");
+        this.newLine();
         this.write("local __TMP__,__STACK__ = nil,{};");
         this.newLine();
         this.write("local function __STACK_POP__()local v=__STACK__[#__STACK__];__STACK__[#__STACK__]=nil;return v;end;");
@@ -96,7 +98,7 @@ class wasm2lua {
                 this.indent();
                 this.newLine();
                 let state = {
-                    id: "____global",
+                    id: "__GLOBALS_INIT__",
                     locals: [],
                     varRemaps: new Map(),
                 };
@@ -158,7 +160,19 @@ class wasm2lua {
                 case "Instr": {
                     switch (ins.id) {
                         case "local": {
-                            this.write("-- LOCALS: " + JSON.stringify(ins.args));
+                            if (ins.args.length > 0) {
+                                this.write("local ");
+                                let i = 0;
+                                for (let loc of ins.args) {
+                                    i++;
+                                    this.write(`loc${state.locals.length}`);
+                                    state.locals.push(`loc${state.locals.length}`);
+                                    if (i !== ins.args.length) {
+                                        this.write(",");
+                                    }
+                                }
+                                this.write(";");
+                            }
                             this.newLine();
                             break;
                         }
@@ -173,14 +187,14 @@ class wasm2lua {
                         case "get_global": {
                             let globID = ins.args[0].value;
                             this.write(this.getPushStack());
-                            this.write("GLOBALS[" + globID + "]");
+                            this.write("__GLOBALS__[" + globID + "]");
                             this.write(";");
                             this.newLine();
                             break;
                         }
                         case "set_global": {
                             let globID = ins.args[0].value;
-                            this.write("GLOBALS[" + globID + "] = " + this.getPop() + ";");
+                            this.write("__GLOBALS__[" + globID + "] = " + this.getPop() + ";");
                             this.newLine();
                             break;
                         }
@@ -212,7 +226,7 @@ class wasm2lua {
                         case "add":
                         case "sub":
                             {
-                                let op = (ins.id == "add" ? "+" : "-");
+                                let op = wasm2lua.instructionBinOpRemap[ins.id];
                                 this.write("__TMP__ = ");
                                 this.write(this.getPop());
                                 this.write(" " + op + " ");
@@ -300,8 +314,15 @@ class wasm2lua {
     processModuleImport(node, modState) {
     }
 }
+wasm2lua.instructionBinOpRemap = {
+    add: "+",
+    sub: "-",
+    mul: "*",
+    div: "/",
+};
+wasm2lua.instructionBinOpFuncRemap = {};
 exports.wasm2lua = wasm2lua;
-let infile = process.argv[2] || (__dirname + "/../addTwo.wasm");
+let infile = process.argv[2] || (__dirname + "/../ammo.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test.lua");
 let wasm = fs.readFileSync(infile);
 let ast = wasm_parser_1.decode(wasm);
