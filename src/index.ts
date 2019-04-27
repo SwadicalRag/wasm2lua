@@ -198,7 +198,7 @@ export class wasm2lua {
                     state.memoryAllocations.push(memID);
                 }
 
-                this.write(buf,"local " + memID + " = __MEMORY_ALLOC__(" + field.limits.max + ");");
+                this.write(buf,"local " + memID + " = __MEMORY_ALLOC__(" + (field.limits.max || field.limits.min) + ");");
                 this.newLine(buf);
             }
             else if (field.type == "Global") {
@@ -331,12 +331,25 @@ export class wasm2lua {
         this.indent();
         this.newLine(buf);
         
-        this.write(buf,"local __TMP__,__STACK__ = nil,{};");
+        this.write(buf,"local __TMP__,__TMP2__,__STACK__ = nil,nil,{};");
         this.newLine(buf);
 
         this.write(buf,this.processInstructions(node.body,state));
 
         this.endAllBlocks(buf,state);
+        
+        this.write(buf,"--[[CATCH-ALL RETURN]] do return ");
+
+        let nRets = state.funcType ? state.funcType.results.length : 0;
+        for(let i=0;i < nRets;i++) {
+            this.write(buf,this.getPop());
+            if(nRets !== (i + 1)) {
+                this.write(buf,",");
+            }
+        }
+
+        this.write(buf,"; end;");
+        this.newLine(buf);
 
         this.outdent(buf);
 
@@ -492,11 +505,13 @@ export class wasm2lua {
 
                             this.write(buf,"__TMP__ = ");
                             this.write(buf,this.getPop());
-                            this.write(buf," "+op+" ");
+                            this.write(buf,"; ");
+                            this.write(buf,"__TMP2__ = ");
                             this.write(buf,this.getPop());
                             this.write(buf,"; ");
                             this.write(buf,this.getPushStack());
-                            this.write(buf,"__TMP__;");
+                            this.write(buf,"__TMP2__ "+op+" __TMP__");
+                            this.write(buf,"; ");
                             this.newLine(buf);
                             break;
                         }
@@ -523,6 +538,70 @@ export class wasm2lua {
 
                             this.write(buf," end;");
                             this.newLine(buf);
+                            break;
+                        }
+                        case "store":
+                        case "store8":
+                        case "store16": {
+                            let targ = state.modState.memoryAllocations.get(0);
+                            // TODO: is target always 0?
+
+                            if(targ) {
+                                this.write(buf,"__TMP__ = ");
+                                this.write(buf,this.getPop());
+                                this.write(buf,"; ");
+                                this.write(buf,"__TMP2__ = ");
+                                this.write(buf,this.getPop());
+                                this.write(buf,"; ");
+
+                                if(ins.id == "store16") {
+                                    this.write(buf,"__MEMORY_WRITE_16__");
+                                }
+                                else if(ins.id == "store8") {
+                                    this.write(buf,"__MEMORY_WRITE_8__");
+                                }
+                                else {
+                                    this.write(buf,"__MEMORY_WRITE_32__");
+                                }
+
+                                this.write(buf,"(" + targ + ",__TMP2__,__TMP__");
+                                this.write(buf," + " + (ins.args[0] as NumberLiteral).value + ");");
+                                this.newLine(buf);
+                            }
+                            else {
+                                this.write(buf,"-- WARNING: COULD NOT FIND MEMORY TO WRITE");
+                                this.newLine(buf);
+                            }
+
+                            break;
+                        }
+                        case "load":
+                        case "load8_s":
+                        case "load16_s": {
+                            let targ = state.modState.memoryAllocations.get(0);
+                            // TODO: is target always 0?
+
+                            if(targ) {
+                                this.write(buf,"__TMP__ = ");
+                                if(ins.id == "load16_s") {
+                                    this.write(buf,"__MEMORY_READ_16__");
+                                }
+                                else if(ins.id == "load8_s") {
+                                    this.write(buf,"__MEMORY_READ_8__");
+                                }
+                                else {
+                                    this.write(buf,"__MEMORY_READ_32__");
+                                }
+                                this.write(buf,"(" + targ + ",");
+                                this.write(buf,this.getPop() + " + " + (ins.args[0] as NumberLiteral).value + ");");
+                                this.write(buf,this.getPushStack() + "__TMP__;");
+                                this.newLine(buf);
+                            }
+                            else {
+                                this.write(buf,"-- WARNING: COULD NOT FIND MEMORY TO READ");
+                                this.newLine(buf);
+                            }
+
                             break;
                         }
                         case "return": {
@@ -664,16 +743,24 @@ export class wasm2lua {
                     this.write(buf,fstate.id);
                 }
                 else {
-                    this.write(buf,"--[[EXPORT_FAIL]] func_u" + node.descr.id.value);
+                    this.write(buf,"--[[WARNING: EXPORT_FAIL]] func_u" + node.descr.id.value);
                 }
                 break;
             }
             case "Mem": {
-                console.log("memory",node);
+                let targ = modState.memoryAllocations.get(node.descr.id.value);
+                if(targ) {
+                    this.write(buf,targ);
+                }
+                else {
+                    this.write(buf,"nil --[[WARNING: COULDN'T FIND MEMORY TO EXPORT]]");
+                }
                 break;
             }
             case "Global": {
-                console.log("memory",node);
+                // TODO
+                console.log("global",node);
+                this.write(buf,"nil");
                 break;
             }
             default: {
@@ -726,12 +813,17 @@ export class wasm2lua {
 // Allow custom in/out file while defaulting to swad's meme :)
 // let infile  = process.argv[2] || (__dirname + "/../test/addTwo.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/ammo.wasm");
-let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
+let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
 
 let wasm = fs.readFileSync(infile)
-let ast = decode(wasm)
+let ast = decode(wasm,{
+    // dump: true,
+})
+
+// console.log(JSON.stringify(ast,null,4));
 
 let inst = new wasm2lua(ast);
 fs.writeFileSync(outfile,inst.outBuf.join(""));

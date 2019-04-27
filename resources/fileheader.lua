@@ -7,9 +7,9 @@ local function __STACK_POP__(__STACK__)
     return v
 end
 
-local function __MEMORY_ALLOC__(bytes)
+local function __MEMORY_ALLOC__(pages)
     local mem = {}
-    for i=1,math.ceil(bytes) do
+    for i=1,pages * 64 * 1024 do
         mem[i-1] = 0
     end
     return mem
