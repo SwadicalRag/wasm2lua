@@ -9,7 +9,13 @@ interface WASMModuleState {
 interface WASMFuncState {
     id: string;
     locals: string[];
+    blocks: WASMBlockState[];
     varRemaps: Map<string,string>;
+}
+
+interface WASMBlockState {
+    id: string;
+    blockType: "block" | "loop" | "if";
 }
 
 export class wasm2lua {
@@ -128,6 +134,7 @@ export class wasm2lua {
                 let state: WASMFuncState = {
                     id: "__GLOBALS_INIT__", 
                     locals: [],
+                    blocks: [],
                     varRemaps: new Map(),
                 };
 
@@ -163,6 +170,7 @@ export class wasm2lua {
         let state: WASMFuncState = {
             id: typeof node.name.value === "string" ? node.name.value : "func_u" + modState.funcStates.length, 
             locals: [],
+            blocks: [],
             varRemaps: new Map(),
         };
         modState.funcStates.push(state);
@@ -295,6 +303,28 @@ export class wasm2lua {
                             this.newLine();
                             break;
                         }
+                        case "br_if": {
+                            this.write("if ");
+                            this.write(this.getPop());
+                            this.write(" then goto ");
+
+                            if(state.blocks[(ins.args[0] as NumberLiteral).value]) {
+                                let block = state.blocks[(ins.args[0] as NumberLiteral).value];
+
+                                if(block.blockType == "loop") {
+                                    this.write(`${block.id}_start`);
+                                }
+                                else {
+                                    this.write(`${block.id}_fin`);
+                                }
+                            }
+                            else {
+                                this.write("____UNRESOLVED_DEST____");
+                            }
+
+                            this.write(" end;");
+                            this.newLine();
+                        }
                         case "return": {
                             this.write("return ");
                             this.write(this.getPop());
@@ -324,6 +354,13 @@ export class wasm2lua {
                 }
                 case "BlockInstruction": {
                     this.write(`-- BLOCK BEGIN (${ins.label.value})`);
+                    // TODO: blocks can "return" stuff
+                    this.newLine();
+                    this.write(`::${ins.label.value}_start:: -- BLOCK END`);
+                    state.blocks.push({
+                        id: ins.label.value,
+                        blockType: "block",
+                    });
                     this.newLine();
                     this.write("do");
                     this.indent();
@@ -333,7 +370,8 @@ export class wasm2lua {
                     this.newLine();
                     this.write("end");
                     this.newLine();
-                    this.write(`::${ins.label.value}:: -- BLOCK END`);
+                    state.blocks.pop();
+                    this.write(`::${ins.label.value}_fin:: -- BLOCK END`);
                     this.newLine();
                     break;
                 }

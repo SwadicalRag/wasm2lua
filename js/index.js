@@ -101,6 +101,7 @@ class wasm2lua {
                 let state = {
                     id: "__GLOBALS_INIT__",
                     locals: [],
+                    blocks: [],
                     varRemaps: new Map(),
                 };
                 this.processInstructions(field.init, state);
@@ -129,6 +130,7 @@ class wasm2lua {
         let state = {
             id: typeof node.name.value === "string" ? node.name.value : "func_u" + modState.funcStates.length,
             locals: [],
+            blocks: [],
             varRemaps: new Map(),
         };
         modState.funcStates.push(state);
@@ -239,6 +241,25 @@ class wasm2lua {
                                 this.newLine();
                                 break;
                             }
+                        case "br_if": {
+                            this.write("if ");
+                            this.write(this.getPop());
+                            this.write(" then goto ");
+                            if (state.blocks[ins.args[0].value]) {
+                                let block = state.blocks[ins.args[0].value];
+                                if (block.blockType == "loop") {
+                                    this.write(`${block.id}_start`);
+                                }
+                                else {
+                                    this.write(`${block.id}_fin`);
+                                }
+                            }
+                            else {
+                                this.write("____UNRESOLVED_DEST____");
+                            }
+                            this.write(" end;");
+                            this.newLine();
+                        }
                         case "return": {
                             this.write("return ");
                             this.write(this.getPop());
@@ -266,6 +287,12 @@ class wasm2lua {
                 case "BlockInstruction": {
                     this.write(`-- BLOCK BEGIN (${ins.label.value})`);
                     this.newLine();
+                    this.write(`::${ins.label.value}_start:: -- BLOCK END`);
+                    state.blocks.push({
+                        id: ins.label.value,
+                        blockType: "block",
+                    });
+                    this.newLine();
                     this.write("do");
                     this.indent();
                     this.newLine();
@@ -274,7 +301,8 @@ class wasm2lua {
                     this.newLine();
                     this.write("end");
                     this.newLine();
-                    this.write(`::${ins.label.value}:: -- BLOCK END`);
+                    state.blocks.pop();
+                    this.write(`::${ins.label.value}_fin:: -- BLOCK END`);
                     this.newLine();
                     break;
                 }
