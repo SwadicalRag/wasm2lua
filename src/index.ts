@@ -327,14 +327,30 @@ export class wasm2lua {
                         }
                         case "return": {
                             this.write("return ");
-                            this.write(this.getPop());
+                            if(ins.args.length > 1) {
+                                this.write("--[[WARNING: return arguments more than 1???]]");
+                            }
+                            let nRets = ins.args.length == 1 ? (ins.args[0] as NumberLiteral).value : 0;
+                            for(let i=0;i < nRets;i++) {
+                                this.write(this.getPop());
+                                if(nRets !== (i + 1)) {
+                                    this.write(",");
+                                }
+                            }
                             this.write(";");
                             this.newLine();
                             break;
                         }
                         case "end": {
-                            // TODO: is this right?
-                            this.assert(ins == insArr[insArr.length - 1]);
+                            let block = state.blocks.pop();
+                            if(block) {
+                                this.outdent();
+                                this.newLine();
+                                this.write("end");
+                                this.newLine();
+                                this.write(`::${block.id}_fin:: -- BLOCK END`);
+                                this.newLine();
+                            }
                             return;
                         }
                         default: {
@@ -366,13 +382,6 @@ export class wasm2lua {
                     this.indent();
                     this.newLine();
                     this.processInstructions(ins.instr,state);
-                    this.outdent();
-                    this.newLine();
-                    this.write("end");
-                    this.newLine();
-                    state.blocks.pop();
-                    this.write(`::${ins.label.value}_fin:: -- BLOCK END`);
-                    this.newLine();
                     break;
                 }
                 case "IfInstruction": {
@@ -384,6 +393,19 @@ export class wasm2lua {
                     this.write("if ");
                     this.write(this.getPop());
                     this.write(" then");
+                    
+                    let ifLabel = `if_${ins.loc.start.line}_${ins.loc.start.column}`
+                    this.write(`-- BLOCK BEGIN (${ifLabel})`);
+                    this.newLine();
+                    this.write(`::${ifLabel}_start:: -- BLOCK END`);
+                    state.blocks.push({
+                        id: ifLabel,
+                        blockType: "block",
+                    });
+                    this.newLine();
+                    this.write("do");
+                    this.indent();
+                    this.newLine();
 
                     this.indent();
                     this.newLine();
@@ -395,6 +417,19 @@ export class wasm2lua {
 
                     if(ins.alternate.length > 0) {
                         this.write("else")
+                        this.indent();
+                        this.newLine();
+                    
+                        let elseLabel = `else_${ins.loc.start.line}_${ins.loc.start.column}`
+                        this.write(`-- BLOCK BEGIN (${elseLabel})`);
+                        this.newLine();
+                        this.write(`::${elseLabel}_start:: -- BLOCK END`);
+                        state.blocks.push({
+                            id: elseLabel,
+                            blockType: "block",
+                        });
+                        this.newLine();
+                        this.write("do");
                         this.indent();
                         this.newLine();
 
