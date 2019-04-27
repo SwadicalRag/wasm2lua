@@ -44,6 +44,10 @@ export class wasm2lua {
     outdent(buf?: string[]) {
         this.indentLevel--;
         if(isArray(buf)) {
+            while(buf[buf.length - 1] === "") {
+                buf.pop();
+            }
+            
             let mat = buf[buf.length - 1].match(/^([\s\S]*?)\n(?:    )*$/);
             if(mat) {
                 // fix up indent
@@ -576,9 +580,9 @@ export class wasm2lua {
 }
 
 // Allow custom in/out file while defaulting to swad's meme :)
-let infile  = process.argv[2] || (__dirname + "/../addTwo.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../addTwo.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../ammo.wasm");
-// let infile  = process.argv[2] || (__dirname + "/../dispersion.wasm");
+let infile  = process.argv[2] || (__dirname + "/../dispersion.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../call_code.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test.lua");
 

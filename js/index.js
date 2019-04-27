@@ -21,6 +21,9 @@ class wasm2lua {
     outdent(buf) {
         this.indentLevel--;
         if (util_1.isArray(buf)) {
+            while (buf[buf.length - 1] === "") {
+                buf.pop();
+            }
             let mat = buf[buf.length - 1].match(/^([\s\S]*?)\n(?:    )*$/);
             if (mat) {
                 buf[buf.length - 1] = mat[1] + "\n" + (("    ").repeat(this.indentLevel));
@@ -465,7 +468,7 @@ wasm2lua.instructionBinOpRemap = {
 };
 wasm2lua.instructionBinOpFuncRemap = {};
 exports.wasm2lua = wasm2lua;
-let infile = process.argv[2] || (__dirname + "/../addTwo.wasm");
+let infile = process.argv[2] || (__dirname + "/../dispersion.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test.lua");
 let wasm = fs.readFileSync(infile);
 let ast = wasm_parser_1.decode(wasm);
