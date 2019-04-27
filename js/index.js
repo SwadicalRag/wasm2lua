@@ -424,7 +424,7 @@ class wasm2lua {
                             this.write(buf, "__TMP__ = {");
                         }
                         else {
-                            this.write(buf, this.getPushStack());
+                            this.write(buf, "__TMP__ = ");
                         }
                         this.write(buf, fstate.id + "(");
                         for (let i = 0; i < fstate.funcType.params.length; i++) {
@@ -442,7 +442,7 @@ class wasm2lua {
                             }
                         }
                         else {
-                            this.write(buf, ";");
+                            this.write(buf, "; " + this.getPushStack() + " __TMP__;");
                         }
                         this.newLine(buf);
                     }
