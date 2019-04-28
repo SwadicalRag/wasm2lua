@@ -54,8 +54,9 @@ function makeBinaryStringLiteral(array) {
 }
 const FUNC_VAR_HEADER = "local __TMP__,__TMP2__,__STACK__ = nil,nil,{};";
 class wasm2lua {
-    constructor(ast) {
+    constructor(ast, options = {}) {
         this.ast = ast;
+        this.options = options;
         this.outBuf = [];
         this.indentLevel = 0;
         this.moduleStates = [];
@@ -219,6 +220,12 @@ class wasm2lua {
                 throw new Error("TODO - Module Section - " + field.type);
             }
         }
+        if (this.options.whitelist != null) {
+            this.options.whitelist.forEach((whitelist_name) => {
+                this.write(buf, `__EXPORTS__.${whitelist_name} = ${whitelist_name}`);
+                this.newLine(buf);
+            });
+        }
         return buf.join("");
     }
     processModuleMetadataSection(node) {
@@ -288,6 +295,11 @@ class wasm2lua {
         this.write(buf, "function ");
         this.write(buf, state.id);
         this.write(buf, "(");
+        if (this.options.whitelist != null && this.options.whitelist.indexOf(node.name.value + "") == -1) {
+            this.write(buf, `) print("!!! PRUNED: ${state.id}") end`);
+            this.newLine(buf);
+            return buf.join("");
+        }
         if (node.signature.type == "Signature") {
             let i = 0;
             for (let param of node.signature.params) {
@@ -721,8 +733,9 @@ wasm2lua.instructionBinOpFuncRemap = {};
 exports.wasm2lua = wasm2lua;
 let infile = process.argv[2] || (__dirname + "/../test/test.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
+var whitelist = process.argv[4] ? process.argv[4].split(",") : null;
 let wasm = fs.readFileSync(infile);
 let ast = wasm_parser_1.decode(wasm, {});
-let inst = new wasm2lua(ast);
+let inst = new wasm2lua(ast, { whitelist });
 fs.writeFileSync(outfile, inst.outBuf.join(""));
 //# sourceMappingURL=index.js.map

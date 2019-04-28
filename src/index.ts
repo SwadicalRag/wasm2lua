@@ -83,6 +83,10 @@ interface WASMBlockState {
     blockType: "block" | "loop" | "if";
 }
 
+interface WASM2LuaOptions {
+    whitelist?: string[];
+}
+
 const FUNC_VAR_HEADER = "local __TMP__,__TMP2__,__STACK__ = nil,nil,{};";
 
 export class wasm2lua {
@@ -96,7 +100,7 @@ export class wasm2lua {
     static fileHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
     static funcHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
 
-    constructor(public ast: Program) {
+    constructor(public ast: Program,private options: WASM2LuaOptions = {}) {
         this.process()
     }
 
@@ -292,6 +296,13 @@ export class wasm2lua {
             }
         }
 
+        if (this.options.whitelist!=null) {
+            this.options.whitelist.forEach((whitelist_name)=>{
+                this.write(buf,`__EXPORTS__.${whitelist_name} = ${whitelist_name}`);
+                this.newLine(buf);
+            });
+        }
+
         return buf.join("");
     }
 
@@ -354,6 +365,7 @@ export class wasm2lua {
     }
 
     processFunc(node: Func,modState: WASMModuleState) {
+
         let buf = [];
         if(node.signature.type == "NumberLiteral") {
             if(!this.globalTypes[node.signature.value]) {
@@ -372,6 +384,13 @@ export class wasm2lua {
         this.write(buf,"function ");
         this.write(buf,state.id);
         this.write(buf,"(");
+
+        // don't generate code for non-whitelisted functions
+        if (this.options.whitelist != null && this.options.whitelist.indexOf(node.name.value+"") == -1) {
+            this.write(buf,`) print("!!! PRUNED: ${state.id}") end`);
+            this.newLine(buf);
+            return buf.join("");
+        }
 
         if(node.signature.type == "Signature") {
             let i = 0;
@@ -888,6 +907,7 @@ export class wasm2lua {
 // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
 let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
+var whitelist = process.argv[4] ? process.argv[4].split(",") : null;
 
 let wasm = fs.readFileSync(infile)
 let ast = decode(wasm,{
@@ -896,5 +916,5 @@ let ast = decode(wasm,{
 
 // console.log(JSON.stringify(ast,null,4));
 
-let inst = new wasm2lua(ast);
+let inst = new wasm2lua(ast,{whitelist});
 fs.writeFileSync(outfile,inst.outBuf.join(""));
