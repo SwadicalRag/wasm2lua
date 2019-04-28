@@ -2,6 +2,9 @@ import {decode} from "@webassemblyjs/wasm-parser"
 import * as fs from "fs"
 import { isArray } from "util";
 
+// TODO: Imported globals use global IDs that precede other global IDs
+// TODO: ^ The same applies to memories. ^
+
 class ArrayMap<T> extends Map<string | number,T> {
     numSize = 0;
 
@@ -33,10 +36,36 @@ class ArrayMap<T> extends Map<string | number,T> {
     }
 }
 
+// this may or may not be the best way to handle memory init but is pretty fast+easy to do for now
+function makeBinaryStringLiteral(array: number[]) {
+    let literal = ["'"];
+    for (let i=0;i<array.length;i++) {
+        let c = array[i];
+        if (c < 0x20 || c > 0x7E) {
+            // high and low values
+            let tmp = "00"+c.toString(16);
+            literal.push("\\x"+tmp.substr(tmp.length-2));
+
+        } else if (c==0x27) {
+            // quote
+            literal.push("\\'");
+        } else if (c==0x5C) {
+            // backslash
+            literal.push("\\\\");
+        } else {
+            literal.push(String.fromCharCode(c));
+        }
+    }
+    literal.push("'");
+    return literal.join("");
+}
+
 interface WASMModuleState {
     funcStates: WASMFuncState[];
     funcByName: Map<string,WASMFuncState>;
     memoryAllocations: ArrayMap<string>;
+
+    nextGlobalIndex: number;
 }
 
 interface WASMFuncState {
@@ -54,7 +83,7 @@ interface WASMBlockState {
     blockType: "block" | "loop" | "if";
 }
 
-const FUNC_INTERNAL_VAR_INIT = "local __TMP__,__TMP2__,__STACK__ = nil,nil,{};";
+const FUNC_VAR_HEADER = "local __TMP__,__TMP2__,__STACK__ = nil,nil,{};";
 
 export class wasm2lua {
     outBuf: string[] = [];
@@ -63,8 +92,6 @@ export class wasm2lua {
     moduleStates: WASMModuleState[] = [];
     globalRemaps: Map<string,string>;
     globalTypes: Signature[] = [];
-
-    nextGlobalIndex = 0;
 
     static fileHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
     static funcHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
@@ -145,6 +172,8 @@ export class wasm2lua {
             funcStates: [],
             funcByName: new Map(),
             memoryAllocations: new ArrayMap(),
+
+            nextGlobalIndex: 0
         };
 
         if(node.id) {
@@ -206,25 +235,25 @@ export class wasm2lua {
                 this.newLine(buf);
             }
             else if (field.type == "Global") {
-                this.write(buf,"do -- global "+this.nextGlobalIndex);
+                this.write(buf,"do -- global "+state.nextGlobalIndex);
 
                 this.indent();
                 this.newLine(buf);
 
-                this.write(buf,FUNC_INTERNAL_VAR_INIT);
+                this.write(buf,FUNC_VAR_HEADER);
                 this.newLine(buf);
                 
                 // :thonk:
-                let state: WASMFuncState = {
-                    id: "__GLOBALS_INIT__", 
+                let global_init_state: WASMFuncState = {
+                    id: "__GLOBAL_INIT__", 
                     locals: [],
                     blocks: [],
                     varRemaps: new Map(),
                 };
 
-                this.write(buf,this.processInstructions(field.init,state));
+                this.write(buf,this.processInstructions(field.init,global_init_state));
 
-                this.write(buf,"__GLOBALS__["+this.nextGlobalIndex+"] = "+this.getPop()+";");
+                this.write(buf,"__GLOBALS__["+state.nextGlobalIndex+"] = "+this.getPop()+";");
 
                 this.outdent(buf);
 
@@ -233,13 +262,30 @@ export class wasm2lua {
                 this.write(buf,"end");
                 this.newLine(buf);
 
-                this.nextGlobalIndex++;
+                state.nextGlobalIndex++;
             }
             else if (field.type == "Elem") {
                 console.log(">>>",field);
             }
             else if (field.type == "Data") {
-                console.log(">>>",field.init.values);
+                if(field.memoryIndex && field.memoryIndex.type == "NumberLiteral") {
+                    this.write(buf,"__MEMORY_INIT__(mem_"+field.memoryIndex.value+",");
+                } else {
+                    throw new Error("Bad index on memory.");
+                }
+
+                // this might not be correct in all cases but it probably isn't important
+                if(field.offset && field.offset.type == "Instr" && field.offset.id == "const") {
+                    let value = field.offset.args[0];
+                    if (value.type == "NumberLiteral") {
+                        this.write(buf,value.value+",");
+                    }
+                } else {
+                    throw new Error("Bad offset on memory.");
+                }
+
+                this.write(buf,makeBinaryStringLiteral(field.init.values)+");");
+                this.newLine(buf);
             }
             else {
                 throw new Error("TODO - Module Section - " + field.type);
@@ -348,7 +394,7 @@ export class wasm2lua {
         this.indent();
         this.newLine(buf);
         
-        this.write(buf,FUNC_INTERNAL_VAR_INIT);
+        this.write(buf,FUNC_VAR_HEADER);
         this.newLine(buf);
 
         this.write(buf,this.processInstructions(node.body,state));
@@ -775,9 +821,8 @@ export class wasm2lua {
                 break;
             }
             case "Global": {
-                // TODO
-                console.log("global",node);
-                this.write(buf,"nil");
+                // TODO - Might need metatable trash?
+                this.write(buf,"nil -- TODO global export");
                 break;
             }
             default: {

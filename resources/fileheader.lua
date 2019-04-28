@@ -42,3 +42,7 @@ local function __MEMORY_WRITE_32__(mem,loc,val)
     mem[loc + 2] = bit.band(bit.rshift(val,8),0xFF)
     mem[loc + 3] = bit.band(val,0xFF)
 end
+
+local function __MEMORY_INIT__(mem,loc,data)
+    print("todo memory init")
+end

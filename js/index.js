@@ -31,7 +31,28 @@ class ArrayMap extends Map {
         super.set(this.numSize - 1, undefined);
     }
 }
-const FUNC_INTERNAL_VAR_INIT = "local __TMP__,__TMP2__,__STACK__ = nil,nil,{};";
+function makeBinaryStringLiteral(array) {
+    let literal = ["'"];
+    for (let i = 0; i < array.length; i++) {
+        let c = array[i];
+        if (c < 0x20 || c > 0x7E) {
+            let tmp = "00" + c.toString(16);
+            literal.push("\\x" + tmp.substr(tmp.length - 2));
+        }
+        else if (c == 0x27) {
+            literal.push("\\'");
+        }
+        else if (c == 0x5C) {
+            literal.push("\\\\");
+        }
+        else {
+            literal.push(String.fromCharCode(c));
+        }
+    }
+    literal.push("'");
+    return literal.join("");
+}
+const FUNC_VAR_HEADER = "local __TMP__,__TMP2__,__STACK__ = nil,nil,{};";
 class wasm2lua {
     constructor(ast) {
         this.ast = ast;
@@ -39,7 +60,6 @@ class wasm2lua {
         this.indentLevel = 0;
         this.moduleStates = [];
         this.globalTypes = [];
-        this.nextGlobalIndex = 0;
         this.process();
     }
     assert(cond, err = "assertion failed") {
@@ -97,6 +117,7 @@ class wasm2lua {
             funcStates: [],
             funcByName: new Map(),
             memoryAllocations: new ArrayMap(),
+            nextGlobalIndex: 0
         };
         if (node.id) {
             this.write(buf, "local __EXPORTS__ = {};");
@@ -153,30 +174,46 @@ class wasm2lua {
                 this.newLine(buf);
             }
             else if (field.type == "Global") {
-                this.write(buf, "do -- global " + this.nextGlobalIndex);
+                this.write(buf, "do -- global " + state.nextGlobalIndex);
                 this.indent();
                 this.newLine(buf);
-                this.write(buf, FUNC_INTERNAL_VAR_INIT);
+                this.write(buf, FUNC_VAR_HEADER);
                 this.newLine(buf);
-                let state = {
-                    id: "__GLOBALS_INIT__",
+                let global_init_state = {
+                    id: "__GLOBAL_INIT__",
                     locals: [],
                     blocks: [],
                     varRemaps: new Map(),
                 };
-                this.write(buf, this.processInstructions(field.init, state));
-                this.write(buf, "__GLOBALS__[" + this.nextGlobalIndex + "] = " + this.getPop() + ";");
+                this.write(buf, this.processInstructions(field.init, global_init_state));
+                this.write(buf, "__GLOBALS__[" + state.nextGlobalIndex + "] = " + this.getPop() + ";");
                 this.outdent(buf);
                 this.newLine(buf);
                 this.write(buf, "end");
                 this.newLine(buf);
-                this.nextGlobalIndex++;
+                state.nextGlobalIndex++;
             }
             else if (field.type == "Elem") {
                 console.log(">>>", field);
             }
             else if (field.type == "Data") {
-                console.log(">>>", field.init.values);
+                if (field.memoryIndex && field.memoryIndex.type == "NumberLiteral") {
+                    this.write(buf, "__MEMORY_INIT__(mem_" + field.memoryIndex.value + ",");
+                }
+                else {
+                    throw new Error("Bad index on memory.");
+                }
+                if (field.offset && field.offset.type == "Instr" && field.offset.id == "const") {
+                    let value = field.offset.args[0];
+                    if (value.type == "NumberLiteral") {
+                        this.write(buf, value.value + ",");
+                    }
+                }
+                else {
+                    throw new Error("Bad offset on memory.");
+                }
+                this.write(buf, makeBinaryStringLiteral(field.init.values) + ");");
+                this.newLine(buf);
             }
             else {
                 throw new Error("TODO - Module Section - " + field.type);
@@ -268,7 +305,7 @@ class wasm2lua {
         this.write(buf, ")");
         this.indent();
         this.newLine(buf);
-        this.write(buf, FUNC_INTERNAL_VAR_INIT);
+        this.write(buf, FUNC_VAR_HEADER);
         this.newLine(buf);
         this.write(buf, this.processInstructions(node.body, state));
         this.endAllBlocks(buf, state);
@@ -625,8 +662,7 @@ class wasm2lua {
                 break;
             }
             case "Global": {
-                console.log("global", node);
-                this.write(buf, "nil");
+                this.write(buf, "nil -- TODO global export");
                 break;
             }
             default: {
