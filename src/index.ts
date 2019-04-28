@@ -686,6 +686,11 @@ export class wasm2lua {
                             this.endBlock(buf,state);
                             break;
                         }
+                        case "unreachable": {
+                            this.write(buf,"error('unreachable');");
+                            this.newLine(buf);
+                            break;
+                        }
                         default: {
                             this.write(buf,"-- TODO "+ins.id+" "+JSON.stringify(ins));
                             this.newLine(buf);
