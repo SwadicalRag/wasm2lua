@@ -598,6 +598,7 @@ class wasm2lua {
                         id: ins.label.value,
                         blockType: "block",
                     });
+                    this.write(buf, this.processInstructions(ins.instr, state));
                     break;
                 }
                 case "IfInstruction": {

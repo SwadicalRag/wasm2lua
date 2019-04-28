@@ -453,6 +453,7 @@ export class wasm2lua {
     }
 
     endBlock(buf: string[],state: WASMFuncState) {
+
         let block = state.blocks.pop();
         if(block) {
             this.endBlockInternal(buf,block);
@@ -738,10 +739,13 @@ export class wasm2lua {
                     break;
                 }
                 case "BlockInstruction": {
+
                     this.beginBlock(buf,state,{
                         id: ins.label.value,
                         blockType: "block",
                     });
+
+                    this.write(buf,this.processInstructions(ins.instr,state));
                     break;
                 }
                 case "IfInstruction": {
