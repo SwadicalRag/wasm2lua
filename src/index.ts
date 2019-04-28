@@ -54,6 +54,8 @@ interface WASMBlockState {
     blockType: "block" | "loop" | "if";
 }
 
+const FUNC_INTERNAL_VAR_INIT = "local __TMP__,__TMP2__,__STACK__ = nil,nil,{};";
+
 export class wasm2lua {
     outBuf: string[] = [];
     indentLevel = 0;
@@ -61,6 +63,8 @@ export class wasm2lua {
     moduleStates: WASMModuleState[] = [];
     globalRemaps: Map<string,string>;
     globalTypes: Signature[] = [];
+
+    nextGlobalIndex = 0;
 
     static fileHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
     static funcHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
@@ -202,8 +206,12 @@ export class wasm2lua {
                 this.newLine(buf);
             }
             else if (field.type == "Global") {
-                this.write(buf,"-- global");
+                this.write(buf,"do -- global "+this.nextGlobalIndex);
+
                 this.indent();
+                this.newLine(buf);
+
+                this.write(buf,FUNC_INTERNAL_VAR_INIT);
                 this.newLine(buf);
                 
                 // :thonk:
@@ -216,7 +224,16 @@ export class wasm2lua {
 
                 this.write(buf,this.processInstructions(field.init,state));
 
+                this.write(buf,"__GLOBALS__["+this.nextGlobalIndex+"] = "+this.getPop()+";");
+
                 this.outdent(buf);
+
+                this.newLine(buf);
+
+                this.write(buf,"end");
+                this.newLine(buf);
+
+                this.nextGlobalIndex++;
             }
             else if (field.type == "Elem") {
                 console.log(">>>",field);
@@ -331,7 +348,7 @@ export class wasm2lua {
         this.indent();
         this.newLine(buf);
         
-        this.write(buf,"local __TMP__,__TMP2__,__STACK__ = nil,nil,{};");
+        this.write(buf,FUNC_INTERNAL_VAR_INIT);
         this.newLine(buf);
 
         this.write(buf,this.processInstructions(node.body,state));

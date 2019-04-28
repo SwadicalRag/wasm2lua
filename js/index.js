@@ -31,6 +31,7 @@ class ArrayMap extends Map {
         super.set(this.numSize - 1, undefined);
     }
 }
+const FUNC_INTERNAL_VAR_INIT = "local __TMP__,__TMP2__,__STACK__ = nil,nil,{};";
 class wasm2lua {
     constructor(ast) {
         this.ast = ast;
@@ -38,6 +39,7 @@ class wasm2lua {
         this.indentLevel = 0;
         this.moduleStates = [];
         this.globalTypes = [];
+        this.nextGlobalIndex = 0;
         this.process();
     }
     assert(cond, err = "assertion failed") {
@@ -151,8 +153,10 @@ class wasm2lua {
                 this.newLine(buf);
             }
             else if (field.type == "Global") {
-                this.write(buf, "-- global");
+                this.write(buf, "do -- global " + this.nextGlobalIndex);
                 this.indent();
+                this.newLine(buf);
+                this.write(buf, FUNC_INTERNAL_VAR_INIT);
                 this.newLine(buf);
                 let state = {
                     id: "__GLOBALS_INIT__",
@@ -161,7 +165,12 @@ class wasm2lua {
                     varRemaps: new Map(),
                 };
                 this.write(buf, this.processInstructions(field.init, state));
+                this.write(buf, "__GLOBALS__[" + this.nextGlobalIndex + "] = " + this.getPop() + ";");
                 this.outdent(buf);
+                this.newLine(buf);
+                this.write(buf, "end");
+                this.newLine(buf);
+                this.nextGlobalIndex++;
             }
             else if (field.type == "Elem") {
                 console.log(">>>", field);
@@ -259,7 +268,7 @@ class wasm2lua {
         this.write(buf, ")");
         this.indent();
         this.newLine(buf);
-        this.write(buf, "local __TMP__,__TMP2__,__STACK__ = nil,nil,{};");
+        this.write(buf, FUNC_INTERNAL_VAR_INIT);
         this.newLine(buf);
         this.write(buf, this.processInstructions(node.body, state));
         this.endAllBlocks(buf, state);
