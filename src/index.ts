@@ -488,7 +488,11 @@ export class wasm2lua {
 
     static instructionBinOpFuncRemap = {
         and: "bit.band",
-        shl: "bit.lshift"
+        or: "bit.bor",
+        xor: "bit.bxor",
+        shl: "bit.lshift",
+        shr_u: "bit.rshift", // logical shift
+        shr_s: "bit.arshift", // arithmetic shift
     };
 
     beginBlock(buf: string[],state: WASMFuncState,block: WASMBlockState) {
@@ -655,19 +659,27 @@ export class wasm2lua {
                             break;
                         }
                         case "and":
+                        case "or":
+                        case "xor":
                         case "shl":
+                        case "shr_u":
+                        case "shr_s":
                         {
-                            let op_func = wasm2lua.instructionBinOpFuncRemap[ins.id];
-
-                            this.write(buf,"__TMP__ = ");
-                            this.write(buf,this.getPop());
-                            this.write(buf,"; ");
-                            this.write(buf,"__TMP2__ = ");
-                            this.write(buf,this.getPop());
-                            this.write(buf,"; ");
-                            this.write(buf,this.getPushStack());
-                            this.write(buf,op_func);
-                            this.write(buf,"(__TMP2__,__TMP__);");
+                            if (ins.object=="i32") {
+                                let op_func = wasm2lua.instructionBinOpFuncRemap[ins.id];
+    
+                                this.write(buf,"__TMP__ = ");
+                                this.write(buf,this.getPop());
+                                this.write(buf,"; ");
+                                this.write(buf,"__TMP2__ = ");
+                                this.write(buf,this.getPop());
+                                this.write(buf,"; ");
+                                this.write(buf,this.getPushStack());
+                                this.write(buf,op_func);
+                                this.write(buf,"(__TMP2__,__TMP__);");
+                            } else {
+                                this.write(buf,"-- BIT OP ON UNSUPPORTED TYPE: "+ins.object);
+                            }
                             this.newLine(buf);
 
                             break;
