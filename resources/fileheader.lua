@@ -48,3 +48,11 @@ local function __MEMORY_INIT__(mem,loc,data)
         mem[loc + i-1] = data:byte(i)
     end
 end
+
+local function __UNSIGNED__(value)
+    if value < 0 then
+        value = value + 4294967296
+    end
+
+    return value
+end

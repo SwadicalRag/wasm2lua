@@ -472,7 +472,7 @@ export class wasm2lua {
         return buf.join("");
     }
 
-    static instructionBinOpRemap: {[key: string] : {op: string, bool_result?: boolean}} = {
+    static instructionBinOpRemap: {[key: string] : {op: string, bool_result?: boolean, unsigned?: boolean}} = {
         add: {op:"+"},
         sub: {op:"-"},
         mul: {op:"*"},
@@ -480,10 +480,16 @@ export class wasm2lua {
 
         eq: {op:"==",bool_result:true},
         ne: {op:"~=",bool_result:true},
+
         lt_s: {op:"<",bool_result:true},
         le_s: {op:"<=",bool_result:true},
         ge_s: {op:">=",bool_result:true},
         gt_s: {op:">",bool_result:true},
+
+        lt_u: {op:"<",bool_result:true,unsigned:true},
+        le_u: {op:"<=",bool_result:true,unsigned:true},
+        ge_u: {op:">=",bool_result:true,unsigned:true},
+        gt_u: {op:">",bool_result:true,unsigned:true},
     };
 
     static instructionBinOpFuncRemap = {
@@ -633,9 +639,14 @@ export class wasm2lua {
                         case "le_s":
                         case "ge_s":
                         case "gt_s":
+                        case "lt_u":
+                        case "le_u":
+                        case "ge_u":
+                        case "gt_u":
                         {
                             let op = wasm2lua.instructionBinOpRemap[ins.id].op;
                             let convert_bool = wasm2lua.instructionBinOpRemap[ins.id].bool_result;
+                            let unsigned = true;
 
                             this.write(buf,"__TMP__ = ");
                             this.write(buf,this.getPop());
@@ -645,7 +656,11 @@ export class wasm2lua {
                             this.write(buf,"; ");
                             this.write(buf,this.getPushStack());
                             if (convert_bool) {
-                                this.write(buf,"(__TMP2__ "+op+" __TMP__) and 1 or 0");
+                                if (unsigned) {
+                                    this.write(buf,"(__UNSIGNED__(__TMP2__) "+op+" __UNSIGNED__(__TMP__)) and 1 or 0");
+                                } else {
+                                    this.write(buf,"(__TMP2__ "+op+" __TMP__) and 1 or 0");
+                                }
                             } else if (ins.object=="i32") {
                                 // i32 arithmetic ops need normalized
                                 // i32 bit ops already normalize results
