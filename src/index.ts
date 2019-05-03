@@ -13,6 +13,14 @@ import { isArray, print } from "util";
 - Many ops (comparisons, divisions, and shifts) are sign-dependant. This may be difficult to implement.
 - i64 will be a pain, but may be necessary due to runtime usage.
 - f32/f64 will be easy to implement, but very hard to read/write to memory in a way friendly to the jit. Soft floats are a potential last resort.
+- Signed loads still need sign extended, unsigned loads need to do what signed loads currently do.
+
+*/
+
+/* TODO OPTIMIZATION:
+
+- Memory: Use 32 bits per table cell instead of 8, more is possible but probably a bad idea.
+- Might want to use actual loops, might be more jit friendly.
 
 */
 
@@ -406,6 +414,8 @@ export class wasm2lua {
         if (this.options.whitelist != null && this.options.whitelist.indexOf(node.name.value+"") == -1) {
             if (state.id == "__W2L__WRITE_NUM") {
                 this.write(buf,`a) print(a) end`);
+            } else if (state.id == "__W2L__WRITE_STR") {
+                this.write(buf,`a) local str="" while mem_0[a]~=0 do str=str..string.char(mem_0[a]) a=a+1 end print(str) end`);
             } else {
                 this.write(buf,`) print("!!! PRUNED: ${state.id}") end`);
             }
@@ -462,28 +472,19 @@ export class wasm2lua {
         return buf.join("");
     }
 
-    static instructionBinOpRemap = {
-        add: "+",
-        sub: "-",
-        mul: "*",
-        div: "/",
+    static instructionBinOpRemap: {[key: string] : {op: string, bool_result?: boolean}} = {
+        add: {op:"+"},
+        sub: {op:"-"},
+        mul: {op:"*"},
+        div: {op:"/"},
 
-        eq: "==",
-        ne: "~=",
-        lt_s: "<",
-        le_s: "<=",
-        ge_s: ">=",
-        gt_s: ">",
+        eq: {op:"==",bool_result:true},
+        ne: {op:"~=",bool_result:true},
+        lt_s: {op:"<",bool_result:true},
+        le_s: {op:"<=",bool_result:true},
+        ge_s: {op:">=",bool_result:true},
+        gt_s: {op:">",bool_result:true},
     };
-
-    static instructionBinOpConvertBool = {
-        eq: true,
-        ne: true,
-        lt_s: true,
-        le_s: true,
-        ge_s: true,
-        gt_s: true,
-    }
 
     static instructionBinOpFuncRemap = {
         and: "bit.band",
@@ -543,6 +544,8 @@ export class wasm2lua {
             switch(ins.type) {
                 case "Instr": {
                     switch(ins.id) {
+                        // Local + Global Vars
+                        //////////////////////////////////////////////////////////////
                         case "local": {
                             if(ins.args.length > 0) {
                                 this.write(buf,"local ");
@@ -562,11 +565,9 @@ export class wasm2lua {
                         }
                         case "const": {
                             if(ins.args[0].type == "LongNumberLiteral") {
-                                let _const = (ins.args[0] as LongNumberLiteral).value.low;
-                                this.write(buf,"--[[WARNING: high bits of int64 dropped]]");
+                                let _const = (ins.args[0] as LongNumberLiteral).value;
                                 this.write(buf,this.getPushStack());
-                                this.write(buf,_const.toString());
-                                this.write(buf,";");
+                                this.write(buf,`__LONG_INT__(${_const.low},${_const.high});`);
                                 this.newLine(buf);
                             }
                             else {
@@ -619,10 +620,11 @@ export class wasm2lua {
                             this.newLine(buf);
                             break;
                         }
+                        // Arithmetic
+                        //////////////////////////////////////////////////////////////
                         case "add":
                         case "sub":
                         case "mul":
-                        
                         case "eq":
                         case "ne":
                         case "lt_s":
@@ -630,8 +632,8 @@ export class wasm2lua {
                         case "ge_s":
                         case "gt_s":
                         {
-                            let op = wasm2lua.instructionBinOpRemap[ins.id];
-                            let convert_bool = wasm2lua.instructionBinOpConvertBool[ins.id];
+                            let op = wasm2lua.instructionBinOpRemap[ins.id].op;
+                            let convert_bool = wasm2lua.instructionBinOpRemap[ins.id].bool_result;
 
                             this.write(buf,"__TMP__ = ");
                             this.write(buf,this.getPop());
@@ -642,6 +644,11 @@ export class wasm2lua {
                             this.write(buf,this.getPushStack());
                             if (convert_bool) {
                                 this.write(buf,"(__TMP2__ "+op+" __TMP__) and 1 or 0");
+                            } else if (ins.object=="i32") {
+                                // i32 arithmetic ops need normalized
+                                // i32 bit ops already normalize results
+                                // other types shouldn't need to be normalized
+                                this.write(buf,"bit.tobit(__TMP2__ "+op+" __TMP__)");
                             } else {
                                 this.write(buf,"__TMP2__ "+op+" __TMP__");
                             }
@@ -676,7 +683,16 @@ export class wasm2lua {
                             this.newLine(buf);
                             break;
                         }
-                        
+
+                        // Type Conversions
+                        //////////////////////////////////////////////////////////////
+                        case "promote/f32":
+                        case "demote/f64":
+                            // These are no-ops.
+                            break;
+
+                        // Branching
+                        //////////////////////////////////////////////////////////////
                         case "br_if": {
                             this.write(buf,"if ");
                             this.write(buf,this.getPop());
@@ -723,9 +739,12 @@ export class wasm2lua {
                             this.newLine(buf);
                             break;
                         }
+                        // Memory
+                        //////////////////////////////////////////////////////////////
                         case "store":
                         case "store8":
-                        case "store16": {
+                        case "store16": 
+                        case "store32": {
                             let targ = state.modState.memoryAllocations.get(0);
                             // TODO: is target always 0?
 
@@ -737,17 +756,23 @@ export class wasm2lua {
                                 this.write(buf,this.getPop());
                                 this.write(buf,"; ");
 
-                                if(ins.id == "store16") {
-                                    this.write(buf,"__MEMORY_WRITE_16__");
-                                }
-                                else if(ins.id == "store8") {
-                                    this.write(buf,"__MEMORY_WRITE_8__");
-                                }
-                                else {
-                                    this.write(buf,"__MEMORY_WRITE_32__");
+                                if (ins.object == "u32") {
+                                    if(ins.id == "store16") {
+                                        this.write(buf,"__MEMORY_WRITE_16__");
+                                    }
+                                    else if(ins.id == "store8") {
+                                        this.write(buf,"__MEMORY_WRITE_8__");
+                                    }
+                                    else {
+                                        this.write(buf,"__MEMORY_WRITE_32__");
+                                    }
+                                    this.write(buf,`(${targ},__TMP2__+${(ins.args[0] as NumberLiteral).value},__TMP__);`);
+                                } else if (ins.object == "u64") {
+                                    this.write(buf,`__TMP__.${ins.id}(${targ},__TMP2__+${(ins.args[0] as NumberLiteral).value});`);
+                                } else {
+                                    this.write(buf,"-- WARNING: UNSUPPORTED MEMORY OP ON TYPE: "+ins.object);
                                 }
 
-                                this.write(buf,`(${targ},__TMP2__+${(ins.args[0] as NumberLiteral).value},__TMP__);`);
                                 this.newLine(buf);
                             }
                             else {
@@ -759,22 +784,31 @@ export class wasm2lua {
                         }
                         case "load":
                         case "load8_s":
-                        case "load16_s": {
+                        case "load16_s":
+                        case "load32_s": {
                             let targ = state.modState.memoryAllocations.get(0);
                             // TODO: is target always 0?
 
                             if(targ) {
                                 this.write(buf,"__TMP__ = ");
-                                if(ins.id == "load16_s") {
-                                    this.write(buf,"__MEMORY_READ_16__");
+                                if (ins.object == "u32") {
+                                    if(ins.id == "load16_s") {
+                                        this.write(buf,"__MEMORY_READ_16__");
+                                    }
+                                    else if(ins.id == "load8_s") {
+                                        this.write(buf,"__MEMORY_READ_8__");
+                                    }
+                                    else {
+                                        this.write(buf,"__MEMORY_READ_32__");
+                                    }
+                                    this.write(buf,`(${targ},${this.getPop()}+${(ins.args[0] as NumberLiteral).value});`);
+                                } else if (ins.object == "u64") {
+                                    this.write(buf,`__LONG_INT__(0,0); __TMP__.${ins.id}(${targ},${this.getPop()}+${(ins.args[0] as NumberLiteral).value});`);
+                                } else {
+                                    this.write(buf,"0 -- WARNING: UNSUPPORTED MEMORY OP ON TYPE: "+ins.object);
+                                    this.newLine(buf);
+                                    break;
                                 }
-                                else if(ins.id == "load8_s") {
-                                    this.write(buf,"__MEMORY_READ_8__");
-                                }
-                                else {
-                                    this.write(buf,"__MEMORY_READ_32__");
-                                }
-                                this.write(buf,`(${targ},${this.getPop()}+${(ins.args[0] as NumberLiteral).value});`);
                                 this.write(buf,this.getPushStack() + "__TMP__;");
                                 this.newLine(buf);
                             }
