@@ -452,10 +452,17 @@ export class wasm2lua {
         sub: "-",
         mul: "*",
         div: "/",
+        eq: "==",
+        ne: "~="
     };
 
+    static instructionBinOpConvertBool = {
+        eq: true,
+        ne: true
+    }
+
     static instructionBinOpFuncRemap = {
-        
+        and: "bit.band"
     };
 
     beginBlock(buf: string[],state: WASMFuncState,block: WASMBlockState) {
@@ -590,8 +597,11 @@ export class wasm2lua {
                         case "add":
                         case "sub":
                         case "mul":
+                        case "eq":
+                        case "ne":
                         {
                             let op = wasm2lua.instructionBinOpRemap[ins.id];
+                            let convert_bool = wasm2lua.instructionBinOpConvertBool[ins.id];
 
                             this.write(buf,"__TMP__ = ");
                             this.write(buf,this.getPop());
@@ -600,11 +610,33 @@ export class wasm2lua {
                             this.write(buf,this.getPop());
                             this.write(buf,"; ");
                             this.write(buf,this.getPushStack());
-                            this.write(buf,"__TMP2__ "+op+" __TMP__");
-                            this.write(buf,"; ");
+                            if (convert_bool) {
+                                this.write(buf,"(__TMP2__ "+op+" __TMP__) and 1 or 0");
+                            } else {
+                                this.write(buf,"__TMP2__ "+op+" __TMP__");
+                            }
+                            this.write(buf,";");
                             this.newLine(buf);
                             break;
                         }
+                        case "and":
+                        {
+                            let op_func = wasm2lua.instructionBinOpFuncRemap[ins.id];
+
+                            this.write(buf,"__TMP__ = ");
+                            this.write(buf,this.getPop());
+                            this.write(buf,"; ");
+                            this.write(buf,"__TMP2__ = ");
+                            this.write(buf,this.getPop());
+                            this.write(buf,"; ");
+                            this.write(buf,this.getPushStack());
+                            this.write(buf,op_func);
+                            this.write(buf,"(__TMP2__,__TMP__);");
+                            this.newLine(buf);
+
+                            break;
+                        }
+                        
                         case "br_if": {
                             this.write(buf,"if ");
                             this.write(buf,this.getPop());

@@ -453,8 +453,11 @@ class wasm2lua {
                         case "add":
                         case "sub":
                         case "mul":
+                        case "eq":
+                        case "ne":
                             {
                                 let op = wasm2lua.instructionBinOpRemap[ins.id];
+                                let convert_bool = wasm2lua.instructionBinOpConvertBool[ins.id];
                                 this.write(buf, "__TMP__ = ");
                                 this.write(buf, this.getPop());
                                 this.write(buf, "; ");
@@ -462,8 +465,28 @@ class wasm2lua {
                                 this.write(buf, this.getPop());
                                 this.write(buf, "; ");
                                 this.write(buf, this.getPushStack());
-                                this.write(buf, "__TMP2__ " + op + " __TMP__");
+                                if (convert_bool) {
+                                    this.write(buf, "(__TMP2__ " + op + " __TMP__) and 1 or 0");
+                                }
+                                else {
+                                    this.write(buf, "__TMP2__ " + op + " __TMP__");
+                                }
+                                this.write(buf, ";");
+                                this.newLine(buf);
+                                break;
+                            }
+                        case "and":
+                            {
+                                let op_func = wasm2lua.instructionBinOpFuncRemap[ins.id];
+                                this.write(buf, "__TMP__ = ");
+                                this.write(buf, this.getPop());
                                 this.write(buf, "; ");
+                                this.write(buf, "__TMP2__ = ");
+                                this.write(buf, this.getPop());
+                                this.write(buf, "; ");
+                                this.write(buf, this.getPushStack());
+                                this.write(buf, op_func);
+                                this.write(buf, "(__TMP2__,__TMP__);");
                                 this.newLine(buf);
                                 break;
                             }
@@ -731,8 +754,16 @@ wasm2lua.instructionBinOpRemap = {
     sub: "-",
     mul: "*",
     div: "/",
+    eq: "==",
+    ne: "~="
 };
-wasm2lua.instructionBinOpFuncRemap = {};
+wasm2lua.instructionBinOpConvertBool = {
+    eq: true,
+    ne: true
+};
+wasm2lua.instructionBinOpFuncRemap = {
+    and: "bit.band"
+};
 exports.wasm2lua = wasm2lua;
 let infile = process.argv[2] || (__dirname + "/../test/test.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
