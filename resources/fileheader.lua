@@ -37,6 +37,7 @@ local function __MEMORY_WRITE_16__(mem,loc,val)
 end
 
 local function __MEMORY_WRITE_32__(mem,loc,val)
+    print(mem,loc,val)
     mem[loc] = bit.band(bit.rshift(val,24),0xFF)
     mem[loc + 1] = bit.band(bit.rshift(val,16),0xFF)
     mem[loc + 2] = bit.band(bit.rshift(val,8),0xFF)

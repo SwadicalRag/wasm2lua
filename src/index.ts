@@ -60,6 +60,12 @@ function makeBinaryStringLiteral(array: number[]) {
     return literal.join("");
 }
 
+// Probably won't work on lua implementations with sane identifier parsing rules.
+function sanitizeIdentifier(ident: string) {
+    return ident
+        .replace(/\./g,"«dot»");
+}
+
 interface WASMModuleState {
     funcStates: WASMFuncState[];
     funcByName: Map<string,WASMFuncState>;
@@ -350,7 +356,7 @@ export class wasm2lua {
         }
 
         let fstate: WASMFuncState = {
-            id: renameTo ? renameTo : funcID,
+            id: renameTo ? renameTo : sanitizeIdentifier(funcID),
             locals: [],
             blocks: [],
             varRemaps: new Map(),

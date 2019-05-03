@@ -52,6 +52,10 @@ function makeBinaryStringLiteral(array) {
     literal.push("'");
     return literal.join("");
 }
+function sanitizeIdentifier(ident) {
+    return ident
+        .replace(/\./g, "«dot»");
+}
 const FUNC_VAR_HEADER = "local __TMP__,__TMP2__,__STACK__ = nil,nil,{};";
 class wasm2lua {
     constructor(ast, options = {}) {
@@ -265,7 +269,7 @@ class wasm2lua {
             funcID = "func_u" + state.funcStates.length;
         }
         let fstate = {
-            id: renameTo ? renameTo : funcID,
+            id: renameTo ? renameTo : sanitizeIdentifier(funcID),
             locals: [],
             blocks: [],
             varRemaps: new Map(),
