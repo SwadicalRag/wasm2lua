@@ -519,6 +519,14 @@ class wasm2lua {
                             this.newLine(buf);
                             break;
                         }
+                        case "select": {
+                            this.write(buf, "__TMP__ = ");
+                            this.write(buf, this.getPop());
+                            this.write(buf, "; ");
+                            this.write(buf, "if __TMP__~=0 then " + this.getPop() + " ");
+                            this.write(buf, "else __TMP2__=" + this.getPop() + "; " + this.getPop() + "; " + this.getPushStack() + "__TMP2__ ");
+                            this.write(buf, "end;");
+                        }
                         case "promote/f32":
                         case "demote/f64":
                             break;
