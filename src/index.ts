@@ -451,7 +451,7 @@ export class wasm2lua {
 
         this.endAllBlocks(buf,state);
         
-        this.write(buf,"--[[CATCH-ALL RETURN]] do return ");
+        this.write(buf,"do return ");
 
         let nRets = state.funcType ? state.funcType.results.length : 0;
         for(let i=0;i < nRets;i++) {
@@ -494,9 +494,7 @@ export class wasm2lua {
     beginBlock(buf: string[],state: WASMFuncState,block: WASMBlockState) {
         // BLOCK BEGINS MUST BE CLOSED BY BLOCK ENDS!!!!
         // TODO: blocks can "return" stuff
-        this.write(buf,`-- BLOCK BEGIN (${block.id})`);
-        this.newLine(buf);
-        this.write(buf,`::${block.id}_start:: -- BLOCK START`);
+        this.write(buf,`::${block.id}_start::`);
         state.blocks.push(block);
         this.newLine(buf);
         this.write(buf,"do");
@@ -525,7 +523,7 @@ export class wasm2lua {
         this.outdent(buf);
         this.write(buf,"end");
         this.newLine(buf);
-        this.write(buf,`::${block.id}_fin:: -- BLOCK END`);
+        this.write(buf,`::${block.id}_fin::`);
         this.newLine(buf);
     }
 

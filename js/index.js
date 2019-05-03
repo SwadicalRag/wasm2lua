@@ -332,7 +332,7 @@ class wasm2lua {
         this.newLine(buf);
         this.write(buf, this.processInstructions(node.body, state));
         this.endAllBlocks(buf, state);
-        this.write(buf, "--[[CATCH-ALL RETURN]] do return ");
+        this.write(buf, "do return ");
         let nRets = state.funcType ? state.funcType.results.length : 0;
         for (let i = 0; i < nRets; i++) {
             this.write(buf, this.getPop());
@@ -348,9 +348,7 @@ class wasm2lua {
         return buf.join("");
     }
     beginBlock(buf, state, block) {
-        this.write(buf, `-- BLOCK BEGIN (${block.id})`);
-        this.newLine(buf);
-        this.write(buf, `::${block.id}_start:: -- BLOCK START`);
+        this.write(buf, `::${block.id}_start::`);
         state.blocks.push(block);
         this.newLine(buf);
         this.write(buf, "do");
@@ -374,7 +372,7 @@ class wasm2lua {
         this.outdent(buf);
         this.write(buf, "end");
         this.newLine(buf);
-        this.write(buf, `::${block.id}_fin:: -- BLOCK END`);
+        this.write(buf, `::${block.id}_fin::`);
         this.newLine(buf);
     }
     processInstructions(insArr, state) {
