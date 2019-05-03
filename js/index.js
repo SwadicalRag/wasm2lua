@@ -178,7 +178,7 @@ class wasm2lua {
                 this.newLine(buf);
             }
             else if (field.type == "Global") {
-                this.write(buf, "do -- global " + state.nextGlobalIndex);
+                this.write(buf, "do");
                 this.indent();
                 this.newLine(buf);
                 this.write(buf, FUNC_VAR_HEADER);
@@ -501,6 +501,8 @@ class wasm2lua {
                         case "shl":
                         case "shr_u":
                         case "shr_s":
+                        case "rotl":
+                        case "rotr":
                             {
                                 if (ins.object == "i32") {
                                     let op_func = wasm2lua.instructionBinOpFuncRemap[ins.id];
@@ -536,6 +538,14 @@ class wasm2lua {
                             this.write(buf, "if __TMP__~=0 then " + this.getPop() + " ");
                             this.write(buf, "else __TMP2__=" + this.getPop() + "; " + this.getPop() + "; " + this.getPushStack() + "__TMP2__ ");
                             this.write(buf, "end;");
+                            this.newLine(buf);
+                            break;
+                        }
+                        case "drop": {
+                            this.write(buf, this.getPop());
+                            this.write(buf, ";");
+                            this.newLine(buf);
+                            break;
                         }
                         case "promote/f32":
                         case "demote/f64":
@@ -622,21 +632,27 @@ class wasm2lua {
                         case "load":
                         case "load8_s":
                         case "load16_s":
-                        case "load32_s": {
+                        case "load32_s":
+                        case "load8_u":
+                        case "load16_u":
+                        case "load32_u": {
                             let targ = state.modState.memoryAllocations.get(0);
                             if (targ) {
                                 this.write(buf, "__TMP__ = ");
                                 if (ins.object == "u32") {
-                                    if (ins.id == "load16_s") {
+                                    if (ins.id.startsWith("load16")) {
                                         this.write(buf, "__MEMORY_READ_16__");
                                     }
-                                    else if (ins.id == "load8_s") {
+                                    else if (ins.id.startsWith("load8")) {
                                         this.write(buf, "__MEMORY_READ_8__");
                                     }
                                     else {
                                         this.write(buf, "__MEMORY_READ_32__");
                                     }
                                     this.write(buf, `(${targ},${this.getPop()}+${ins.args[0].value});`);
+                                    if (ins.id.endsWith("_s")) {
+                                        throw new Error("signed load");
+                                    }
                                 }
                                 else if (ins.object == "u64") {
                                     this.write(buf, `__LONG_INT__(0,0); __TMP__.${ins.id}(${targ},${this.getPop()}+${ins.args[0].value});`);
@@ -863,6 +879,8 @@ wasm2lua.instructionBinOpFuncRemap = {
     shl: "bit.lshift",
     shr_u: "bit.rshift",
     shr_s: "bit.arshift",
+    rotl: "bit.rol",
+    rotr: "bot.ror"
 };
 exports.wasm2lua = wasm2lua;
 let infile = process.argv[2] || (__dirname + "/../test/test.wasm");
