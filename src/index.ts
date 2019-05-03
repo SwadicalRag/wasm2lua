@@ -63,7 +63,7 @@ function makeBinaryStringLiteral(array: number[]) {
 // Probably won't work on lua implementations with sane identifier parsing rules.
 function sanitizeIdentifier(ident: string) {
     return ident
-        .replace(/\./g,"«dot»");
+        .replace(/\./g,"__L2W_DOT__");
 }
 
 interface WASMModuleState {
@@ -589,6 +589,7 @@ export class wasm2lua {
                         }
                         case "add":
                         case "sub":
+                        case "mul":
                         {
                             let op = wasm2lua.instructionBinOpRemap[ins.id];
 
@@ -653,8 +654,7 @@ export class wasm2lua {
                                     this.write(buf,"__MEMORY_WRITE_32__");
                                 }
 
-                                this.write(buf,"(" + targ + ",__TMP2__,__TMP__");
-                                this.write(buf," + " + (ins.args[0] as NumberLiteral).value + ");");
+                                this.write(buf,`(${targ},__TMP2__+${(ins.args[0] as NumberLiteral).value},__TMP__);`);
                                 this.newLine(buf);
                             }
                             else {
@@ -681,8 +681,7 @@ export class wasm2lua {
                                 else {
                                     this.write(buf,"__MEMORY_READ_32__");
                                 }
-                                this.write(buf,"(" + targ + ",");
-                                this.write(buf,this.getPop() + " + " + (ins.args[0] as NumberLiteral).value + ");");
+                                this.write(buf,`(${targ},${this.getPop()}+${(ins.args[0] as NumberLiteral).value});`);
                                 this.write(buf,this.getPushStack() + "__TMP__;");
                                 this.newLine(buf);
                             }

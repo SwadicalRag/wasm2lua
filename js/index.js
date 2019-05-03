@@ -54,7 +54,7 @@ function makeBinaryStringLiteral(array) {
 }
 function sanitizeIdentifier(ident) {
     return ident
-        .replace(/\./g, "«dot»");
+        .replace(/\./g, "__L2W_DOT__");
 }
 const FUNC_VAR_HEADER = "local __TMP__,__TMP2__,__STACK__ = nil,nil,{};";
 class wasm2lua {
@@ -452,6 +452,7 @@ class wasm2lua {
                         }
                         case "add":
                         case "sub":
+                        case "mul":
                             {
                                 let op = wasm2lua.instructionBinOpRemap[ins.id];
                                 this.write(buf, "__TMP__ = ");
@@ -508,8 +509,7 @@ class wasm2lua {
                                 else {
                                     this.write(buf, "__MEMORY_WRITE_32__");
                                 }
-                                this.write(buf, "(" + targ + ",__TMP2__,__TMP__");
-                                this.write(buf, " + " + ins.args[0].value + ");");
+                                this.write(buf, `(${targ},__TMP2__+${ins.args[0].value},__TMP__);`);
                                 this.newLine(buf);
                             }
                             else {
@@ -533,8 +533,7 @@ class wasm2lua {
                                 else {
                                     this.write(buf, "__MEMORY_READ_32__");
                                 }
-                                this.write(buf, "(" + targ + ",");
-                                this.write(buf, this.getPop() + " + " + ins.args[0].value + ");");
+                                this.write(buf, `(${targ},${this.getPop()}+${ins.args[0].value});`);
                                 this.write(buf, this.getPushStack() + "__TMP__;");
                                 this.newLine(buf);
                             }
