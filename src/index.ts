@@ -1,9 +1,20 @@
 import {decode} from "@webassemblyjs/wasm-parser"
 import * as fs from "fs"
-import { isArray } from "util";
+import { isArray, print } from "util";
 
 // TODO: Imported globals use global IDs that precede other global IDs
 // TODO: ^ The same applies to memories. ^
+
+/* TODO TYPES:
+
+- Assume that anything on the stack is already normalized to the correct type.
+- Some ops require normalization (add, sub, mul), while others do not (and, or).
+- Comparison ops should be normalized (bool -> i32(?)).
+- Many ops (comparisons, divisions, and shifts) are sign-dependant. This may be difficult to implement.
+- i64 will be a pain, but may be necessary due to runtime usage.
+- f32/f64 will be easy to implement, but very hard to read/write to memory in a way friendly to the jit. Soft floats are a potential last resort.
+
+*/
 
 class ArrayMap<T> extends Map<string | number,T> {
     numSize = 0;
@@ -63,7 +74,7 @@ function makeBinaryStringLiteral(array: number[]) {
 // Probably won't work on lua implementations with sane identifier parsing rules.
 function sanitizeIdentifier(ident: string) {
     return ident
-        .replace(/\./g,"__L2W_DOT__");
+        .replace(/\./g,"__IDENT_CHAR_DOT__");
 }
 
 interface WASMModuleState {
@@ -223,7 +234,7 @@ export class wasm2lua {
                 this.write(buf,this.processModuleImport(field,state));
             }
             else if (field.type == "Table") {
-                console.log(">>>",field);
+                // TODO
             }
             else if (field.type == "Memory") {
                 let memID;
@@ -393,7 +404,11 @@ export class wasm2lua {
 
         // don't generate code for non-whitelisted functions
         if (this.options.whitelist != null && this.options.whitelist.indexOf(node.name.value+"") == -1) {
-            this.write(buf,`) print("!!! PRUNED: ${state.id}") end`);
+            if (state.id == "__W2L__WRITE_NUM") {
+                this.write(buf,`a) print(a) end`);
+            } else {
+                this.write(buf,`) print("!!! PRUNED: ${state.id}") end`);
+            }
             this.newLine(buf);
             return buf.join("");
         }
@@ -452,17 +467,27 @@ export class wasm2lua {
         sub: "-",
         mul: "*",
         div: "/",
+
         eq: "==",
-        ne: "~="
+        ne: "~=",
+        lt_s: "<",
+        le_s: "<=",
+        ge_s: ">=",
+        gt_s: ">",
     };
 
     static instructionBinOpConvertBool = {
         eq: true,
-        ne: true
+        ne: true,
+        lt_s: true,
+        le_s: true,
+        ge_s: true,
+        gt_s: true,
     }
 
     static instructionBinOpFuncRemap = {
-        and: "bit.band"
+        and: "bit.band",
+        shl: "bit.lshift"
     };
 
     beginBlock(buf: string[],state: WASMFuncState,block: WASMBlockState) {
@@ -597,8 +622,13 @@ export class wasm2lua {
                         case "add":
                         case "sub":
                         case "mul":
+                        
                         case "eq":
                         case "ne":
+                        case "lt_s":
+                        case "le_s":
+                        case "ge_s":
+                        case "gt_s":
                         {
                             let op = wasm2lua.instructionBinOpRemap[ins.id];
                             let convert_bool = wasm2lua.instructionBinOpConvertBool[ins.id];
@@ -620,6 +650,7 @@ export class wasm2lua {
                             break;
                         }
                         case "and":
+                        case "shl":
                         {
                             let op_func = wasm2lua.instructionBinOpFuncRemap[ins.id];
 
@@ -636,11 +667,20 @@ export class wasm2lua {
 
                             break;
                         }
+                        case "eqz": {
+                            this.write(buf,"__TMP__ = ");
+                            this.write(buf,this.getPop());
+                            this.write(buf,"; ");
+                            this.write(buf,this.getPushStack());
+                            this.write(buf,"(__TMP__==0) and 1 or 0;");
+                            this.newLine(buf);
+                            break;
+                        }
                         
                         case "br_if": {
                             this.write(buf,"if ");
                             this.write(buf,this.getPop());
-                            this.write(buf," then ");
+                            this.write(buf,"~=0 then ");
 
                             let blocksToExit = (ins.args[0] as NumberLiteral).value;
                             let targetBlock = state.blocks[state.blocks.length - blocksToExit - 1];
@@ -659,6 +699,27 @@ export class wasm2lua {
                             }
 
                             this.write(buf," end;");
+                            this.newLine(buf);
+                            break;
+                        }
+                        case "br": {
+                            let blocksToExit = (ins.args[0] as NumberLiteral).value;
+                            let targetBlock = state.blocks[state.blocks.length - blocksToExit - 1];
+
+                            if(targetBlock) {
+                                this.write(buf,"goto ")
+                                if(targetBlock.blockType == "loop") {
+                                    this.write(buf,`${targetBlock.id}_start`);
+                                }
+                                else {
+                                    this.write(buf,`${targetBlock.id}_fin`);
+                                }
+                            }
+                            else {
+                                this.write(buf,"goto ____UNRESOLVED_DEST____");
+                            }
+
+                            this.write(buf,";");
                             this.newLine(buf);
                             break;
                         }
@@ -794,11 +855,13 @@ export class wasm2lua {
                     }
                     break;
                 }
-                case "BlockInstruction": {
+                case "BlockInstruction":
+                case "LoopInstruction": {
+                    let blockType: "loop"|"block" = (ins.type == "LoopInstruction") ? "loop" : "block";
 
                     this.beginBlock(buf,state,{
                         id: ins.label.value,
-                        blockType: "block",
+                        blockType,
                     });
 
                     this.write(buf,this.processInstructions(ins.instr,state));
