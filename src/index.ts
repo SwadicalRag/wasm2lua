@@ -697,8 +697,17 @@ export class wasm2lua {
                                 this.write(buf,this.getPushStack());
                                 this.write(buf,op_func);
                                 this.write(buf,"(__TMP2__,__TMP__);");
+                            } else if (ins.object=="i64") {
+                                this.write(buf,"__TMP__ = ");
+                                this.write(buf,this.getPop());
+                                this.write(buf,"; ");
+                                this.write(buf,"__TMP2__ = ");
+                                this.write(buf,this.getPop());
+                                this.write(buf,"; ");
+                                this.write(buf,this.getPushStack());
+                                this.write(buf,`__TMP2__:_${ins.id}(__TMP__);`);
                             } else {
-                                this.write(buf,"error('BIT OP ON UNSUPPORTED TYPE: "+ins.object+"');");
+                                this.write(buf,"error('BIT OP ON UNSUPPORTED TYPE: "+ins.object+","+ins.id+"');");
                             }
                             this.newLine(buf);
 
@@ -739,7 +748,13 @@ export class wasm2lua {
                         case "demote/f64":
                             // These are no-ops.
                             break;
-
+                        case "extend_u/i32": {
+                            // Easy (signed extension will be slightly more of a pain)
+                            this.write(buf,`__TMP__=${this.getPop()}; `);
+                            this.write(buf,`${this.getPushStack()}__LONG_INT__(__TMP__,0);`);
+                            this.newLine(buf);
+                            break;
+                        }
                         // Branching
                         //////////////////////////////////////////////////////////////
                         case "br_if": {
@@ -859,6 +874,10 @@ export class wasm2lua {
                                         throw new Error("signed load");
                                     }
                                 } else if (ins.object == "u64") {
+                                    // todo rewrite this trash
+                                    if (ins.id != "load") {
+                                        throw new Error("narrow u64 loads NYI");
+                                    }
                                     this.write(buf,`__LONG_INT__(0,0); __TMP__:${ins.id}(${targ},${this.getPop()}+${(ins.args[0] as NumberLiteral).value});`);
                                 } else {
                                     this.write(buf,"0 -- WARNING: UNSUPPORTED MEMORY OP ON TYPE: "+ins.object);

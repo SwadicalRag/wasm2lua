@@ -70,7 +70,13 @@ local function __UNSIGNED__(value)
     return value
 end
 
-local __LONG_INT_CLASS__ = {
+local __LONG_INT_CLASS__
+
+local function __LONG_INT__(low,high)
+    return setmetatable({low,high},__LONG_INT_CLASS__)
+end
+
+__LONG_INT_CLASS__ = {
     __index = {
         store = function(self,mem,loc)
             local low = self[1]
@@ -85,10 +91,28 @@ local __LONG_INT_CLASS__ = {
             mem[loc + 5] = bit.band(bit.rshift(high,8),0xFF)
             mem[loc + 6] = bit.band(bit.rshift(high,16),0xFF)
             mem[loc + 7] = bit.band(bit.rshift(high,24),0xFF)
+        end,
+        _shl = function(a,b)
+            local shift = b[1]
+            if shift < 0 then
+                return __LONG_INT__(0,0)
+            end
+            local low =   a[1]
+            local high =  a[2]
+            -- TODO might be a better way to do this with rotates and masks...
+            if shift >= 32 then
+                high = bit.lshift(low,shift-32)
+                return __LONG_INT__(0,high)
+            else
+                high = bit.lshift(high,shift)
+                -- bits shifted from low part
+                high = bit.bor(high, bit.rshift(low,32-shift))
+                low = bit.lshift(low,shift)
+                return __LONG_INT__(low,high)
+            end
+        end,
+        _or = function(a,b)
+            return __LONG_INT__(bit.bor(a[1],b[1]), bit.bor(a[2],b[2]))
         end
     }
 }
-
-local function __LONG_INT__(low,high)
-    return setmetatable({low,high},__LONG_INT_CLASS__)
-end
