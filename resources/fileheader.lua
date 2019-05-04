@@ -12,7 +12,20 @@ local function __MEMORY_ALLOC__(pages)
     for i = 1,pages * 64 * 1024 do
         mem[i-1] = 0
     end
+    mem._page_count = pages
     return mem
+end
+
+local function __MEMORY_GROW__(mem,pages)
+    local old_pages = mem._page_count
+
+    -- TODO: check if this exceeds the maximum memory size
+    for i = 1,pages * 64 * 1024 do
+        mem[#mem + 1] = 0
+    end
+
+    mem._page_count = old_pages + pages
+    return old_pages
 end
 
 local function __MEMORY_READ_8__(mem,loc)

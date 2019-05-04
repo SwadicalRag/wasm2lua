@@ -517,7 +517,7 @@ class wasm2lua {
                                     this.write(buf, "(__TMP2__,__TMP__);");
                                 }
                                 else {
-                                    this.write(buf, "-- BIT OP ON UNSUPPORTED TYPE: " + ins.object);
+                                    this.write(buf, "error('BIT OP ON UNSUPPORTED TYPE: " + ins.object + "');");
                                 }
                                 this.newLine(buf);
                                 break;
@@ -669,6 +669,13 @@ class wasm2lua {
                                 this.write(buf, "-- WARNING: COULD NOT FIND MEMORY TO READ");
                                 this.newLine(buf);
                             }
+                            break;
+                        }
+                        case "grow_memory": {
+                            let targ = state.modState.memoryAllocations.get(0);
+                            this.write(buf, `__TMP__ = __MEMORY_GROW__(${targ},__UNSIGNED__(${this.getPop()})); `);
+                            this.write(buf, `${this.getPushStack()}__TMP__;`);
+                            this.newLine(buf);
                             break;
                         }
                         case "return": {

@@ -698,7 +698,7 @@ export class wasm2lua {
                                 this.write(buf,op_func);
                                 this.write(buf,"(__TMP2__,__TMP__);");
                             } else {
-                                this.write(buf,"-- BIT OP ON UNSUPPORTED TYPE: "+ins.object);
+                                this.write(buf,"error('BIT OP ON UNSUPPORTED TYPE: "+ins.object+"');");
                             }
                             this.newLine(buf);
 
@@ -875,6 +875,17 @@ export class wasm2lua {
 
                             break;
                         }
+                        case "grow_memory": {
+                            let targ = state.modState.memoryAllocations.get(0);
+                            // TODO: is target always 0?
+
+                            this.write(buf,`__TMP__ = __MEMORY_GROW__(${targ},__UNSIGNED__(${this.getPop()})); `);
+                            this.write(buf,`${this.getPushStack()}__TMP__;`);
+                            this.newLine(buf);
+                            break;
+                        }
+                        // Misc
+                        //////////////////////////////////////////////////////////////
                         case "return": {
                             this.write(buf,"do return ");
 
