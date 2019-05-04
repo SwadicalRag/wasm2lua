@@ -469,7 +469,7 @@ class wasm2lua {
                             {
                                 let op = wasm2lua.instructionBinOpRemap[ins.id].op;
                                 let convert_bool = wasm2lua.instructionBinOpRemap[ins.id].bool_result;
-                                let unsigned = true;
+                                let unsigned = wasm2lua.instructionBinOpRemap[ins.id].unsigned;
                                 this.write(buf, "__TMP__ = ");
                                 this.write(buf, this.getPop());
                                 this.write(buf, "; ");
@@ -616,7 +616,7 @@ class wasm2lua {
                                     this.write(buf, `(${targ},__TMP2__+${ins.args[0].value},__TMP__);`);
                                 }
                                 else if (ins.object == "u64") {
-                                    this.write(buf, `__TMP__.${ins.id}(${targ},__TMP2__+${ins.args[0].value});`);
+                                    this.write(buf, `__TMP__:${ins.id}(${targ},__TMP2__+${ins.args[0].value});`);
                                 }
                                 else {
                                     this.write(buf, "-- WARNING: UNSUPPORTED MEMORY OP ON TYPE: " + ins.object);
@@ -655,7 +655,7 @@ class wasm2lua {
                                     }
                                 }
                                 else if (ins.object == "u64") {
-                                    this.write(buf, `__LONG_INT__(0,0); __TMP__.${ins.id}(${targ},${this.getPop()}+${ins.args[0].value});`);
+                                    this.write(buf, `__LONG_INT__(0,0); __TMP__:${ins.id}(${targ},${this.getPop()}+${ins.args[0].value});`);
                                 }
                                 else {
                                     this.write(buf, "0 -- WARNING: UNSUPPORTED MEMORY OP ON TYPE: " + ins.object);
@@ -694,7 +694,7 @@ class wasm2lua {
                             break;
                         }
                         default: {
-                            this.write(buf, "-- TODO " + ins.id + " " + JSON.stringify(ins));
+                            this.write(buf, "error('TODO " + ins.id + "');");
                             this.newLine(buf);
                             break;
                         }
@@ -731,7 +731,7 @@ class wasm2lua {
                         this.newLine(buf);
                     }
                     else {
-                        this.write(buf, "-- WARNING: UNABLE TO RESOLVE CALL " + ins.index.value + " (TODO ARG/RET)");
+                        this.write(buf, `error("UNRESOLVED CALL: ${ins.index.value}")`);
                         this.newLine(buf);
                     }
                     break;
@@ -747,6 +747,8 @@ class wasm2lua {
                     break;
                 }
                 case "IfInstruction": {
+                    this.write(buf, "-- <IF>");
+                    this.newLine(buf);
                     if (ins.test.length > 0) {
                         this.write(buf, "-- WARNING: 'if test' present, and was not handled");
                         this.newLine(buf);
@@ -778,7 +780,7 @@ class wasm2lua {
                     break;
                 }
                 default: {
-                    this.write(buf, "-- TODO (!) " + ins.type + " " + JSON.stringify(ins));
+                    this.write(buf, "error('TODO " + ins.type + "');");
                     this.newLine(buf);
                     break;
                 }

@@ -56,3 +56,26 @@ local function __UNSIGNED__(value)
 
     return value
 end
+
+local __LONG_INT_CLASS__ = {
+    __index = {
+        store = function(self,mem,loc)
+            local low = self[1]
+            local high = self[2]
+
+            mem[loc]     = bit.band(low,0xFF)
+            mem[loc + 1] = bit.band(bit.rshift(low,8),0xFF)
+            mem[loc + 2] = bit.band(bit.rshift(low,16),0xFF)
+            mem[loc + 3] = bit.band(bit.rshift(low,24),0xFF)
+
+            mem[loc + 4] = bit.band(high,0xFF)
+            mem[loc + 5] = bit.band(bit.rshift(high,8),0xFF)
+            mem[loc + 6] = bit.band(bit.rshift(high,16),0xFF)
+            mem[loc + 7] = bit.band(bit.rshift(high,24),0xFF)
+        end
+    }
+}
+
+local function __LONG_INT__(low,high)
+    return setmetatable({low,high},__LONG_INT_CLASS__)
+end
