@@ -869,7 +869,7 @@ class wasm2lua {
             case "FuncImportDescr": {
                 this.initFunc({
                     signature: node.descr.signature,
-                    name: { value: node.descr.id },
+                    name: { value: node.descr.id.value },
                 }, modState, `__MODULES__.${node.module}.${node.name}`);
                 break;
             }

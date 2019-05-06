@@ -15,14 +15,19 @@ import { isArray, print } from "util";
 - i64 will be a pain, but may be necessary due to runtime usage.
 - f32/f64 will be easy to implement, but very hard to read/write to memory in a way friendly to the jit. Soft floats are a potential last resort.
 - Signed loads still need sign extended, unsigned loads need to do what signed loads currently do.
-
 */
 
 /* TODO OPTIMIZATION:
 
 - Memory: Use 32 bits per table cell instead of 8, more is possible but probably a bad idea.
 - Might want to use actual loops, might be more jit friendly.
+- Statically determine stack depth everywhere. Should improve performance and reduce the need for temporary vars, while not requiring any complex folding logic.
+*/
 
+/* TODO BLOCKS:
+
+ - handle results
+ - make sure stack depth is correct on exit?
 */
 
 class ArrayMap<T> extends Map<string | number,T> {
@@ -1108,7 +1113,7 @@ export class wasm2lua {
             case "FuncImportDescr": {
                 this.initFunc({
                     signature: node.descr.signature,
-                    name: {value: node.descr.id},
+                    name: {value: node.descr.id.value},
                 },modState,`__MODULES__.${node.module}.${node.name}`);
 
                 break;
