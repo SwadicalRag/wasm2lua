@@ -22,6 +22,7 @@ import { isArray, print } from "util";
 - Memory: Use 32 bits per table cell instead of 8, more is possible but probably a bad idea.
 - Might want to use actual loops, might be more jit friendly.
 - Statically determine stack depth everywhere. Should improve performance and reduce the need for temporary vars, while not requiring any complex folding logic.
+    - Attempted ^this^, not sure I did it correctly.
 */
 
 /* TODO BLOCKS:
@@ -128,6 +129,9 @@ export class wasm2lua {
     globalRemaps: Map<string,string>;
     globalTypes: Signature[] = [];
 
+    // should probably go in funcstate (or more likely blockstate, but I couldn't be bothered to adjust stack methods.)
+    stackLevel = 1;
+
     static fileHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
     static funcHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
 
@@ -170,11 +174,18 @@ export class wasm2lua {
     }
 
     getPushStack() {
-        return "__STACK__[#__STACK__ + 1] = ";
+        var result = `__STACK__[${this.stackLevel}] = `;
+        this.stackLevel++;
+        return result;
     }
 
     getPop() {
-        return "__STACK_POP__(__STACK__)";
+        this.stackLevel--;
+        return `__STACK__[${this.stackLevel}]`;
+    }
+
+    stackDrop() {
+        this.stackLevel--;
     }
 
     process() {
@@ -396,6 +407,8 @@ export class wasm2lua {
     }
 
     processFunc(node: Func,modState: WASMModuleState) {
+
+        this.stackLevel = 1;
 
         let buf = [];
         if(node.signature.type == "NumberLiteral") {
@@ -735,15 +748,17 @@ export class wasm2lua {
                             this.write(buf,this.getPop());
                             this.write(buf,"; ");
                             
-                            this.write(buf,"if __TMP__~=0 then "+this.getPop()+" ");
-                            this.write(buf,"else __TMP2__="+this.getPop()+"; "+this.getPop()+"; "+this.getPushStack()+"__TMP2__ ");
+                            this.write(buf,"if __TMP__==0 then ");
+                            this.write(buf,"__TMP2__="+this.getPop()+"; ");
+                            this.stackDrop();
+                            this.write(buf,this.getPushStack()+"__TMP2__ ");
                             this.write(buf,"end;");
                             this.newLine(buf);
                             break;
                         }
                         case "drop": {
-                            this.write(buf,this.getPop());
-                            this.write(buf,";");
+                            this.stackDrop();
+                            this.write(buf,"-- stack drop");
                             this.newLine(buf);
                             break;
                         }
@@ -954,12 +969,16 @@ export class wasm2lua {
                         }
 
                         this.write(buf,fstate.id + "(");
+                        var args: string[] = [];
                         for(let i=0;i < fstate.funcType.params.length;i++) {
-                            this.write(buf,this.getPop());
+                            args.push(this.getPop());
+
+                            /*this.write(buf,this.getPop());
                             if(i !== (fstate.funcType.params.length - 1)) {
                                 this.write(buf,",");
-                            }
+                            }*/
                         }
+                        this.write(buf,args.reverse().join(","));
                         this.write(buf,")");
 
                         if(fstate.funcType.results.length > 1) {

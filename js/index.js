@@ -65,6 +65,7 @@ class wasm2lua {
         this.indentLevel = 0;
         this.moduleStates = [];
         this.globalTypes = [];
+        this.stackLevel = 1;
         this.process();
     }
     assert(cond, err = "assertion failed") {
@@ -94,10 +95,16 @@ class wasm2lua {
         this.newLine(buf);
     }
     getPushStack() {
-        return "__STACK__[#__STACK__ + 1] = ";
+        var result = `__STACK__[${this.stackLevel}] = `;
+        this.stackLevel++;
+        return result;
     }
     getPop() {
-        return "__STACK_POP__(__STACK__)";
+        this.stackLevel--;
+        return `__STACK__[${this.stackLevel}]`;
+    }
+    stackDrop() {
+        this.stackLevel--;
     }
     process() {
         this.writeHeader(this.outBuf);
@@ -280,6 +287,7 @@ class wasm2lua {
         return fstate;
     }
     processFunc(node, modState) {
+        this.stackLevel = 1;
         let buf = [];
         if (node.signature.type == "NumberLiteral") {
             if (!this.globalTypes[node.signature.value]) {
@@ -545,15 +553,17 @@ class wasm2lua {
                             this.write(buf, "__TMP__ = ");
                             this.write(buf, this.getPop());
                             this.write(buf, "; ");
-                            this.write(buf, "if __TMP__~=0 then " + this.getPop() + " ");
-                            this.write(buf, "else __TMP2__=" + this.getPop() + "; " + this.getPop() + "; " + this.getPushStack() + "__TMP2__ ");
+                            this.write(buf, "if __TMP__==0 then ");
+                            this.write(buf, "__TMP2__=" + this.getPop() + "; ");
+                            this.stackDrop();
+                            this.write(buf, this.getPushStack() + "__TMP2__ ");
                             this.write(buf, "end;");
                             this.newLine(buf);
                             break;
                         }
                         case "drop": {
-                            this.write(buf, this.getPop());
-                            this.write(buf, ";");
+                            this.stackDrop();
+                            this.write(buf, "-- stack drop");
                             this.newLine(buf);
                             break;
                         }
@@ -737,12 +747,11 @@ class wasm2lua {
                             this.write(buf, "__TMP__ = ");
                         }
                         this.write(buf, fstate.id + "(");
+                        var args = [];
                         for (let i = 0; i < fstate.funcType.params.length; i++) {
-                            this.write(buf, this.getPop());
-                            if (i !== (fstate.funcType.params.length - 1)) {
-                                this.write(buf, ",");
-                            }
+                            args.push(this.getPop());
                         }
+                        this.write(buf, args.reverse().join(","));
                         this.write(buf, ")");
                         if (fstate.funcType.results.length > 1) {
                             this.write(buf, "};");
