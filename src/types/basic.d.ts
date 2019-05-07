@@ -38,7 +38,7 @@ type Index =
 
 type SignatureOrTypeRef = Index | Signature;
 
-type Valtype = "i32" | "i64" | "f32" | "f64" | "u32" | "label";
+type Valtype = "i32" | "i64" | "f32" | "f64" | "u32" | "u64" | "label";
 
 type Mutability = "const" | "var";
 

@@ -1,6 +1,35 @@
 import {decode} from "@webassemblyjs/wasm-parser"
 import * as fs from "fs"
-import { isArray } from "util";
+import { isArray, print } from "util";
+
+// TODO: Imported globals use global IDs that precede other global IDs
+// TODO: ^ The same applies to memories. ^
+
+/* TODO TYPES:
+
+- Assume that anything on the stack is already normalized to the correct type.
+- ???? Some ops require normalization (add, sub, mul), while others do not (and, or).
+    - Apparently we are supposed to trap on overflow??? This seems like a lot of work. Need to investigate more.
+- Comparison ops should be normalized (bool -> i32(?)).
+- Many ops (comparisons, divisions, and shifts) are sign-dependant. This may be difficult to implement.
+- i64 will be a pain, but may be necessary due to runtime usage.
+- f32/f64 will be easy to implement, but very hard to read/write to memory in a way friendly to the jit. Soft floats are a potential last resort.
+- Signed loads still need sign extended, unsigned loads need to do what signed loads currently do.
+*/
+
+/* TODO OPTIMIZATION:
+
+- Memory: Use 32 bits per table cell instead of 8, more is possible but probably a bad idea.
+- Might want to use actual loops, might be more jit friendly.
+- Statically determine stack depth everywhere. Should improve performance and reduce the need for temporary vars, while not requiring any complex folding logic.
+    - Attempted ^this^, not sure I did it correctly.
+*/
+
+/* TODO BLOCKS:
+
+ - handle results
+ - make sure stack depth is correct on exit?
+*/
 
 class ArrayMap<T> extends Map<string | number,T> {
     numSize = 0;
@@ -33,10 +62,42 @@ class ArrayMap<T> extends Map<string | number,T> {
     }
 }
 
+// this may or may not be the best way to handle memory init but is pretty fast+easy to do for now
+function makeBinaryStringLiteral(array: number[]) {
+    let literal = ["'"];
+    for (let i=0;i<array.length;i++) {
+        let c = array[i];
+        if (c < 0x20 || c > 0x7E) {
+            // high and low values
+            let tmp = "00"+c.toString(16);
+            literal.push("\\x"+tmp.substr(tmp.length-2));
+
+        } else if (c==0x27) {
+            // quote
+            literal.push("\\'");
+        } else if (c==0x5C) {
+            // backslash
+            literal.push("\\\\");
+        } else {
+            literal.push(String.fromCharCode(c));
+        }
+    }
+    literal.push("'");
+    return literal.join("");
+}
+
+// Probably won't work on lua implementations with sane identifier parsing rules.
+function sanitizeIdentifier(ident: string) {
+    return ident
+        .replace(/\./g,"__IDENT_CHAR_DOT__");
+}
+
 interface WASMModuleState {
     funcStates: WASMFuncState[];
     funcByName: Map<string,WASMFuncState>;
     memoryAllocations: ArrayMap<string>;
+
+    nextGlobalIndex: number;
 }
 
 interface WASMFuncState {
@@ -54,6 +115,12 @@ interface WASMBlockState {
     blockType: "block" | "loop" | "if";
 }
 
+interface WASM2LuaOptions {
+    whitelist?: string[];
+}
+
+const FUNC_VAR_HEADER = "local __TMP__,__TMP2__,__STACK__ = nil,nil,{};";
+
 export class wasm2lua {
     outBuf: string[] = [];
     indentLevel = 0;
@@ -62,10 +129,13 @@ export class wasm2lua {
     globalRemaps: Map<string,string>;
     globalTypes: Signature[] = [];
 
+    // should probably go in funcstate (or more likely blockstate, but I couldn't be bothered to adjust stack methods.)
+    stackLevel = 1;
+
     static fileHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
     static funcHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
 
-    constructor(public ast: Program) {
+    constructor(public ast: Program,private options: WASM2LuaOptions = {}) {
         this.process()
     }
 
@@ -104,11 +174,18 @@ export class wasm2lua {
     }
 
     getPushStack() {
-        return "__STACK__[#__STACK__ + 1] = ";
+        var result = `__STACK__[${this.stackLevel}] = `;
+        this.stackLevel++;
+        return result;
     }
 
     getPop() {
-        return "__STACK_POP__(__STACK__)";
+        this.stackLevel--;
+        return `__STACK__[${this.stackLevel}]`;
+    }
+
+    stackDrop() {
+        this.stackLevel--;
     }
 
     process() {
@@ -141,6 +218,8 @@ export class wasm2lua {
             funcStates: [],
             funcByName: new Map(),
             memoryAllocations: new ArrayMap(),
+
+            nextGlobalIndex: 0
         };
 
         if(node.id) {
@@ -180,7 +259,7 @@ export class wasm2lua {
                 this.write(buf,this.processModuleImport(field,state));
             }
             else if (field.type == "Table") {
-                console.log(">>>",field);
+                // TODO
             }
             else if (field.type == "Memory") {
                 let memID;
@@ -202,31 +281,68 @@ export class wasm2lua {
                 this.newLine(buf);
             }
             else if (field.type == "Global") {
-                this.write(buf,"-- global");
+                this.write(buf,"do");
+
                 this.indent();
+                this.newLine(buf);
+
+                this.write(buf,FUNC_VAR_HEADER);
                 this.newLine(buf);
                 
                 // :thonk:
-                let state: WASMFuncState = {
-                    id: "__GLOBALS_INIT__", 
+                let global_init_state: WASMFuncState = {
+                    id: "__GLOBAL_INIT__", 
                     locals: [],
                     blocks: [],
                     varRemaps: new Map(),
                 };
 
-                this.write(buf,this.processInstructions(field.init,state));
+                this.write(buf,this.processInstructions(field.init,global_init_state));
+
+                this.write(buf,"__GLOBALS__["+state.nextGlobalIndex+"] = "+this.getPop()+";");
 
                 this.outdent(buf);
+
+                this.newLine(buf);
+
+                this.write(buf,"end");
+                this.newLine(buf);
+
+                state.nextGlobalIndex++;
             }
             else if (field.type == "Elem") {
                 console.log(">>>",field);
             }
             else if (field.type == "Data") {
-                console.log(">>>",field.init.values);
+                if(field.memoryIndex && field.memoryIndex.type == "NumberLiteral") {
+                    this.write(buf,"__MEMORY_INIT__(mem_"+field.memoryIndex.value+",");
+                } else {
+                    throw new Error("Bad index on memory.");
+                }
+
+                // this might not be correct in all cases but it probably isn't important
+                if(field.offset && field.offset.type == "Instr" && field.offset.id == "const") {
+                    let value = field.offset.args[0];
+                    if (value.type == "NumberLiteral") {
+                        this.write(buf,value.value+",");
+                    }
+                } else {
+                    throw new Error("Bad offset on memory.");
+                }
+
+                this.write(buf,makeBinaryStringLiteral(field.init.values)+");");
+                this.newLine(buf);
             }
             else {
                 throw new Error("TODO - Module Section - " + field.type);
             }
+        }
+
+        if (this.options.whitelist!=null) {
+            this.options.whitelist.forEach((whitelist_name)=>{
+                this.write(buf,`__EXPORTS__.${whitelist_name} = ${whitelist_name}`);
+                this.newLine(buf);
+            });
         }
 
         return buf.join("");
@@ -276,7 +392,7 @@ export class wasm2lua {
         }
 
         let fstate: WASMFuncState = {
-            id: renameTo ? renameTo : funcID,
+            id: renameTo ? renameTo : sanitizeIdentifier(funcID),
             locals: [],
             blocks: [],
             varRemaps: new Map(),
@@ -291,6 +407,9 @@ export class wasm2lua {
     }
 
     processFunc(node: Func,modState: WASMModuleState) {
+
+        this.stackLevel = 1;
+
         let buf = [];
         if(node.signature.type == "NumberLiteral") {
             if(!this.globalTypes[node.signature.value]) {
@@ -309,6 +428,19 @@ export class wasm2lua {
         this.write(buf,"function ");
         this.write(buf,state.id);
         this.write(buf,"(");
+
+        // don't generate code for non-whitelisted functions
+        if (this.options.whitelist != null && this.options.whitelist.indexOf(node.name.value+"") == -1) {
+            if (state.id == "__W2L__WRITE_NUM") {
+                this.write(buf,`a) print(a) end`);
+            } else if (state.id == "__W2L__WRITE_STR") {
+                this.write(buf,`a) local str="" while mem_0[a]~=0 do str=str..string.char(mem_0[a]) a=a+1 end print(str) end`);
+            } else {
+                this.write(buf,`) print("!!! PRUNED: ${state.id}") end`);
+            }
+            this.newLine(buf);
+            return buf.join("");
+        }
 
         if(node.signature.type == "Signature") {
             let i = 0;
@@ -331,14 +463,14 @@ export class wasm2lua {
         this.indent();
         this.newLine(buf);
         
-        this.write(buf,"local __TMP__,__TMP2__,__STACK__ = nil,nil,{};");
+        this.write(buf,FUNC_VAR_HEADER);
         this.newLine(buf);
 
         this.write(buf,this.processInstructions(node.body,state));
 
         this.endAllBlocks(buf,state);
         
-        this.write(buf,"--[[CATCH-ALL RETURN]] do return ");
+        this.write(buf,"do return ");
 
         let nRets = state.funcType ? state.funcType.results.length : 0;
         for(let i=0;i < nRets;i++) {
@@ -359,23 +491,41 @@ export class wasm2lua {
         return buf.join("");
     }
 
-    static instructionBinOpRemap = {
-        add: "+",
-        sub: "-",
-        mul: "*",
-        div: "/",
+    static instructionBinOpRemap: {[key: string] : {op: string, bool_result?: boolean, unsigned?: boolean}} = {
+        add: {op:"+"},
+        sub: {op:"-"},
+        mul: {op:"*"},
+        div: {op:"/"},
+
+        eq: {op:"==",bool_result:true},
+        ne: {op:"~=",bool_result:true},
+
+        lt_s: {op:"<",bool_result:true},
+        le_s: {op:"<=",bool_result:true},
+        ge_s: {op:">=",bool_result:true},
+        gt_s: {op:">",bool_result:true},
+
+        lt_u: {op:"<",bool_result:true,unsigned:true},
+        le_u: {op:"<=",bool_result:true,unsigned:true},
+        ge_u: {op:">=",bool_result:true,unsigned:true},
+        gt_u: {op:">",bool_result:true,unsigned:true},
     };
 
     static instructionBinOpFuncRemap = {
-        
+        and: "bit.band",
+        or: "bit.bor",
+        xor: "bit.bxor",
+        shl: "bit.lshift",
+        shr_u: "bit.rshift", // logical shift
+        shr_s: "bit.arshift", // arithmetic shift
+        rotl: "bit.rol",
+        rotr: "bot.ror"
     };
 
     beginBlock(buf: string[],state: WASMFuncState,block: WASMBlockState) {
         // BLOCK BEGINS MUST BE CLOSED BY BLOCK ENDS!!!!
         // TODO: blocks can "return" stuff
-        this.write(buf,`-- BLOCK BEGIN (${block.id})`);
-        this.newLine(buf);
-        this.write(buf,`::${block.id}_start:: -- BLOCK START`);
+        this.write(buf,`::${block.id}_start::`);
         state.blocks.push(block);
         this.newLine(buf);
         this.write(buf,"do");
@@ -390,6 +540,7 @@ export class wasm2lua {
     }
 
     endBlock(buf: string[],state: WASMFuncState) {
+
         let block = state.blocks.pop();
         if(block) {
             this.endBlockInternal(buf,block);
@@ -403,7 +554,7 @@ export class wasm2lua {
         this.outdent(buf);
         this.write(buf,"end");
         this.newLine(buf);
-        this.write(buf,`::${block.id}_fin:: -- BLOCK END`);
+        this.write(buf,`::${block.id}_fin::`);
         this.newLine(buf);
     }
 
@@ -422,6 +573,8 @@ export class wasm2lua {
             switch(ins.type) {
                 case "Instr": {
                     switch(ins.id) {
+                        // Local + Global Vars
+                        //////////////////////////////////////////////////////////////
                         case "local": {
                             if(ins.args.length > 0) {
                                 this.write(buf,"local ");
@@ -441,11 +594,9 @@ export class wasm2lua {
                         }
                         case "const": {
                             if(ins.args[0].type == "LongNumberLiteral") {
-                                let _const = (ins.args[0] as LongNumberLiteral).value.low;
-                                this.write(buf,"--[[WARNING: high bits of int64 dropped]]");
+                                let _const = (ins.args[0] as LongNumberLiteral).value;
                                 this.write(buf,this.getPushStack());
-                                this.write(buf,_const.toString());
-                                this.write(buf,";");
+                                this.write(buf,`__LONG_INT__(${_const.low},${_const.high});`);
                                 this.newLine(buf);
                             }
                             else {
@@ -498,10 +649,25 @@ export class wasm2lua {
                             this.newLine(buf);
                             break;
                         }
+                        // Arithmetic
+                        //////////////////////////////////////////////////////////////
                         case "add":
                         case "sub":
+                        case "mul":
+                        case "eq":
+                        case "ne":
+                        case "lt_s":
+                        case "le_s":
+                        case "ge_s":
+                        case "gt_s":
+                        case "lt_u":
+                        case "le_u":
+                        case "ge_u":
+                        case "gt_u":
                         {
-                            let op = wasm2lua.instructionBinOpRemap[ins.id];
+                            let op = wasm2lua.instructionBinOpRemap[ins.id].op;
+                            let convert_bool = wasm2lua.instructionBinOpRemap[ins.id].bool_result;
+                            let unsigned = wasm2lua.instructionBinOpRemap[ins.id].unsigned;
 
                             this.write(buf,"__TMP__ = ");
                             this.write(buf,this.getPop());
@@ -510,15 +676,111 @@ export class wasm2lua {
                             this.write(buf,this.getPop());
                             this.write(buf,"; ");
                             this.write(buf,this.getPushStack());
-                            this.write(buf,"__TMP2__ "+op+" __TMP__");
-                            this.write(buf,"; ");
+                            if (convert_bool) {
+                                if (unsigned) {
+                                    this.write(buf,"(__UNSIGNED__(__TMP2__) "+op+" __UNSIGNED__(__TMP__)) and 1 or 0");
+                                } else {
+                                    this.write(buf,"(__TMP2__ "+op+" __TMP__) and 1 or 0");
+                                }
+                            } else if (ins.object=="i32") {
+                                // i32 arithmetic ops need normalized
+                                // i32 bit ops already normalize results
+                                // other types shouldn't need to be normalized
+                                this.write(buf,"bit.tobit(__TMP2__ "+op+" __TMP__)");
+                            } else {
+                                this.write(buf,"__TMP2__ "+op+" __TMP__");
+                            }
+                            this.write(buf,";");
                             this.newLine(buf);
                             break;
                         }
+                        case "and":
+                        case "or":
+                        case "xor":
+                        case "shl":
+                        case "shr_u":
+                        case "shr_s":
+                        case "rotl":
+                        case "rotr":
+                        {
+                            if (ins.object=="i32") {
+                                let op_func = wasm2lua.instructionBinOpFuncRemap[ins.id];
+    
+                                this.write(buf,"__TMP__ = ");
+                                this.write(buf,this.getPop());
+                                this.write(buf,"; ");
+                                this.write(buf,"__TMP2__ = ");
+                                this.write(buf,this.getPop());
+                                this.write(buf,"; ");
+                                this.write(buf,this.getPushStack());
+                                this.write(buf,op_func);
+                                this.write(buf,"(__TMP2__,__TMP__);");
+                            } else if (ins.object=="i64") {
+                                this.write(buf,"__TMP__ = ");
+                                this.write(buf,this.getPop());
+                                this.write(buf,"; ");
+                                this.write(buf,"__TMP2__ = ");
+                                this.write(buf,this.getPop());
+                                this.write(buf,"; ");
+                                this.write(buf,this.getPushStack());
+                                this.write(buf,`__TMP2__:_${ins.id}(__TMP__);`);
+                            } else {
+                                this.write(buf,"error('BIT OP ON UNSUPPORTED TYPE: "+ins.object+","+ins.id+"');");
+                            }
+                            this.newLine(buf);
+
+                            break;
+                        }
+                        case "eqz": {
+                            this.write(buf,"__TMP__ = ");
+                            this.write(buf,this.getPop());
+                            this.write(buf,"; ");
+                            this.write(buf,this.getPushStack());
+                            this.write(buf,"(__TMP__==0) and 1 or 0;");
+                            this.newLine(buf);
+                            break;
+                        }
+                        case "select": {
+                            // Freaking ternary op. This is a dumb way to compile this
+                            // but it allows us to handle it without adding another temp var.
+
+                            this.write(buf,"__TMP__ = ");
+                            this.write(buf,this.getPop());
+                            this.write(buf,"; ");
+                            
+                            this.write(buf,"if __TMP__==0 then ");
+                            this.write(buf,"__TMP2__="+this.getPop()+"; ");
+                            this.stackDrop();
+                            this.write(buf,this.getPushStack()+"__TMP2__ ");
+                            this.write(buf,"end;");
+                            this.newLine(buf);
+                            break;
+                        }
+                        case "drop": {
+                            this.stackDrop();
+                            this.write(buf,"-- stack drop");
+                            this.newLine(buf);
+                            break;
+                        }
+                        // Type Conversions
+                        //////////////////////////////////////////////////////////////
+                        case "promote/f32":
+                        case "demote/f64":
+                            // These are no-ops.
+                            break;
+                        case "extend_u/i32": {
+                            // Easy (signed extension will be slightly more of a pain)
+                            this.write(buf,`__TMP__=${this.getPop()}; `);
+                            this.write(buf,`${this.getPushStack()}__LONG_INT__(__TMP__,0);`);
+                            this.newLine(buf);
+                            break;
+                        }
+                        // Branching
+                        //////////////////////////////////////////////////////////////
                         case "br_if": {
                             this.write(buf,"if ");
                             this.write(buf,this.getPop());
-                            this.write(buf," then ");
+                            this.write(buf,"~=0 then ");
 
                             let blocksToExit = (ins.args[0] as NumberLiteral).value;
                             let targetBlock = state.blocks[state.blocks.length - blocksToExit - 1];
@@ -540,9 +802,33 @@ export class wasm2lua {
                             this.newLine(buf);
                             break;
                         }
+                        case "br": {
+                            let blocksToExit = (ins.args[0] as NumberLiteral).value;
+                            let targetBlock = state.blocks[state.blocks.length - blocksToExit - 1];
+
+                            if(targetBlock) {
+                                this.write(buf,"goto ")
+                                if(targetBlock.blockType == "loop") {
+                                    this.write(buf,`${targetBlock.id}_start`);
+                                }
+                                else {
+                                    this.write(buf,`${targetBlock.id}_fin`);
+                                }
+                            }
+                            else {
+                                this.write(buf,"goto ____UNRESOLVED_DEST____");
+                            }
+
+                            this.write(buf,";");
+                            this.newLine(buf);
+                            break;
+                        }
+                        // Memory
+                        //////////////////////////////////////////////////////////////
                         case "store":
                         case "store8":
-                        case "store16": {
+                        case "store16": 
+                        case "store32": {
                             let targ = state.modState.memoryAllocations.get(0);
                             // TODO: is target always 0?
 
@@ -554,18 +840,23 @@ export class wasm2lua {
                                 this.write(buf,this.getPop());
                                 this.write(buf,"; ");
 
-                                if(ins.id == "store16") {
-                                    this.write(buf,"__MEMORY_WRITE_16__");
-                                }
-                                else if(ins.id == "store8") {
-                                    this.write(buf,"__MEMORY_WRITE_8__");
-                                }
-                                else {
-                                    this.write(buf,"__MEMORY_WRITE_32__");
+                                if (ins.object == "u32") {
+                                    if(ins.id == "store16") {
+                                        this.write(buf,"__MEMORY_WRITE_16__");
+                                    }
+                                    else if(ins.id == "store8") {
+                                        this.write(buf,"__MEMORY_WRITE_8__");
+                                    }
+                                    else {
+                                        this.write(buf,"__MEMORY_WRITE_32__");
+                                    }
+                                    this.write(buf,`(${targ},__TMP2__+${(ins.args[0] as NumberLiteral).value},__TMP__);`);
+                                } else if (ins.object == "u64") {
+                                    this.write(buf,`__TMP__:${ins.id}(${targ},__TMP2__+${(ins.args[0] as NumberLiteral).value});`);
+                                } else {
+                                    this.write(buf,"-- WARNING: UNSUPPORTED MEMORY OP ON TYPE: "+ins.object);
                                 }
 
-                                this.write(buf,"(" + targ + ",__TMP2__,__TMP__");
-                                this.write(buf," + " + (ins.args[0] as NumberLiteral).value + ");");
                                 this.newLine(buf);
                             }
                             else {
@@ -577,23 +868,42 @@ export class wasm2lua {
                         }
                         case "load":
                         case "load8_s":
-                        case "load16_s": {
+                        case "load16_s":
+                        case "load32_s":
+                        case "load8_u":
+                        case "load16_u":
+                        case "load32_u": {
                             let targ = state.modState.memoryAllocations.get(0);
                             // TODO: is target always 0?
 
                             if(targ) {
                                 this.write(buf,"__TMP__ = ");
-                                if(ins.id == "load16_s") {
-                                    this.write(buf,"__MEMORY_READ_16__");
+                                if (ins.object == "u32") {
+                                    if (ins.id.startsWith("load16")) {
+                                        this.write(buf,"__MEMORY_READ_16__");
+                                    }
+                                    else if (ins.id.startsWith("load8")) {
+                                        this.write(buf,"__MEMORY_READ_8__");
+                                    }
+                                    else {
+                                        this.write(buf,"__MEMORY_READ_32__");
+                                    }
+                                    this.write(buf,`(${targ},${this.getPop()}+${(ins.args[0] as NumberLiteral).value});`);
+                                    if (ins.id.endsWith("_s")) {
+                                        // Signed loads don't actually work.
+                                        throw new Error("signed load");
+                                    }
+                                } else if (ins.object == "u64") {
+                                    // todo rewrite this trash
+                                    if (ins.id != "load") {
+                                        throw new Error("narrow u64 loads NYI");
+                                    }
+                                    this.write(buf,`__LONG_INT__(0,0); __TMP__:${ins.id}(${targ},${this.getPop()}+${(ins.args[0] as NumberLiteral).value});`);
+                                } else {
+                                    this.write(buf,"0 -- WARNING: UNSUPPORTED MEMORY OP ON TYPE: "+ins.object);
+                                    this.newLine(buf);
+                                    break;
                                 }
-                                else if(ins.id == "load8_s") {
-                                    this.write(buf,"__MEMORY_READ_8__");
-                                }
-                                else {
-                                    this.write(buf,"__MEMORY_READ_32__");
-                                }
-                                this.write(buf,"(" + targ + ",");
-                                this.write(buf,this.getPop() + " + " + (ins.args[0] as NumberLiteral).value + ");");
                                 this.write(buf,this.getPushStack() + "__TMP__;");
                                 this.newLine(buf);
                             }
@@ -604,6 +914,17 @@ export class wasm2lua {
 
                             break;
                         }
+                        case "grow_memory": {
+                            let targ = state.modState.memoryAllocations.get(0);
+                            // TODO: is target always 0?
+
+                            this.write(buf,`__TMP__ = __MEMORY_GROW__(${targ},__UNSIGNED__(${this.getPop()})); `);
+                            this.write(buf,`${this.getPushStack()}__TMP__;`);
+                            this.newLine(buf);
+                            break;
+                        }
+                        // Misc
+                        //////////////////////////////////////////////////////////////
                         case "return": {
                             this.write(buf,"do return ");
 
@@ -623,8 +944,14 @@ export class wasm2lua {
                             this.endBlock(buf,state);
                             break;
                         }
+                        case "unreachable": {
+                            this.write(buf,"error('unreachable');");
+                            this.newLine(buf);
+                            break;
+                        }
                         default: {
-                            this.write(buf,"-- TODO "+ins.id+" "+JSON.stringify(ins));
+                            //this.write(buf,"-- TODO "+ins.id+" "+JSON.stringify(ins));
+                            this.write(buf,"error('TODO "+ins.id+"');");
                             this.newLine(buf);
                             break;
                         }
@@ -642,12 +969,16 @@ export class wasm2lua {
                         }
 
                         this.write(buf,fstate.id + "(");
+                        var args: string[] = [];
                         for(let i=0;i < fstate.funcType.params.length;i++) {
-                            this.write(buf,this.getPop());
+                            args.push(this.getPop());
+
+                            /*this.write(buf,this.getPop());
                             if(i !== (fstate.funcType.params.length - 1)) {
                                 this.write(buf,",");
-                            }
+                            }*/
                         }
+                        this.write(buf,args.reverse().join(","));
                         this.write(buf,")");
 
                         if(fstate.funcType.results.length > 1) {
@@ -664,19 +995,28 @@ export class wasm2lua {
                         this.newLine(buf);
                     }
                     else {
-                        this.write(buf,"-- WARNING: UNABLE TO RESOLVE CALL " + ins.index.value + " (TODO ARG/RET)");
+                        //this.write(buf,"-- WARNING: UNABLE TO RESOLVE CALL " + ins.index.value + " (TODO ARG/RET)");
+                        this.write(buf,`error("UNRESOLVED CALL: ${ins.index.value}")`);
                         this.newLine(buf);
                     }
                     break;
                 }
-                case "BlockInstruction": {
+                case "BlockInstruction":
+                case "LoopInstruction": {
+                    let blockType: "loop"|"block" = (ins.type == "LoopInstruction") ? "loop" : "block";
+
                     this.beginBlock(buf,state,{
                         id: ins.label.value,
-                        blockType: "block",
+                        blockType,
                     });
+
+                    this.write(buf,this.processInstructions(ins.instr,state));
                     break;
                 }
                 case "IfInstruction": {
+                    this.write(buf,"-- <IF>");
+                    this.newLine(buf);
+
                     if(ins.test.length > 0) {
                         this.write(buf,"-- WARNING: 'if test' present, and was not handled");
                         this.newLine(buf);
@@ -719,7 +1059,8 @@ export class wasm2lua {
                     break;
                 }
                 default: {
-                    this.write(buf,"-- TODO (!) "+ins.type+" "+JSON.stringify(ins));
+                    //this.write(buf,"-- TODO (!) "+ins.type+" "+JSON.stringify(ins));
+                    this.write(buf,"error('TODO "+ins.type+"');");
                     this.newLine(buf);
                     break;
                 }
@@ -758,9 +1099,8 @@ export class wasm2lua {
                 break;
             }
             case "Global": {
-                // TODO
-                console.log("global",node);
-                this.write(buf,"nil");
+                // TODO - Might need metatable trash?
+                this.write(buf,"nil -- TODO global export");
                 break;
             }
             default: {
@@ -792,7 +1132,7 @@ export class wasm2lua {
             case "FuncImportDescr": {
                 this.initFunc({
                     signature: node.descr.signature,
-                    name: {value: node.descr.id},
+                    name: {value: node.descr.id.value},
                 },modState,`__MODULES__.${node.module}.${node.name}`);
 
                 break;
@@ -817,6 +1157,7 @@ export class wasm2lua {
 // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
 let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
+var whitelist = process.argv[4] ? process.argv[4].split(",") : null;
 
 let wasm = fs.readFileSync(infile)
 let ast = decode(wasm,{
@@ -825,5 +1166,5 @@ let ast = decode(wasm,{
 
 // console.log(JSON.stringify(ast,null,4));
 
-let inst = new wasm2lua(ast);
+let inst = new wasm2lua(ast,{whitelist});
 fs.writeFileSync(outfile,inst.outBuf.join(""));
