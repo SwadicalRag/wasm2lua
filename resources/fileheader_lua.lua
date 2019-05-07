@@ -1,3 +1,5 @@
+-- pure lua memory lib
+
 __MODULES__ = __MODULES__ or {}
 __GLOBALS__ = __GLOBALS__ or {}
 
@@ -9,7 +11,9 @@ end
 
 local function __MEMORY_ALLOC__(pages)
     local mem = {}
-    mem.data = ffi.new("uint8_t[?]",pages * 64 * 1024)
+    for i = 1,pages * 64 * 1024 do
+        mem[i-1] = 0
+    end
     mem._page_count = pages
     mem._len = pages * 64 * 1024
     return mem
@@ -17,49 +21,55 @@ end
 
 local function __MEMORY_GROW__(mem,pages)
     local old_pages = mem._page_count
-    local old_data = mem.data
-
-    mem._page_count = mem._page_count + pages
     mem._len = mem._page_count * 64 * 1024
-    mem.data = ffi.new("uint8_t[?]",mem._page_count * 64 * 1024)
-    ffi.copy(mem.data,old_data,old_pages * 64 * 1024)
 
+    -- TODO: check if this exceeds the maximum memory size
+    for i = 1,pages * 64 * 1024 do
+        mem[#mem + 1] = 0
+    end
+
+    mem._page_count = old_pages + pages
     return old_pages
 end
 
 local function __MEMORY_READ_8__(mem,loc)
     assert((loc >= 0) and (loc < mem._len),"out of memory access")
-    return mem.data[loc]
+    return mem[loc]
 end
 
 local function __MEMORY_READ_16__(mem,loc)
     assert((loc >= 0) and (loc < (mem._len - 1)),"out of memory access")
-    return ffi.cast("uint16_t*",mem.data + loc)[0]
+    return bit.bor(mem[loc], bit.lshift(mem[loc + 1],8))
 end
 
 local function __MEMORY_READ_32__(mem,loc)
     assert((loc >= 0) and (loc < (mem._len - 3)),"out of memory access")
-    return ffi.cast("uint32_t*",mem.data + loc)[0]
+    return bit.bor(mem[loc], bit.lshift(mem[loc + 1],8), bit.lshift(mem[loc + 2],16), bit.lshift(mem[loc + 3],24))
 end
 
 local function __MEMORY_WRITE_8__(mem,loc,val)
     assert((loc >= 0) and (loc < mem._len),"out of memory access")
-    mem.data[loc] = val
+    mem[loc] = bit.band(val,0xFF)
 end
 
 local function __MEMORY_WRITE_16__(mem,loc,val)
     assert((loc >= 0) and (loc < (mem._len - 1)),"out of memory access")
-    ffi.cast("uint16_t*",mem.data + loc)[0] = val
+    mem[loc]     = bit.band(val,0xFF)
+    mem[loc + 1] = bit.band(bit.rshift(val,8),0xFF)
 end
 
 local function __MEMORY_WRITE_32__(mem,loc,val)
     assert((loc >= 0) and (loc < (mem._len - 3)),"out of memory access")
-    ffi.cast("uint32_t*",mem.data + loc)[0] = val
+    mem[loc]     = bit.band(val,0xFF)
+    mem[loc + 1] = bit.band(bit.rshift(val,8),0xFF)
+    mem[loc + 2] = bit.band(bit.rshift(val,16),0xFF)
+    mem[loc + 3] = bit.band(bit.rshift(val,24),0xFF)
 end
 
 local function __MEMORY_INIT__(mem,loc,data)
-    assert(#data <= mem._len,"attempt to write more data than memory size")
-    ffi.copy(mem.data,data)
+    for i = 1, #data do
+        mem[loc + i-1] = data:byte(i)
+    end
 end
 
 local function __UNSIGNED__(value)
@@ -82,7 +92,7 @@ __LONG_INT_CLASS__ = {
             local low = self[1]
             local high = self[2]
 
-            mem.data[loc]     = bit.band(low,0xFF)
+            mem[loc]     = bit.band(low,0xFF)
             mem[loc + 1] = bit.band(bit.rshift(low,8),0xFF)
             mem[loc + 2] = bit.band(bit.rshift(low,16),0xFF)
             mem[loc + 3] = bit.band(bit.rshift(low,24),0xFF)
