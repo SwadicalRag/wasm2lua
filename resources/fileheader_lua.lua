@@ -21,7 +21,7 @@ end
 
 local function __MEMORY_GROW__(mem,pages)
     local old_pages = mem._page_count
-    mem._len = mem._page_count * 64 * 1024
+    mem._len = (mem._page_count + pages) * 64 * 1024
 
     -- TODO: check if this exceeds the maximum memory size
     for i = 1,pages * 64 * 1024 do
