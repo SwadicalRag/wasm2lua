@@ -131,6 +131,7 @@ export class wasm2lua {
 
     // should probably go in funcstate (or more likely blockstate, but I couldn't be bothered to adjust stack methods.)
     stackLevel = 1;
+    stackData = [];
 
     static fileHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
     static funcHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
@@ -173,15 +174,27 @@ export class wasm2lua {
         this.newLine(buf);
     }
 
-    getPushStack() {
-        var result = `__STACK__[${this.stackLevel}] = `;
+    getPushStack(stackExpr?: string) {
         this.stackLevel++;
-        return result;
+        if(typeof stackExpr !== "undefined") {
+            this.stackData.push(stackExpr);
+            return `-- VIRTUAL PUSH TO ${this.stackLevel-1}`;
+        }
+        else {
+            this.stackData.push(false);
+            return `__STACK__[${this.stackLevel-1}] = `;
+        }
     }
 
     getPop() {
+        let lastData = this.stackData.pop();
         this.stackLevel--;
-        return `__STACK__[${this.stackLevel}]`;
+        if(lastData !== false) {
+            return `--[[VIRTUAL POP TO ${this.stackLevel}]] ${lastData}`;
+        }
+        else {
+            return `__STACK__[${this.stackLevel}]`;
+        }
     }
 
     stackDrop() {
@@ -595,24 +608,19 @@ export class wasm2lua {
                         case "const": {
                             if(ins.args[0].type == "LongNumberLiteral") {
                                 let _const = (ins.args[0] as LongNumberLiteral).value;
-                                this.write(buf,this.getPushStack());
-                                this.write(buf,`__LONG_INT__(${_const.low},${_const.high});`);
+                                this.write(buf,this.getPushStack(`__LONG_INT__(${_const.low},${_const.high})`));
                                 this.newLine(buf);
                             }
                             else {
                                 let _const = (ins.args[0] as NumberLiteral).value;
-                                this.write(buf,this.getPushStack());
-                                this.write(buf,_const.toString());
-                                this.write(buf,";");
+                                this.write(buf,this.getPushStack(_const.toString()));
                                 this.newLine(buf);
                             }
                             break;
                         }
                         case "get_global": {
                             let globID = (ins.args[0] as NumberLiteral).value;
-                            this.write(buf,this.getPushStack());
-                            this.write(buf,"__GLOBALS__["+globID+"]");
-                            this.write(buf,";");
+                            this.write(buf,this.getPushStack("__GLOBALS__["+globID+"]"));
                             this.newLine(buf);
                             break;
                         }
@@ -624,9 +632,7 @@ export class wasm2lua {
                         }
                         case "get_local": {
                             let locID = (ins.args[0] as NumberLiteral).value;
-                            this.write(buf,this.getPushStack());
-                            this.write(buf,state.locals[locID] || `loc${locID}`);
-                            this.write(buf,";");
+                            this.write(buf,this.getPushStack(state.locals[locID] || `loc${locID}`));
                             this.newLine(buf);
                             break;
                         }
@@ -643,9 +649,7 @@ export class wasm2lua {
                             this.write(buf,state.locals[locID] || `loc${locID}`);
                             this.write(buf," = "+this.getPop()+" ; ");
                             // read back
-                            this.write(buf,this.getPushStack());
-                            this.write(buf,state.locals[locID] || `loc${locID}`);
-                            this.write(buf,";");
+                            this.write(buf,this.getPushStack(state.locals[locID] || `loc${locID}`));
                             this.newLine(buf);
                             break;
                         }
