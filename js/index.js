@@ -58,14 +58,15 @@ function sanitizeIdentifier(ident) {
 }
 const FUNC_VAR_HEADER = "local __TMP__,__TMP2__,__STACK__ = nil,nil,{};";
 class wasm2lua {
-    constructor(ast, options = {}) {
-        this.ast = ast;
+    constructor(program_binary, options = {}) {
+        this.program_binary = program_binary;
         this.options = options;
         this.outBuf = [];
         this.indentLevel = 0;
         this.moduleStates = [];
         this.globalTypes = [];
         this.stackLevel = 1;
+        this.program_ast = wasm_parser_1.decode(wasm, {});
         this.stackData = [];
         this.process();
     }
@@ -121,7 +122,7 @@ class wasm2lua {
     }
     process() {
         this.writeHeader(this.outBuf);
-        for (let mod of this.ast.body) {
+        for (let mod of this.program_ast.body) {
             if (mod.type == "Module") {
                 this.write(this.outBuf, "do");
                 this.indent();
@@ -751,7 +752,7 @@ class wasm2lua {
                             this.write(buf, "__TMP__ = ");
                         }
                         this.write(buf, fstate.id + "(");
-                        var args = [];
+                        let args = [];
                         for (let i = 0; i < fstate.funcType.params.length; i++) {
                             args.push(this.getPop());
                         }
@@ -926,9 +927,8 @@ wasm2lua.instructionBinOpFuncRemap = {
 exports.wasm2lua = wasm2lua;
 let infile = process.argv[2] || (__dirname + "/../test/test.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
-var whitelist = process.argv[4] ? process.argv[4].split(",") : null;
+let whitelist = process.argv[4] ? process.argv[4].split(",") : null;
 let wasm = fs.readFileSync(infile);
-let ast = wasm_parser_1.decode(wasm, {});
-let inst = new wasm2lua(ast, { whitelist });
+let inst = new wasm2lua(wasm, { whitelist });
 fs.writeFileSync(outfile, inst.outBuf.join(""));
 //# sourceMappingURL=index.js.map
