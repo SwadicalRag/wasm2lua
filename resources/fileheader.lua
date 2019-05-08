@@ -7,14 +7,6 @@ local function __STACK_POP__(__STACK__)
     return v
 end
 
-local function __MEMORY_ALLOC__(pages)
-    local mem = {}
-    mem.data = ffi.new("uint8_t[?]",pages * 64 * 1024)
-    mem._page_count = pages
-    mem._len = pages * 64 * 1024
-    return mem
-end
-
 local function __MEMORY_GROW__(mem,pages)
     local old_pages = mem._page_count
     local old_data = mem.data
@@ -60,6 +52,17 @@ end
 local function __MEMORY_INIT__(mem,loc,data)
     assert(#data <= mem._len,"attempt to write more data than memory size")
     ffi.copy(mem.data,data)
+end
+
+local function __MEMORY_ALLOC__(pages)
+    local mem = {}
+    mem.data = ffi.new("uint8_t[?]",pages * 64 * 1024)
+    mem._page_count = pages
+    mem._len = pages * 64 * 1024
+
+    mem.write32 = __MEMORY_WRITE_32__
+
+    return mem
 end
 
 local function __UNSIGNED__(value)
