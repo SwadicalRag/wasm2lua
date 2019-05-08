@@ -66,8 +66,8 @@ class wasm2lua {
         this.moduleStates = [];
         this.globalTypes = [];
         this.stackLevel = 1;
-        this.program_ast = wasm_parser_1.decode(wasm, {});
         this.stackData = [];
+        this.program_ast = wasm_parser_1.decode(wasm, {});
         this.process();
     }
     assert(cond, err = "assertion failed") {
