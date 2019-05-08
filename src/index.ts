@@ -135,7 +135,14 @@ export class wasm2lua {
     static fileHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
     static funcHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
 
-    constructor(public ast: Program,private options: WASM2LuaOptions = {}) {
+    private program_ast: Program;
+
+    constructor(private program_binary: Buffer, private options: WASM2LuaOptions = {}) {
+
+        this.program_ast = decode(wasm,{
+            // dump: true,
+        });
+
         this.process()
     }
 
@@ -174,7 +181,7 @@ export class wasm2lua {
     }
 
     getPushStack() {
-        var result = `__STACK__[${this.stackLevel}] = `;
+        let result = `__STACK__[${this.stackLevel}] = `;
         this.stackLevel++;
         return result;
     }
@@ -191,7 +198,7 @@ export class wasm2lua {
     process() {
         this.writeHeader(this.outBuf);
 
-        for(let mod of this.ast.body) {
+        for(let mod of this.program_ast.body) {
             if(mod.type == "Module") {
                 this.write(this.outBuf,"do");
                 this.indent();
@@ -349,7 +356,15 @@ export class wasm2lua {
     }
 
     processModuleMetadataSection(node: SectionMetadata) {
-        // TODO: is ignoring this the right thing to do?
+        // In case we need to yoink out custom sections in the future.
+        // I thought this was needed now but it isn't.
+        /*if (node.section=="custom") {
+            let start = node.startOffset;
+            let length = node.size.value;
+
+            let custom_binary = this.program_binary.slice(start,start+length);
+            console.log("CUSTOM SECTION",custom_binary.toString());
+        }*/
         return "";
     }
 
@@ -969,14 +984,9 @@ export class wasm2lua {
                         }
 
                         this.write(buf,fstate.id + "(");
-                        var args: string[] = [];
+                        let args: string[] = [];
                         for(let i=0;i < fstate.funcType.params.length;i++) {
                             args.push(this.getPop());
-
-                            /*this.write(buf,this.getPop());
-                            if(i !== (fstate.funcType.params.length - 1)) {
-                                this.write(buf,",");
-                            }*/
                         }
                         this.write(buf,args.reverse().join(","));
                         this.write(buf,")");
@@ -1157,14 +1167,11 @@ export class wasm2lua {
 // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
 let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
-var whitelist = process.argv[4] ? process.argv[4].split(",") : null;
+let whitelist = process.argv[4] ? process.argv[4].split(",") : null;
 
-let wasm = fs.readFileSync(infile)
-let ast = decode(wasm,{
-    // dump: true,
-})
+let wasm = fs.readFileSync(infile);
 
 // console.log(JSON.stringify(ast,null,4));
 
-let inst = new wasm2lua(ast,{whitelist});
+let inst = new wasm2lua(wasm, {whitelist});
 fs.writeFileSync(outfile,inst.outBuf.join(""));
