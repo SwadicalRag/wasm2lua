@@ -80,7 +80,13 @@ local function __MEMORY_ALLOC__(pages)
     mem._page_count = pages
     mem._len = pages * 64 * 1024
 
+    mem.write8 = __MEMORY_WRITE_8__
+    mem.write16 = __MEMORY_WRITE_16__
     mem.write32 = __MEMORY_WRITE_32__
+
+    mem.read8 = __MEMORY_READ_8__
+    mem.read16 = __MEMORY_READ_16__
+    mem.read32 = __MEMORY_READ_32__
 
     return mem
 end
