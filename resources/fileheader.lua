@@ -34,6 +34,16 @@ local function __MEMORY_READ_32__(mem,loc)
     return ffi.cast("uint32_t*",mem.data + loc)[0]
 end
 
+local function __MEMORY_READ_32F__(mem,loc)
+    assert((loc >= 0) and (loc < (mem._len - 3)),"out of memory access")
+    return ffi.cast("float*",mem.data + loc)[0]
+end
+
+local function __MEMORY_READ_64F__(mem,loc)
+    assert((loc >= 0) and (loc < (mem._len - 7)),"out of memory access")
+    return ffi.cast("double*",mem.data + loc)[0]
+end
+
 local function __MEMORY_WRITE_8__(mem,loc,val)
     assert((loc >= 0) and (loc < mem._len),"out of memory access")
     mem.data[loc] = val
@@ -49,9 +59,19 @@ local function __MEMORY_WRITE_32__(mem,loc,val)
     ffi.cast("uint32_t*",mem.data + loc)[0] = val
 end
 
+local function __MEMORY_WRITE_32F__(mem,loc,val)
+    assert((loc >= 0) and (loc < (mem._len - 3)),"out of memory access")
+    ffi.cast("float*",mem.data + loc)[0] = val
+end
+
+local function __MEMORY_WRITE_64F__(mem,loc,val)
+    assert((loc >= 0) and (loc < (mem._len - 7)),"out of memory access")
+    ffi.cast("double*",mem.data + loc)[0] = val
+end
+
 local function __MEMORY_INIT__(mem,loc,data)
-    assert(#data <= mem._len,"attempt to write more data than memory size")
-    ffi.copy(mem.data,data)
+    assert(#data <= (mem._len - loc),"attempt to write more data than memory size")
+    ffi.copy(mem.data + loc,data)
 end
 
 local function __MEMORY_ALLOC__(pages)

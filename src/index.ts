@@ -105,9 +105,12 @@ interface WASMFuncState {
     locals: string[];
     blocks: WASMBlockState[];
     varRemaps: Map<string,string>;
-    // stack: StackEntry[] // TODO: use this to fold the stack;
     funcType?: Signature;
     modState?: WASMModuleState;
+
+    // should probably go in funcstate (or more likely blockstate, but I couldn't be bothered to adjust stack methods.)
+    stackLevel: number;
+    stackData: (string | false)[];
 }
 
 interface WASMBlockState {
@@ -128,10 +131,6 @@ export class wasm2lua {
     moduleStates: WASMModuleState[] = [];
     globalRemaps: Map<string,string>;
     globalTypes: Signature[] = [];
-
-    // should probably go in funcstate (or more likely blockstate, but I couldn't be bothered to adjust stack methods.)
-    stackLevel = 1;
-    stackData = [];
 
     static fileHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
     static funcHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
@@ -181,31 +180,33 @@ export class wasm2lua {
         this.newLine(buf);
     }
 
-    getPushStack(stackExpr?: string) {
-        this.stackLevel++;
+    getPushStack(func: WASMFuncState,stackExpr?: string) {
+        func.stackLevel++;
         if(typeof stackExpr !== "undefined") {
-            this.stackData.push(stackExpr);
-            return `-- VIRTUAL PUSH TO ${this.stackLevel-1}`;
+            func.stackData.push(stackExpr);
+            // return `--[[VIRTUAL PUSH TO ${this.stackLevel-1}]]`;
+            return "";
         }
         else {
-            this.stackData.push(false);
-            return `__STACK__[${this.stackLevel-1}] = `;
+            func.stackData.push(false);
+            return `__STACK__[${func.stackLevel-1}] = `;
         }
     }
 
-    getPop() {
-        let lastData = this.stackData.pop();
-        this.stackLevel--;
+    getPop(func: WASMFuncState) {
+        let lastData = func.stackData.pop();
+        func.stackLevel--;
         if(lastData !== false) {
-            return `--[[VIRTUAL POP TO ${this.stackLevel}]] ${lastData}`;
+            // return `--[[VIRTUAL POP TO ${this.stackLevel}]] ${lastData}`;
+            return lastData;
         }
         else {
-            return `__STACK__[${this.stackLevel}]`;
+            return `__STACK__[${func.stackLevel}]`;
         }
     }
 
-    stackDrop() {
-        this.stackLevel--;
+    stackDrop(func: WASMFuncState) {
+        func.stackLevel--;
     }
 
     process() {
@@ -260,6 +261,12 @@ export class wasm2lua {
         }
         
         for(let field of node.fields) {
+            if(field.type == "ModuleImport") {
+                this.write(buf,this.processModuleImport(field,state));
+            }
+        }
+        
+        for(let field of node.fields) {
             if(field.type == "Func") {
                 this.initFunc(field,state);
             }
@@ -276,7 +283,7 @@ export class wasm2lua {
                 this.write(buf,this.processModuleExport(field,state));
             }
             else if(field.type == "ModuleImport") {
-                this.write(buf,this.processModuleImport(field,state));
+                // Already done in 1st pass
             }
             else if (field.type == "Table") {
                 // TODO
@@ -315,11 +322,13 @@ export class wasm2lua {
                     locals: [],
                     blocks: [],
                     varRemaps: new Map(),
+                    stackData: [],
+                    stackLevel: 1,
                 };
 
                 this.write(buf,this.processInstructions(field.init,global_init_state));
 
-                this.write(buf,"__GLOBALS__["+state.nextGlobalIndex+"] = "+this.getPop()+";");
+                this.write(buf,"__GLOBALS__["+state.nextGlobalIndex+"] = "+this.getPop(global_init_state)+";");
 
                 this.outdent(buf);
 
@@ -416,7 +425,7 @@ export class wasm2lua {
             funcID = "func_" + node.name.value;
         }
         else {
-            funcID = "func_u" + state.funcStates.length;
+            funcID = "func_" + state.funcStates.length;
         }
 
         let fstate: WASMFuncState = {
@@ -426,6 +435,8 @@ export class wasm2lua {
             varRemaps: new Map(),
             funcType,
             modState: state,
+            stackData: [],
+            stackLevel: 1,
         };
 
         state.funcStates.push(fstate);
@@ -435,9 +446,6 @@ export class wasm2lua {
     }
 
     processFunc(node: Func,modState: WASMModuleState) {
-
-        this.stackLevel = 1;
-
         let buf = [];
         if(node.signature.type == "NumberLiteral") {
             if(!this.globalTypes[node.signature.value]) {
@@ -452,6 +460,8 @@ export class wasm2lua {
 
         let state = modState.funcByName.get(typeof node.name.value === "string" ? node.name.value : "func_u" + modState.funcStates.length);
         if(!state) {state = this.initFunc(node,modState);}
+
+        state.stackLevel = 1;
 
         this.write(buf,"function ");
         this.write(buf,state.id);
@@ -502,7 +512,7 @@ export class wasm2lua {
 
         let nRets = state.funcType ? state.funcType.results.length : 0;
         for(let i=0;i < nRets;i++) {
-            this.write(buf,this.getPop());
+            this.write(buf,this.getPop(state));
             if(nRets !== (i + 1)) {
                 this.write(buf,",");
             }
@@ -623,38 +633,38 @@ export class wasm2lua {
                         case "const": {
                             if(ins.args[0].type == "LongNumberLiteral") {
                                 let _const = (ins.args[0] as LongNumberLiteral).value;
-                                this.write(buf,this.getPushStack(`__LONG_INT__(${_const.low},${_const.high})`));
+                                this.write(buf,this.getPushStack(state,`__LONG_INT__(${_const.low},${_const.high})`));
                                 this.newLine(buf);
                             }
                             else {
                                 let _const = (ins.args[0] as NumberLiteral).value;
-                                this.write(buf,this.getPushStack(_const.toString()));
+                                this.write(buf,this.getPushStack(state,_const.toString()));
                                 this.newLine(buf);
                             }
                             break;
                         }
                         case "get_global": {
                             let globID = (ins.args[0] as NumberLiteral).value;
-                            this.write(buf,this.getPushStack("__GLOBALS__["+globID+"]"));
+                            this.write(buf,this.getPushStack(state,"__GLOBALS__["+globID+"]"));
                             this.newLine(buf);
                             break;
                         }
                         case "set_global": {
                             let globID = (ins.args[0] as NumberLiteral).value;
-                            this.write(buf,"__GLOBALS__["+globID+"] = "+this.getPop()+";");
+                            this.write(buf,"__GLOBALS__["+globID+"] = "+this.getPop(state)+";");
                             this.newLine(buf);
                             break;
                         }
                         case "get_local": {
                             let locID = (ins.args[0] as NumberLiteral).value;
-                            this.write(buf,this.getPushStack(state.locals[locID] || `loc${locID}`));
+                            this.write(buf,this.getPushStack(state,state.locals[locID] || `loc${locID}`));
                             this.newLine(buf);
                             break;
                         }
                         case "set_local": {
                             let locID = (ins.args[0] as NumberLiteral).value;
                             this.write(buf,state.locals[locID] || `loc${locID}`);
-                            this.write(buf," = "+this.getPop()+";");
+                            this.write(buf," = "+this.getPop(state)+";");
                             this.newLine(buf);
                             break;
                         }
@@ -662,17 +672,28 @@ export class wasm2lua {
                             let locID = (ins.args[0] as NumberLiteral).value;
                             // write local
                             this.write(buf,state.locals[locID] || `loc${locID}`);
-                            this.write(buf," = "+this.getPop()+" ; ");
+                            this.write(buf," = "+this.getPop(state)+" ; ");
                             // read back
-                            this.write(buf,this.getPushStack(state.locals[locID] || `loc${locID}`));
+                            this.write(buf,this.getPushStack(state,state.locals[locID] || `loc${locID}`));
                             this.newLine(buf);
                             break;
                         }
                         // Arithmetic
                         //////////////////////////////////////////////////////////////
+                        case "sqrt": {
+                            this.write(buf,this.getPushStack(state,`math.sqrt(${this.getPop(state)})`));
+
+                            break;
+                        }
+                        case "neg": {
+                            this.write(buf,this.getPushStack(state,`-(${this.getPop(state)})`));
+
+                            break;
+                        }
                         case "add":
                         case "sub":
                         case "mul":
+                        case "div":
                         case "eq":
                         case "ne":
                         case "lt_s":
@@ -689,12 +710,12 @@ export class wasm2lua {
                             let unsigned = wasm2lua.instructionBinOpRemap[ins.id].unsigned;
 
                             this.write(buf,"__TMP__ = ");
-                            this.write(buf,this.getPop());
+                            this.write(buf,this.getPop(state));
                             this.write(buf,"; ");
                             this.write(buf,"__TMP2__ = ");
-                            this.write(buf,this.getPop());
+                            this.write(buf,this.getPop(state));
                             this.write(buf,"; ");
-                            this.write(buf,this.getPushStack());
+                            this.write(buf,this.getPushStack(state));
                             if (convert_bool) {
                                 if (unsigned) {
                                     this.write(buf,"(__UNSIGNED__(__TMP2__) "+op+" __UNSIGNED__(__TMP__)) and 1 or 0");
@@ -726,22 +747,22 @@ export class wasm2lua {
                                 let op_func = wasm2lua.instructionBinOpFuncRemap[ins.id];
     
                                 this.write(buf,"__TMP__ = ");
-                                this.write(buf,this.getPop());
+                                this.write(buf,this.getPop(state));
                                 this.write(buf,"; ");
                                 this.write(buf,"__TMP2__ = ");
-                                this.write(buf,this.getPop());
+                                this.write(buf,this.getPop(state));
                                 this.write(buf,"; ");
-                                this.write(buf,this.getPushStack());
+                                this.write(buf,this.getPushStack(state));
                                 this.write(buf,op_func);
                                 this.write(buf,"(__TMP2__,__TMP__);");
                             } else if (ins.object=="i64") {
                                 this.write(buf,"__TMP__ = ");
-                                this.write(buf,this.getPop());
+                                this.write(buf,this.getPop(state));
                                 this.write(buf,"; ");
                                 this.write(buf,"__TMP2__ = ");
-                                this.write(buf,this.getPop());
+                                this.write(buf,this.getPop(state));
                                 this.write(buf,"; ");
-                                this.write(buf,this.getPushStack());
+                                this.write(buf,this.getPushStack(state));
                                 this.write(buf,`__TMP2__:_${ins.id}(__TMP__);`);
                             } else {
                                 this.write(buf,"error('BIT OP ON UNSUPPORTED TYPE: "+ins.object+","+ins.id+"');");
@@ -752,9 +773,9 @@ export class wasm2lua {
                         }
                         case "eqz": {
                             this.write(buf,"__TMP__ = ");
-                            this.write(buf,this.getPop());
+                            this.write(buf,this.getPop(state));
                             this.write(buf,"; ");
-                            this.write(buf,this.getPushStack());
+                            this.write(buf,this.getPushStack(state));
                             this.write(buf,"(__TMP__==0) and 1 or 0;");
                             this.newLine(buf);
                             break;
@@ -764,19 +785,19 @@ export class wasm2lua {
                             // but it allows us to handle it without adding another temp var.
 
                             this.write(buf,"__TMP__ = ");
-                            this.write(buf,this.getPop());
+                            this.write(buf,this.getPop(state));
                             this.write(buf,"; ");
                             
                             this.write(buf,"if __TMP__==0 then ");
-                            this.write(buf,"__TMP2__="+this.getPop()+"; ");
-                            this.stackDrop();
-                            this.write(buf,this.getPushStack()+"__TMP2__ ");
+                            this.write(buf,"__TMP2__="+this.getPop(state)+"; ");
+                            this.stackDrop(state);
+                            this.write(buf,this.getPushStack(state)+"__TMP2__ ");
                             this.write(buf,"end;");
                             this.newLine(buf);
                             break;
                         }
                         case "drop": {
-                            this.stackDrop();
+                            this.stackDrop(state);
                             this.write(buf,"-- stack drop");
                             this.newLine(buf);
                             break;
@@ -789,8 +810,8 @@ export class wasm2lua {
                             break;
                         case "extend_u/i32": {
                             // Easy (signed extension will be slightly more of a pain)
-                            this.write(buf,`__TMP__=${this.getPop()}; `);
-                            this.write(buf,`${this.getPushStack()}__LONG_INT__(__TMP__,0);`);
+                            this.write(buf,`__TMP__=${this.getPop(state)}; `);
+                            this.write(buf,`${this.getPushStack(state)}__LONG_INT__(__TMP__,0);`);
                             this.newLine(buf);
                             break;
                         }
@@ -798,7 +819,7 @@ export class wasm2lua {
                         //////////////////////////////////////////////////////////////
                         case "br_if": {
                             this.write(buf,"if ");
-                            this.write(buf,this.getPop());
+                            this.write(buf,this.getPop(state));
                             this.write(buf,"~=0 then ");
 
                             let blocksToExit = (ins.args[0] as NumberLiteral).value;
@@ -853,10 +874,10 @@ export class wasm2lua {
 
                             if(targ) {
                                 this.write(buf,"__TMP__ = ");
-                                this.write(buf,this.getPop());
+                                this.write(buf,this.getPop(state));
                                 this.write(buf,"; ");
                                 this.write(buf,"__TMP2__ = ");
-                                this.write(buf,this.getPop());
+                                this.write(buf,this.getPop(state));
                                 this.write(buf,"; ");
 
                                 if (ins.object == "u32") {
@@ -872,6 +893,12 @@ export class wasm2lua {
                                     this.write(buf,`(${targ},__TMP2__+${(ins.args[0] as NumberLiteral).value},__TMP__);`);
                                 } else if (ins.object == "u64") {
                                     this.write(buf,`__TMP__:${ins.id}(${targ},__TMP2__+${(ins.args[0] as NumberLiteral).value});`);
+                                } else if (ins.object == "f32") {
+                                    this.write(buf,"__MEMORY_WRITE_32F__");
+                                    this.write(buf,`(${targ},__TMP2__+${(ins.args[0] as NumberLiteral).value},__TMP__);`);
+                                } else if (ins.object == "f64") {
+                                    this.write(buf,"__MEMORY_WRITE_64F__");
+                                    this.write(buf,`(${targ},__TMP2__+${(ins.args[0] as NumberLiteral).value},__TMP__);`);
                                 } else {
                                     this.write(buf,"-- WARNING: UNSUPPORTED MEMORY OP ON TYPE: "+ins.object);
                                 }
@@ -907,7 +934,7 @@ export class wasm2lua {
                                     else {
                                         this.write(buf,"__MEMORY_READ_32__");
                                     }
-                                    this.write(buf,`(${targ},${this.getPop()}+${(ins.args[0] as NumberLiteral).value});`);
+                                    this.write(buf,`(${targ},${this.getPop(state)}+${(ins.args[0] as NumberLiteral).value});`);
                                     if (ins.id.endsWith("_s")) {
                                         // Signed loads don't actually work.
                                         throw new Error("signed load");
@@ -917,13 +944,19 @@ export class wasm2lua {
                                     if (ins.id != "load") {
                                         throw new Error("narrow u64 loads NYI");
                                     }
-                                    this.write(buf,`__LONG_INT__(0,0); __TMP__:${ins.id}(${targ},${this.getPop()}+${(ins.args[0] as NumberLiteral).value});`);
+                                    this.write(buf,`__LONG_INT__(0,0); __TMP__:${ins.id}(${targ},${this.getPop(state)}+${(ins.args[0] as NumberLiteral).value});`);
+                                } else if (ins.object == "f32") {
+                                    this.write(buf,"__MEMORY_READ_32F__");
+                                    this.write(buf,`(${targ},${this.getPop(state)}+${(ins.args[0] as NumberLiteral).value});`);
+                                } else if (ins.object == "f64") {
+                                    this.write(buf,"__MEMORY_READ_64F__");
+                                    this.write(buf,`(${targ},${this.getPop(state)}+${(ins.args[0] as NumberLiteral).value});`);
                                 } else {
                                     this.write(buf,"0 -- WARNING: UNSUPPORTED MEMORY OP ON TYPE: "+ins.object);
                                     this.newLine(buf);
                                     break;
                                 }
-                                this.write(buf,this.getPushStack() + "__TMP__;");
+                                this.write(buf,this.getPushStack(state) + "__TMP__;");
                                 this.newLine(buf);
                             }
                             else {
@@ -937,8 +970,8 @@ export class wasm2lua {
                             let targ = state.modState.memoryAllocations.get(0);
                             // TODO: is target always 0?
 
-                            this.write(buf,`__TMP__ = __MEMORY_GROW__(${targ},__UNSIGNED__(${this.getPop()})); `);
-                            this.write(buf,`${this.getPushStack()}__TMP__;`);
+                            this.write(buf,`__TMP__ = __MEMORY_GROW__(${targ},__UNSIGNED__(${this.getPop(state)})); `);
+                            this.write(buf,`${this.getPushStack(state)}__TMP__;`);
                             this.newLine(buf);
                             break;
                         }
@@ -949,7 +982,7 @@ export class wasm2lua {
 
                             let nRets = state.funcType ? state.funcType.results.length : 0;
                             for(let i=0;i < nRets;i++) {
-                                this.write(buf,this.getPop());
+                                this.write(buf,this.getPop(state));
                                 if(nRets !== (i + 1)) {
                                     this.write(buf,",");
                                 }
@@ -990,7 +1023,7 @@ export class wasm2lua {
                         this.write(buf,fstate.id + "(");
                         let args: string[] = [];
                         for(let i=0;i < fstate.funcType.params.length;i++) {
-                            args.push(this.getPop());
+                            args.push(this.getPop(state));
                         }
                         this.write(buf,args.reverse().join(","));
                         this.write(buf,")");
@@ -998,12 +1031,12 @@ export class wasm2lua {
                         if(fstate.funcType.results.length > 1) {
                             this.write(buf,"};");
                             for(let i=0;i < fstate.funcType.results.length;i++) {
-                                this.write(buf,this.getPushStack());
+                                this.write(buf,this.getPushStack(state));
                                 this.write(buf,"__TMP__[" + (i+1) + "];");
                             }
                         }
                         else {
-                            this.write(buf,"; " + this.getPushStack() + " __TMP__;");
+                            this.write(buf,"; " + this.getPushStack(state) + " __TMP__;");
                         }
 
                         this.newLine(buf);
@@ -1037,7 +1070,7 @@ export class wasm2lua {
                     }
 
                     this.write(buf,"if ");
-                    this.write(buf,this.getPop());
+                    this.write(buf,this.getPop(state));
                     this.write(buf," then");
                     
                     this.beginBlock(buf,state,{
@@ -1169,7 +1202,8 @@ export class wasm2lua {
 // let infile  = process.argv[2] || (__dirname + "/../test/ammo.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
-let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
+let infile  = process.argv[2] || (__dirname + "/../test/testswitch.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
 let whitelist = process.argv[4] ? process.argv[4].split(",") : null;
 
