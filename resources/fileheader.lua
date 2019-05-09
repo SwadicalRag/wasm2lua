@@ -105,15 +105,15 @@ __LONG_INT_CLASS__ = {
             local low = self[1]
             local high = self[2]
 
-            mem.data[loc]     = bit.band(low,0xFF)
-            mem[loc + 1] = bit.band(bit.rshift(low,8),0xFF)
-            mem[loc + 2] = bit.band(bit.rshift(low,16),0xFF)
-            mem[loc + 3] = bit.band(bit.rshift(low,24),0xFF)
+            __MEMORY_WRITE_32__(mem,loc,low)
+            __MEMORY_WRITE_32__(mem,loc+4,high)
+        end,
+        load = function(self,mem,loc)
+            local low =  __MEMORY_READ_32__(mem,loc)
+            local high = __MEMORY_READ_32__(mem,loc+4)
 
-            mem[loc + 4] = bit.band(high,0xFF)
-            mem[loc + 5] = bit.band(bit.rshift(high,8),0xFF)
-            mem[loc + 6] = bit.band(bit.rshift(high,16),0xFF)
-            mem[loc + 7] = bit.band(bit.rshift(high,24),0xFF)
+            self[1] = low
+            self[2] = high
         end,
         _shl = function(a,b)
             local shift = b[1]
