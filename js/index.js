@@ -141,6 +141,7 @@ class wasm2lua {
             funcStates: [],
             funcByName: new Map(),
             memoryAllocations: new ArrayMap(),
+            func_tables: [],
             nextGlobalIndex: 0
         };
         if (node.id) {
@@ -223,7 +224,30 @@ class wasm2lua {
                 state.nextGlobalIndex++;
             }
             else if (field.type == "Elem") {
-                console.log(">>>", field);
+                let table_index = field.table.value;
+                this.write(buf, `local __TABLE_FUNCS_${table_index}__, __TABLE_OFFSET_${table_index}__;`);
+                this.newLine(buf);
+                this.write(buf, "do");
+                this.indent();
+                this.newLine(buf);
+                this.write(buf, FUNC_VAR_HEADER);
+                this.newLine(buf);
+                let global_init_state = {
+                    id: "__TABLE_INIT__",
+                    locals: [],
+                    blocks: [],
+                    varRemaps: new Map(),
+                    stackData: [],
+                    stackLevel: 1,
+                };
+                this.write(buf, this.processInstructions(field.offset, global_init_state));
+                this.write(buf, `__TABLE_OFFSET_${table_index}__ = ` + this.getPop(global_init_state) + " - 1;");
+                this.newLine(buf);
+                this.outdent(buf);
+                this.newLine(buf);
+                this.write(buf, "end");
+                this.newLine(buf);
+                state.func_tables[table_index] = field.funcs;
             }
             else if (field.type == "Data") {
                 if (field.memoryIndex && field.memoryIndex.type == "NumberLiteral") {
@@ -254,6 +278,19 @@ class wasm2lua {
                 this.newLine(buf);
             });
         }
+        state.func_tables.forEach((table, table_index) => {
+            this.write(buf, `__TABLE_FUNCS_${table_index}__ = {`);
+            let func_ids = table.map((func_index) => {
+                let fstate = this.getFuncByIndex(state, func_index);
+                if (!fstate) {
+                    throw new Error("Unresolved table entry #" + func_index);
+                }
+                return fstate.id;
+            });
+            this.write(buf, func_ids.join(","));
+            this.write(buf, "};");
+            this.newLine(buf);
+        });
         return buf.join("");
     }
     processModuleMetadataSection(node) {
@@ -270,6 +307,9 @@ class wasm2lua {
             }
             else if (modState.funcByName.get(`func_u${index.value}`)) {
                 return modState.funcByName.get(`func_u${index.value}`);
+            }
+            else {
+                return modState.funcStates[index.value] || false;
             }
         }
         else {
@@ -776,33 +816,24 @@ class wasm2lua {
                 case "CallInstruction": {
                     let fstate = this.getFuncByIndex(state.modState, ins.index);
                     if (fstate && fstate.funcType) {
-                        if (fstate.funcType.results.length > 1) {
-                            this.write(buf, "__TMP__ = {");
-                        }
-                        else {
-                            this.write(buf, "__TMP__ = ");
-                        }
-                        this.write(buf, fstate.id + "(");
-                        let args = [];
-                        for (let i = 0; i < fstate.funcType.params.length; i++) {
-                            args.push(this.getPop(state));
-                        }
-                        this.write(buf, args.reverse().join(","));
-                        this.write(buf, ")");
-                        if (fstate.funcType.results.length > 1) {
-                            this.write(buf, "};");
-                            for (let i = 0; i < fstate.funcType.results.length; i++) {
-                                this.write(buf, this.getPushStack(state));
-                                this.write(buf, "__TMP__[" + (i + 1) + "];");
-                            }
-                        }
-                        else {
-                            this.write(buf, "; " + this.getPushStack(state) + " __TMP__;");
-                        }
+                        this.writeFunctionCall(state, buf, fstate.id, fstate.funcType);
                         this.newLine(buf);
                     }
                     else {
                         this.write(buf, `error("UNRESOLVED CALL: ${ins.index.value}")`);
+                        this.newLine(buf);
+                    }
+                    break;
+                }
+                case "CallIndirectInstruction": {
+                    let table_index = 0;
+                    let func = `__TABLE_FUNCS_${table_index}__[__TABLE_OFFSET_${table_index}__+${this.getPop(state)}]`;
+                    if (ins.signature.type == "Signature") {
+                        this.writeFunctionCall(state, buf, func, ins.signature);
+                        this.newLine(buf);
+                    }
+                    else {
+                        this.write(buf, `error("BAD SIGNATURE ON INDIRECT CALL?")`);
                         this.newLine(buf);
                     }
                     break;
@@ -858,6 +889,31 @@ class wasm2lua {
             }
         }
         return buf.join("");
+    }
+    writeFunctionCall(state, buf, func, sig) {
+        if (sig.results.length > 1) {
+            this.write(buf, "__TMP__ = {");
+        }
+        else {
+            this.write(buf, "__TMP__ = ");
+        }
+        this.write(buf, func + "(");
+        let args = [];
+        for (let i = 0; i < sig.params.length; i++) {
+            args.push(this.getPop(state));
+        }
+        this.write(buf, args.reverse().join(","));
+        this.write(buf, ")");
+        if (sig.results.length > 1) {
+            this.write(buf, "};");
+            for (let i = 0; i < sig.results.length; i++) {
+                this.write(buf, this.getPushStack(state));
+                this.write(buf, "__TMP__[" + (i + 1) + "];");
+            }
+        }
+        else {
+            this.write(buf, "; " + this.getPushStack(state) + " __TMP__;");
+        }
     }
     processModuleExport(node, modState) {
         let buf = [];
