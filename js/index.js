@@ -98,7 +98,7 @@ class wasm2lua {
         func.stackLevel++;
         if (typeof stackExpr !== "undefined") {
             func.stackData.push(stackExpr);
-            return "";
+            return `__STACK__[${func.stackLevel - 1}] = ${stackExpr}`;
         }
         else {
             func.stackData.push(false);
@@ -109,7 +109,7 @@ class wasm2lua {
         let lastData = func.stackData.pop();
         func.stackLevel--;
         if (lastData !== false) {
-            return lastData;
+            return `__STACK__[${func.stackLevel}]`;
         }
         else {
             return `__STACK__[${func.stackLevel}]`;
@@ -956,7 +956,7 @@ wasm2lua.instructionBinOpFuncRemap = {
     rotr: "bot.ror"
 };
 exports.wasm2lua = wasm2lua;
-let infile = process.argv[2] || (__dirname + "/../test/testswitch.wasm");
+let infile = process.argv[2] || (__dirname + "/../test/test.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
 let whitelist = process.argv[4] ? process.argv[4].split(",") : null;
 let wasm = fs.readFileSync(infile);

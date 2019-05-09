@@ -181,11 +181,21 @@ export class wasm2lua {
     }
 
     getPushStack(func: WASMFuncState,stackExpr?: string) {
+        // if(true) {
+        //     if(typeof stackExpr !== "undefined") {
+        //         return `__STACK__[#__STACK__ + 1] = ${stackExpr};`;
+        //     }
+        //     else {
+        //         return `__STACK__[#__STACK__ + 1] = `;
+        //     }
+        // }
+
         func.stackLevel++;
         if(typeof stackExpr !== "undefined") {
             func.stackData.push(stackExpr);
             // return `--[[VIRTUAL PUSH TO ${this.stackLevel-1}]]`;
-            return "";
+            return `__STACK__[${func.stackLevel-1}] = ${stackExpr}`;
+            // return "";
         }
         else {
             func.stackData.push(false);
@@ -194,11 +204,16 @@ export class wasm2lua {
     }
 
     getPop(func: WASMFuncState) {
+        // if(true) {
+        //     return `__STACK_POP__(__STACK__)`;
+        // }
+        
         let lastData = func.stackData.pop();
         func.stackLevel--;
         if(lastData !== false) {
             // return `--[[VIRTUAL POP TO ${this.stackLevel}]] ${lastData}`;
-            return lastData;
+            return `__STACK__[${func.stackLevel}]`;
+            // return lastData;
         }
         else {
             return `__STACK__[${func.stackLevel}]`;
@@ -1202,8 +1217,12 @@ export class wasm2lua {
 // let infile  = process.argv[2] || (__dirname + "/../test/ammo.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
-// let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
-let infile  = process.argv[2] || (__dirname + "/../test/testswitch.wasm");
+let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/testorder.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/testorder2.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/testorder3.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/testorder5.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/testswitch.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
 let whitelist = process.argv[4] ? process.argv[4].split(",") : null;
 
