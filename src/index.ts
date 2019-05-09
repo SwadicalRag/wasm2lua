@@ -993,7 +993,8 @@ export class wasm2lua {
 
                             if(targ) {
                                 this.write(buf,"__TMP__ = ");
-                                if (ins.object == "u32") {
+                                let is_narrow_u64_load = (ins.object == "u64" && ins.id != "load");
+                                if (ins.object == "u32" || is_narrow_u64_load) {
                                     if (ins.id.startsWith("load16")) {
                                         this.write(buf,"__MEMORY_READ_16__");
                                     }
@@ -1004,16 +1005,25 @@ export class wasm2lua {
                                         this.write(buf,"__MEMORY_READ_32__");
                                     }
                                     this.write(buf,`(${targ},${this.getPop(state)}+${(ins.args[0] as NumberLiteral).value});`);
-                                    if (ins.id.endsWith("_s")) {
-                                        // Signed loads don't actually work.
-                                        throw new Error("signed load");
+                                    if (ins.id.endsWith("_s") && ins.id != "load32_s") {
+                                        let shift: number;
+                                        if (ins.id == "load8_s") {
+                                            shift = 24;
+                                        } else if (ins.id == "load16_s") {
+                                            shift = 16;
+                                        } else {
+                                            throw new Error("signed load "+ins.id);
+                                        }
+
+                                        this.write(buf,`__TMP__=bit.arshift(bit.lshift(__TMP__,${shift}),${shift});`);
                                     }
                                 } else if (ins.object == "u64") {
                                     // todo rewrite this trash
-                                    if (ins.id != "load") {
-                                        throw new Error("narrow u64 loads NYI");
+                                    if (ins.id == "load") {
+                                        this.write(buf,`__LONG_INT__(0,0); __TMP__:${ins.id}(${targ},${this.getPop(state)}+${(ins.args[0] as NumberLiteral).value});`);
+                                    } else {
+                                        throw new Error("narrow u64 loads NYI "+ins.id);
                                     }
-                                    this.write(buf,`__LONG_INT__(0,0); __TMP__:${ins.id}(${targ},${this.getPop(state)}+${(ins.args[0] as NumberLiteral).value});`);
                                 } else if (ins.object == "f32") {
                                     this.write(buf,"__MEMORY_READ_32F__");
                                     this.write(buf,`(${targ},${this.getPop(state)}+${(ins.args[0] as NumberLiteral).value});`);
@@ -1025,6 +1035,15 @@ export class wasm2lua {
                                     this.newLine(buf);
                                     break;
                                 }
+
+                                if (is_narrow_u64_load) {
+                                    if (ins.id.endsWith("_s")) {
+                                        this.write(buf,"__TMP__=__LONG_INT__(__TMP__,-1);");
+                                    } else {
+                                        this.write(buf,"__TMP__=__LONG_INT__(__TMP__,0);");
+                                    }
+                                }
+
                                 this.write(buf,this.getPushStack(state) + "__TMP__;");
                                 this.newLine(buf);
                             }
