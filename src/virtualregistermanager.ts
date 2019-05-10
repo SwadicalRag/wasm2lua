@@ -5,6 +5,8 @@ export interface VirtualRegister {
     firstRef?: number;
     lastRef?: number;
 
+    stackEntryCount: number;
+
     // UNUSED
     refs: number;
 };
@@ -35,6 +37,7 @@ export class VirtualRegisterManager {
             id: this.getNextFreeRegisterID(),
             name,
             refs: 0,
+            stackEntryCount: 0,
         };
 
         this.namedRegisters.set(name,reg);
@@ -54,6 +57,7 @@ export class VirtualRegisterManager {
             id: this.getNextFreeRegisterID(),
             name: "temp",
             refs: 0,
+            stackEntryCount: 0,
         };
 
         this.registers.push(reg);

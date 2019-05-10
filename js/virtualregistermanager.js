@@ -22,6 +22,7 @@ class VirtualRegisterManager {
             id: this.getNextFreeRegisterID(),
             name,
             refs: 0,
+            stackEntryCount: 0,
         };
         this.namedRegisters.set(name, reg);
         this.registers.push(reg);
@@ -37,6 +38,7 @@ class VirtualRegisterManager {
             id: this.getNextFreeRegisterID(),
             name: "temp",
             refs: 0,
+            stackEntryCount: 0,
         };
         this.registers.push(reg);
         this.registerCache.push(reg);
