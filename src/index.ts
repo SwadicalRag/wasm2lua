@@ -92,6 +92,9 @@ interface WASMFuncState {
 interface WASMBlockState {
     id: string;
     blockType: "block" | "loop" | "if";
+    resultRegister?: VirtualRegister;
+    resultType?: Valtype | null;
+    enterStackLevel: number; // used to check if we left a block with an extra item in the stack
     hasClosed?: true;
 }
 
@@ -200,6 +203,10 @@ export class wasm2lua {
         // if(true) {
         //     return `__STACK_POP__(__STACK__)`;
         // }
+
+        if(func.stackLevel == 1) {
+            throw new Error("attempt to pop below zero");
+        }
         
         let lastData = func.stackData.pop();
         func.stackLevel--;
@@ -684,20 +691,48 @@ export class wasm2lua {
 
         let block = state.blocks.pop();
         if(block) {
-            this.endBlockInternal(buf,block);
+            this.endBlockInternal(buf,block,state);
+
+            if(state.stackLevel > block.enterStackLevel) {
+                this.writeLn(buf,"-- WARNING: a block as popped extra information into the stack.")
+            }
+
             return true;
         }
 
         return false;
     }
 
-    endBlockInternal(buf: string[],block: WASMBlockState) {
+    endBlockInternal(buf: string[],block: WASMBlockState,state: WASMFuncState) {
         block.hasClosed = true;
         this.outdent(buf);
         this.write(buf,"end");
         this.newLine(buf);
         this.write(buf,sanitizeIdentifier(`::${block.id}_fin::`));
         this.newLine(buf);
+
+        if(block.blockType == "loop") {
+            // reset stack to normal layout
+            let popCnt = state.stackLevel - block.enterStackLevel;
+            for(let i=0;i < popCnt;i++) {
+                this.getPop(state);
+            }
+        }
+        else if((block.blockType == "block") || (block.blockType == "if")) {
+            // these blocks can return stuff
+            if(block.resultType !== null) {
+                this.write(buf,state.regManager.getPhysicalRegisterName(block.resultRegister) + " = " + this.getPop(state));
+                this.newLine(buf);
+                this.writeLn(buf,this.getPushStack(state,block.resultRegister));
+                this.writeLn(buf,"-- BLOCK RET")
+            }
+            
+            // reset stack to normal layout
+            let popCnt = state.stackLevel - block.enterStackLevel;
+            for(let i=0;i < popCnt;i++) {
+                this.getPop(state);
+            }
+        }
     }
 
     processInstructions(insArr: Instruction[],state: WASMFuncState) {
@@ -1221,10 +1256,16 @@ export class wasm2lua {
                 case "LoopInstruction": {
                     let blockType: "loop"|"block" = (ins.type == "LoopInstruction") ? "loop" : "block";
 
-                    this.beginBlock(buf,state,{
+                    let block = this.beginBlock(buf,state,{
                         id: ins.label.value,
+                        resultType: (ins.type == "LoopInstruction") ? null : ins.result, 
                         blockType,
+                        enterStackLevel: state.stackLevel,
                     });
+
+                    if(block.resultType !== null) {
+                        block.resultRegister = state.regManager.createTempRegister();
+                    }
 
                     this.write(buf,this.processInstructions(ins.instr,state));
                     break;
@@ -1241,7 +1282,13 @@ export class wasm2lua {
                     let ifBlock = this.beginBlock(buf,state,{
                         id: `if_${ins.loc.start.line}_${ins.loc.start.column}`,
                         blockType: "if",
+                        resultType: ins.result,
+                        enterStackLevel: state.stackLevel,
                     },`if ${this.getPop(state)} then`);
+
+                    if(ifBlock.resultType !== null) {
+                        ifBlock.resultRegister = state.regManager.createTempRegister();
+                    }
 
                     this.write(buf,this.processInstructions(ins.consequent,state));
                     
@@ -1280,13 +1327,6 @@ export class wasm2lua {
         //////////////////////////////////////////////////////////////
 
         let t_buf: string[] = [];
-
-        if(!state.funcType) {
-            console.log("Error: funcType not found")
-        }
-        else {
-            console.log(state.funcType.params.length);
-        }
 
         if((state.regManager.totalRegisters - (state.funcType ? state.funcType.params.length : 0)) > 0) {
             this.write(t_buf,"local ");
@@ -1417,12 +1457,12 @@ export class wasm2lua {
 }
 
 // Allow custom in/out file while defaulting to swad's meme :)
-let infile  = process.argv[2] || (__dirname + "/../test/addTwo.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/addTwo.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/ammo.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
-// let infile  = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
+let infile  = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testorder.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testorder2.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testorder3.wasm");

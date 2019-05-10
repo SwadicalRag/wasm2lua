@@ -98,6 +98,9 @@ class wasm2lua {
         }
     }
     getPop(func) {
+        if (func.stackLevel == 1) {
+            throw new Error("attempt to pop below zero");
+        }
         let lastData = func.stackData.pop();
         func.stackLevel--;
         if (typeof lastData === "string") {
@@ -464,18 +467,39 @@ class wasm2lua {
     endBlock(buf, state) {
         let block = state.blocks.pop();
         if (block) {
-            this.endBlockInternal(buf, block);
+            this.endBlockInternal(buf, block, state);
+            if (state.stackLevel > block.enterStackLevel) {
+                this.writeLn(buf, "-- WARNING: a block as popped extra information into the stack.");
+            }
             return true;
         }
         return false;
     }
-    endBlockInternal(buf, block) {
+    endBlockInternal(buf, block, state) {
         block.hasClosed = true;
         this.outdent(buf);
         this.write(buf, "end");
         this.newLine(buf);
         this.write(buf, sanitizeIdentifier(`::${block.id}_fin::`));
         this.newLine(buf);
+        if (block.blockType == "loop") {
+            let popCnt = state.stackLevel - block.enterStackLevel;
+            for (let i = 0; i < popCnt; i++) {
+                this.getPop(state);
+            }
+        }
+        else if ((block.blockType == "block") || (block.blockType == "if")) {
+            if (block.resultType !== null) {
+                this.write(buf, state.regManager.getPhysicalRegisterName(block.resultRegister) + " = " + this.getPop(state));
+                this.newLine(buf);
+                this.writeLn(buf, this.getPushStack(state, block.resultRegister));
+                this.writeLn(buf, "-- BLOCK RET");
+            }
+            let popCnt = state.stackLevel - block.enterStackLevel;
+            for (let i = 0; i < popCnt; i++) {
+                this.getPop(state);
+            }
+        }
     }
     processInstructions(insArr, state) {
         let buf = [];
@@ -929,10 +953,15 @@ class wasm2lua {
                 case "BlockInstruction":
                 case "LoopInstruction": {
                     let blockType = (ins.type == "LoopInstruction") ? "loop" : "block";
-                    this.beginBlock(buf, state, {
+                    let block = this.beginBlock(buf, state, {
                         id: ins.label.value,
+                        resultType: (ins.type == "LoopInstruction") ? null : ins.result,
                         blockType,
+                        enterStackLevel: state.stackLevel,
                     });
+                    if (block.resultType !== null) {
+                        block.resultRegister = state.regManager.createTempRegister();
+                    }
                     this.write(buf, this.processInstructions(ins.instr, state));
                     break;
                 }
@@ -946,7 +975,12 @@ class wasm2lua {
                     let ifBlock = this.beginBlock(buf, state, {
                         id: `if_${ins.loc.start.line}_${ins.loc.start.column}`,
                         blockType: "if",
+                        resultType: ins.result,
+                        enterStackLevel: state.stackLevel,
                     }, `if ${this.getPop(state)} then`);
+                    if (ifBlock.resultType !== null) {
+                        ifBlock.resultRegister = state.regManager.createTempRegister();
+                    }
                     this.write(buf, this.processInstructions(ins.consequent, state));
                     this.endBlocksUntil(buf, state, ifBlock);
                     if (ins.alternate.length > 0) {
@@ -970,12 +1004,6 @@ class wasm2lua {
     }
     processInstructionsPass3(insArr, state) {
         let t_buf = [];
-        if (!state.funcType) {
-            console.log("Error: funcType not found");
-        }
-        else {
-            console.log(state.funcType.params.length);
-        }
         if ((state.regManager.totalRegisters - (state.funcType ? state.funcType.params.length : 0)) > 0) {
             this.write(t_buf, "local ");
             for (let i = (state.funcType ? state.funcType.params.length : 0); i < state.regManager.totalRegisters; i++) {
@@ -1114,7 +1142,7 @@ wasm2lua.instructionBinOpFuncRemap = {
     rotr: "bot.ror"
 };
 exports.wasm2lua = wasm2lua;
-let infile = process.argv[2] || (__dirname + "/../test/addTwo.wasm");
+let infile = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
 let whitelist = process.argv[4] ? process.argv[4].split(",") : null;
 let wasm = fs.readFileSync(infile);
