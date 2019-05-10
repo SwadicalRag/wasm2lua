@@ -932,6 +932,40 @@ export class wasm2lua {
                             this.newLine(buf);
                             break;
                         }
+                        case "br_table": {
+                            this.write(buf,`__TMP__ = ${this.getPop(state)};`);
+                            this.newLine(buf);
+                            let arg_count = ins.args.length;
+                            ins.args.forEach((target,i)=>{
+                                let blocksToExit = (target as NumberLiteral).value;
+                                let targetBlock = state.blocks[state.blocks.length - blocksToExit - 1];
+
+                                if(targetBlock) {
+                                    if (i!=0) {
+                                        this.write(buf,"else");
+                                    }
+                                    if (i<arg_count-1) {
+                                        this.write(buf,`if __TMP__ == ${i} then goto `);
+                                    } else {
+                                        this.write(buf," goto ");
+                                    }
+                                    if(targetBlock.blockType == "loop") {
+                                        this.write(buf,`${targetBlock.id}_start`);
+                                    }
+                                    else {
+                                        this.write(buf,`${targetBlock.id}_fin`);
+                                    }
+                                }
+                                else {
+                                    this.write(buf,"goto ____UNRESOLVED_DEST____");
+                                }
+    
+                                this.write(buf,";");
+                                this.newLine(buf);
+                            });
+                            this.write(buf,"end");
+                            this.newLine(buf);
+                        }
                         // Memory
                         //////////////////////////////////////////////////////////////
                         case "store":
