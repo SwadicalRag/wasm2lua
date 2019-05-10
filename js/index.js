@@ -86,11 +86,11 @@ class wasm2lua {
         func.stackLevel++;
         if (typeof stackExpr === "string") {
             func.stackData.push(stackExpr);
-            return "";
+            return `--[[VIRTUAL PUSH TO ${func.stackLevel - 1}]]`;
         }
         else if (typeof stackExpr === "object") {
             func.stackData.push(stackExpr);
-            return "";
+            return `--[[VIRTUAL REG PUSH TO ${func.stackLevel - 1}]]`;
         }
         else {
             func.stackData.push(false);
@@ -104,11 +104,11 @@ class wasm2lua {
         let lastData = func.stackData.pop();
         func.stackLevel--;
         if (typeof lastData === "string") {
-            return lastData;
+            return `--[[VIRTUAL POP TO ${func.stackLevel - 1}]] ${lastData}`;
         }
         else if (typeof lastData === "object") {
             func.regManager.freeRegister(lastData);
-            return func.regManager.getPhysicalRegisterName(lastData);
+            return `--[[VIRTUAL REG POP TO ${func.stackLevel - 1}]] ${func.regManager.getPhysicalRegisterName(lastData)}`;
         }
         else {
             return `__STACK__[${func.stackLevel}]`;
@@ -701,14 +701,27 @@ class wasm2lua {
                             break;
                         }
                         case "select": {
-                            this.write(buf, "__TMP__ = ");
+                            let popCondVar = state.regManager.createTempRegister();
+                            let retVar1 = state.regManager.createTempRegister();
+                            let retVar2 = state.regManager.createTempRegister();
+                            let resultVar = state.regManager.createTempRegister();
+                            this.write(buf, state.regManager.getPhysicalRegisterName(popCondVar) + " = ");
                             this.write(buf, this.getPop(state));
                             this.write(buf, "; ");
-                            this.write(buf, "if __TMP__==0 then ");
-                            this.write(buf, "__TMP2__=" + this.getPop(state) + "; ");
-                            this.stackDrop(state);
-                            this.write(buf, this.getPushStack(state) + "__TMP2__ ");
+                            this.write(buf, state.regManager.getPhysicalRegisterName(retVar1) + " = ");
+                            this.write(buf, this.getPop(state));
+                            this.write(buf, "; ");
+                            this.write(buf, state.regManager.getPhysicalRegisterName(retVar2) + " = ");
+                            this.write(buf, this.getPop(state));
+                            this.write(buf, "; ");
+                            this.write(buf, `if ${state.regManager.getPhysicalRegisterName(popCondVar)} == 0 then `);
+                            this.write(buf, ` ${state.regManager.getPhysicalRegisterName(resultVar)} = ${state.regManager.getPhysicalRegisterName(retVar1)} `);
+                            this.write(buf, `else ${state.regManager.getPhysicalRegisterName(resultVar)} = ${state.regManager.getPhysicalRegisterName(retVar2)} `);
                             this.write(buf, "end;");
+                            state.regManager.freeRegister(popCondVar);
+                            state.regManager.freeRegister(retVar1);
+                            state.regManager.freeRegister(retVar2);
+                            this.write(buf, this.getPushStack(state, resultVar));
                             this.newLine(buf);
                             break;
                         }
