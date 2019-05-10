@@ -78,6 +78,9 @@ interface WASMModuleState {
 interface WASMFuncState {
     id: string;
     regManager: VirtualRegisterManager;
+    insLastRefs: number[];
+    insCountPass1: number;
+    insCountPass2: number;
     locals: VirtualRegister[];
     blocks: WASMBlockState[];
     varRemaps: Map<string,string>;
@@ -170,7 +173,7 @@ export class wasm2lua {
         this.newLine(buf);
     }
 
-    getPushStack(func: WASMFuncState,stackExpr?: string | VirtualRegister) {
+    getPushStack(func: WASMFuncState,stackExpr?: string | VirtualRegister,resolveRegister?: boolean) {
         // if(true) {
         //     if(typeof stackExpr !== "undefined") {
         //         return `__STACK__[#__STACK__ + 1] = ${stackExpr};`;
@@ -188,7 +191,13 @@ export class wasm2lua {
             // return "";
         }
         else if(typeof stackExpr === "object") {
-            func.stackData.push(stackExpr);
+            if(resolveRegister) {
+                func.stackData.push(func.regManager.getPhysicalRegisterName(stackExpr));
+            }
+            else {
+                func.stackData.push(stackExpr);
+            }
+
             return `--[[VIRTUAL REG PUSH TO ${func.stackLevel-1}]]`;
             // return `__STACK__[${func.stackLevel-1}] = ${func.regManager.getPhysicalRegisterName(stackExpr)}`;
             // return "";
@@ -344,12 +353,16 @@ export class wasm2lua {
                     locals: [],
                     blocks: [],
                     regManager: new VirtualRegisterManager(),
+                    insLastRefs: [],
+                    insCountPass1: 0,
+                    insCountPass2: 0,
                     varRemaps: new Map(),
                     stackData: [],
                     stackLevel: 1,
                 };
 
-                this.write(buf,this.processInstructions(field.init,global_init_state));
+                this.processInstructionsPass1(field.init,global_init_state)
+                this.write(buf,this.processInstructionsPass2(field.init,global_init_state));
                 this.writeEx(buf,this.processInstructionsPass3(field.init,global_init_state),-1);
 
                 this.write(buf,"__GLOBALS__["+state.nextGlobalIndex+"] = "+this.getPop(global_init_state)+";");
@@ -382,13 +395,17 @@ export class wasm2lua {
                     id: "__TABLE_INIT__", 
                     locals: [],
                     regManager: new VirtualRegisterManager(),
+                    insCountPass1: 0,
+                    insCountPass2: 0,
+                    insLastRefs: [],
                     blocks: [],
                     varRemaps: new Map(),
                     stackData: [],
                     stackLevel: 1,
                 };
 
-                this.write(buf,this.processInstructions(field.offset,global_init_state));
+                this.processInstructionsPass1(field.offset,global_init_state)
+                this.write(buf,this.processInstructionsPass2(field.offset,global_init_state));
                 this.writeEx(buf,this.processInstructionsPass3(field.offset,global_init_state),-1);
 
                 // bias the table offset so we can just use lua table indexing like lazy bastards
@@ -509,6 +526,9 @@ export class wasm2lua {
         let fstate: WASMFuncState = {
             id: renameTo ? renameTo : sanitizeIdentifier(funcID),
             regManager: new VirtualRegisterManager(),
+            insLastRefs: [],
+            insCountPass1: 0,
+            insCountPass2: 0,
             locals: [],
             blocks: [],
             varRemaps: new Map(),
@@ -584,8 +604,8 @@ export class wasm2lua {
         this.write(buf,FUNC_VAR_HEADER);
         this.newLine(buf);
 
-        // PASS 1 & 2
-        this.write(buf,this.processInstructions(node.body,state));
+        this.processInstructionsPass1(node.body,state)
+        this.write(buf,this.processInstructionsPass2(node.body,state));
         this.writeEx(buf,this.processInstructionsPass3(node.body,state),-1);
 
         this.endAllBlocks(buf,state);
@@ -735,51 +755,67 @@ export class wasm2lua {
         }
     }
 
-    processInstructions(insArr: Instruction[],state: WASMFuncState) {
-        let buf = [];
-
+    processInstructionsPass1(insArr: Instruction[],state: WASMFuncState) {
         // PASS 1: compute local variable bounds to convert them into efficient virtual registers
         //////////////////////////////////////////////////////////////
 
-        let insCount = 0;
-        let insLastRefs: number[] = [];
         for(let ins of insArr) {
-            insCount++;
+            state.insCountPass1++;
 
-            if(ins.type == "Instr") {
-                switch(ins.id) {
-                    case "local": {
-                        // no-op (i think)
-                        break;
+            switch(ins.type) {
+                case "Instr": {
+                    switch(ins.id) {
+                        case "local": {
+                            // no-op (i think)
+                            break;
+                        }
+                        case "get_local": {
+                            let locID = (ins.args[0] as NumberLiteral).value;
+                            state.insLastRefs[locID] = state.insCountPass1;
+                            
+                            break;
+                        }
+                        case "set_local": {
+                            let locID = (ins.args[0] as NumberLiteral).value;
+                            state.insLastRefs[locID] = state.insCountPass1;
+                            
+                            break;
+                        }
+                        case "tee_local": {
+                            let locID = (ins.args[0] as NumberLiteral).value;
+                            state.insLastRefs[locID] = state.insCountPass1;
+                            
+                            break;
+                        }
                     }
-                    case "get_local": {
-                        let locID = (ins.args[0] as NumberLiteral).value;
-                        insLastRefs[locID] = insCount;
-                        
-                        break;
+                    break;
+                }
+                case "BlockInstruction":
+                case "LoopInstruction": {
+                    this.processInstructionsPass1(ins.instr,state)
+                    break;
+                }
+                case "IfInstruction": {
+                    this.processInstructionsPass1(ins.consequent,state)
+                    
+                    if(ins.alternate.length > 0) {
+                        this.processInstructionsPass1(ins.alternate,state)
                     }
-                    case "set_local": {
-                        let locID = (ins.args[0] as NumberLiteral).value;
-                        insLastRefs[locID] = insCount;
-                        
-                        break;
-                    }
-                    case "tee_local": {
-                        let locID = (ins.args[0] as NumberLiteral).value;
-                        insLastRefs[locID] = insCount;
-                        
-                        break;
-                    }
+                    
+                    break;
                 }
             }
         }
+    }
+
+    processInstructionsPass2(insArr: Instruction[],state: WASMFuncState) {
+        let buf = [];
 
         // PASS 2: emit instructions
         //////////////////////////////////////////////////////////////
         
-        insCount = 0;
         for(let ins of insArr) {
-            insCount++;
+            state.insCountPass2++;
 
             // if(ins.type == "Instr") {
             //     this.write(buf,"-- LOOK "+ins.id+" "+JSON.stringify(ins));
@@ -823,15 +859,11 @@ export class wasm2lua {
                             let locID = (ins.args[0] as NumberLiteral).value;
                             if(!state.locals[locID]) {
                                 state.locals[locID] = state.regManager.createRegister(`loc${locID}`);
-                                state.locals[locID].firstRef = insCount;
+                                state.locals[locID].firstRef = state.insCountPass2;
                             }
-                            state.locals[locID].lastRef = insCount;
+                            state.locals[locID].lastRef = state.insCountPass2;
 
-                            this.writeLn(buf,this.getPushStack(state,state.locals[locID]));
-
-                            if(insCount == insLastRefs[locID]) {
-                                state.regManager.freeRegister(state.locals[locID]);
-                            }
+                            this.writeLn(buf,this.getPushStack(state,state.locals[locID],true));
 
                             break;
                         }
@@ -839,17 +871,13 @@ export class wasm2lua {
                             let locID = (ins.args[0] as NumberLiteral).value;
                             if(!state.locals[locID]) {
                                 state.locals[locID] = state.regManager.createRegister(`loc${locID}`);
-                                state.locals[locID].firstRef = insCount;
+                                state.locals[locID].firstRef = state.insCountPass2;
                             }
-                            state.locals[locID].lastRef = insCount;
+                            state.locals[locID].lastRef = state.insCountPass2;
 
                             this.write(buf,state.regManager.getPhysicalRegisterName(state.locals[locID]));
                             this.write(buf," = "+this.getPop(state)+";");
                             this.newLine(buf);
-
-                            if(insCount == insLastRefs[locID]) {
-                                state.regManager.freeRegister(state.locals[locID]);
-                            }
 
                             break;
                         }
@@ -857,19 +885,15 @@ export class wasm2lua {
                             let locID = (ins.args[0] as NumberLiteral).value;
                             if(!state.locals[locID]) {
                                 state.locals[locID] = state.regManager.createRegister(`loc${locID}`);
-                                state.locals[locID].firstRef = insCount;
+                                state.locals[locID].firstRef = state.insCountPass2;
                             }
-                            state.locals[locID].lastRef = insCount;
+                            state.locals[locID].lastRef = state.insCountPass2;
 
                             // write local
                             this.write(buf,state.regManager.getPhysicalRegisterName(state.locals[locID]));
                             this.write(buf," = "+this.getPop(state)+" ; ");
                             // read back
-                            this.writeLn(buf,this.getPushStack(state,state.locals[locID]));
-
-                            if(insCount == insLastRefs[locID]) {
-                                state.regManager.freeRegister(state.locals[locID]);
-                            }
+                            this.writeLn(buf,this.getPushStack(state,state.locals[locID],true));
 
                             break;
                         }
@@ -1286,7 +1310,7 @@ export class wasm2lua {
                         block.resultRegister = state.regManager.createTempRegister();
                     }
 
-                    this.write(buf,this.processInstructions(ins.instr,state));
+                    this.write(buf,this.processInstructionsPass2(ins.instr,state));
                     break;
                 }
                 case "IfInstruction": {
@@ -1309,7 +1333,7 @@ export class wasm2lua {
                         ifBlock.resultRegister = state.regManager.createTempRegister();
                     }
 
-                    this.write(buf,this.processInstructions(ins.consequent,state));
+                    this.write(buf,this.processInstructionsPass2(ins.consequent,state));
                     
                     // sometimes blocks arent ended so we manually end em
                     this.endBlocksUntil(buf,state,ifBlock);
@@ -1320,7 +1344,7 @@ export class wasm2lua {
                         this.indent();
                         this.newLine(buf);
 
-                        this.write(buf,this.processInstructions(ins.alternate,state));
+                        this.write(buf,this.processInstructionsPass2(ins.alternate,state));
                     }
                     
                     this.endBlocksUntilEx(buf,state,ifBlock); // ditto above
@@ -1336,6 +1360,21 @@ export class wasm2lua {
             }
 
             // PASS 2B: kill unused variables
+            if(ins.type === "Instr") {
+                switch(ins.id) {
+                    case "get_local": 
+                    case "set_local": 
+                    case "tee_local": {
+                        let locID = (ins.args[0] as NumberLiteral).value;
+
+                        if(state.insCountPass2 >= state.insLastRefs[locID]) {
+                            state.regManager.freeRegister(state.locals[locID]);
+                        }
+
+                        break;
+                    }
+                }
+            }
         }
 
         return buf.join("");
