@@ -66,6 +66,12 @@ class wasm2lua {
         buf.push("\n" + (("    ").repeat(this.indentLevel)));
     }
     write(buf, str) { buf.push(str); }
+    writeLn(buf, str) {
+        if (str !== "") {
+            buf.push(str);
+            this.newLine(buf);
+        }
+    }
     writeEx(buf, str, offset) {
         if (offset < 0) {
             offset += buf.length;
@@ -78,9 +84,13 @@ class wasm2lua {
     }
     getPushStack(func, stackExpr) {
         func.stackLevel++;
-        if (typeof stackExpr !== "undefined") {
+        if (typeof stackExpr === "string") {
             func.stackData.push(stackExpr);
-            return `__STACK__[${func.stackLevel - 1}] = ${stackExpr}`;
+            return "";
+        }
+        else if (typeof stackExpr === "object") {
+            func.stackData.push(stackExpr);
+            return "";
         }
         else {
             func.stackData.push(false);
@@ -90,8 +100,12 @@ class wasm2lua {
     getPop(func) {
         let lastData = func.stackData.pop();
         func.stackLevel--;
-        if (lastData !== false) {
-            return `__STACK__[${func.stackLevel}]`;
+        if (typeof lastData === "string") {
+            return lastData;
+        }
+        else if (typeof lastData === "object") {
+            func.regManager.freeRegister(lastData);
+            return func.regManager.getPhysicalRegisterName(lastData);
         }
         else {
             return `__STACK__[${func.stackLevel}]`;
@@ -389,16 +403,18 @@ class wasm2lua {
         this.write(buf, this.processInstructions(node.body, state));
         this.writeEx(buf, this.processInstructionsPass3(node.body, state), -1);
         this.endAllBlocks(buf, state);
-        this.write(buf, "do return ");
-        let nRets = state.funcType ? state.funcType.results.length : 0;
-        for (let i = 0; i < nRets; i++) {
-            this.write(buf, this.getPop(state));
-            if (nRets !== (i + 1)) {
-                this.write(buf, ",");
+        if (state.stackLevel > 1) {
+            this.write(buf, "do return ");
+            let nRets = state.funcType ? state.funcType.results.length : 0;
+            for (let i = 0; i < nRets; i++) {
+                this.write(buf, this.getPop(state));
+                if (nRets !== (i + 1)) {
+                    this.write(buf, ",");
+                }
             }
+            this.write(buf, "; end;");
+            this.newLine(buf);
         }
-        this.write(buf, "; end;");
-        this.newLine(buf);
         this.outdent(buf);
         this.write(buf, "end");
         this.newLine(buf);
@@ -502,26 +518,22 @@ class wasm2lua {
                         case "const": {
                             if (ins.args[0].type == "LongNumberLiteral") {
                                 let _const = ins.args[0].value;
-                                this.write(buf, this.getPushStack(state, `__LONG_INT__(${_const.low},${_const.high})`));
-                                this.newLine(buf);
+                                this.writeLn(buf, this.getPushStack(state, `__LONG_INT__(${_const.low},${_const.high})`));
                             }
                             else {
                                 let _const = ins.args[0].value;
-                                this.write(buf, this.getPushStack(state, _const.toString()));
-                                this.newLine(buf);
+                                this.writeLn(buf, this.getPushStack(state, _const.toString()));
                             }
                             break;
                         }
                         case "get_global": {
                             let globID = ins.args[0].value;
-                            this.write(buf, this.getPushStack(state, "__GLOBALS__[" + globID + "]"));
-                            this.newLine(buf);
+                            this.writeLn(buf, this.getPushStack(state, "__GLOBALS__[" + globID + "]"));
                             break;
                         }
                         case "set_global": {
                             let globID = ins.args[0].value;
-                            this.write(buf, "__GLOBALS__[" + globID + "] = " + this.getPop(state) + ";");
-                            this.newLine(buf);
+                            this.writeLn(buf, "__GLOBALS__[" + globID + "] = " + this.getPop(state) + ";");
                             break;
                         }
                         case "get_local": {
@@ -531,8 +543,7 @@ class wasm2lua {
                                 state.locals[locID].firstRef = insCount;
                             }
                             state.locals[locID].lastRef = insCount;
-                            this.write(buf, this.getPushStack(state, state.regManager.getPhysicalRegisterName(state.locals[locID])));
-                            this.newLine(buf);
+                            this.writeLn(buf, this.getPushStack(state, state.locals[locID]));
                             if (insCount == insLastRefs[locID]) {
                                 state.regManager.freeRegister(state.locals[locID]);
                             }
@@ -562,19 +573,18 @@ class wasm2lua {
                             state.locals[locID].lastRef = insCount;
                             this.write(buf, state.regManager.getPhysicalRegisterName(state.locals[locID]));
                             this.write(buf, " = " + this.getPop(state) + " ; ");
-                            this.write(buf, this.getPushStack(state, state.regManager.getPhysicalRegisterName(state.locals[locID])));
-                            this.newLine(buf);
+                            this.writeLn(buf, this.getPushStack(state, state.locals[locID]));
                             if (insCount == insLastRefs[locID]) {
                                 state.regManager.freeRegister(state.locals[locID]);
                             }
                             break;
                         }
                         case "sqrt": {
-                            this.write(buf, this.getPushStack(state, `math.sqrt(${this.getPop(state)})`));
+                            this.writeLn(buf, this.getPushStack(state, `math.sqrt(${this.getPop(state)})`));
                             break;
                         }
                         case "neg": {
-                            this.write(buf, this.getPushStack(state, `-(${this.getPop(state)})`));
+                            this.writeLn(buf, this.getPushStack(state, `-(${this.getPop(state)})`));
                             break;
                         }
                         case "add":
@@ -1104,7 +1114,7 @@ wasm2lua.instructionBinOpFuncRemap = {
     rotr: "bot.ror"
 };
 exports.wasm2lua = wasm2lua;
-let infile = process.argv[2] || (__dirname + "/../test/ammo.wasm");
+let infile = process.argv[2] || (__dirname + "/../test/addTwo.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
 let whitelist = process.argv[4] ? process.argv[4].split(",") : null;
 let wasm = fs.readFileSync(infile);

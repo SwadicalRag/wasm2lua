@@ -86,7 +86,7 @@ interface WASMFuncState {
 
     // should probably go in funcstate (or more likely blockstate, but I couldn't be bothered to adjust stack methods.)
     stackLevel: number;
-    stackData: (string | false)[];
+    stackData: (string | VirtualRegister | false)[];
 }
 
 interface WASMBlockState {
@@ -151,6 +151,12 @@ export class wasm2lua {
     }
 
     write(buf: string[],str: string) {buf.push(str);}
+    writeLn(buf: string[],str: string) {
+        if(str !== "") {
+            buf.push(str);
+            this.newLine(buf);
+        }
+    }
     writeEx(buf: string[],str: string,offset: number) {
         if(offset < 0) {offset += buf.length;}
         buf.splice(offset,0,str);
@@ -161,7 +167,7 @@ export class wasm2lua {
         this.newLine(buf);
     }
 
-    getPushStack(func: WASMFuncState,stackExpr?: string) {
+    getPushStack(func: WASMFuncState,stackExpr?: string | VirtualRegister) {
         // if(true) {
         //     if(typeof stackExpr !== "undefined") {
         //         return `__STACK__[#__STACK__ + 1] = ${stackExpr};`;
@@ -172,11 +178,17 @@ export class wasm2lua {
         // }
 
         func.stackLevel++;
-        if(typeof stackExpr !== "undefined") {
+        if(typeof stackExpr === "string") {
             func.stackData.push(stackExpr);
             // return `--[[VIRTUAL PUSH TO ${this.stackLevel-1}]]`;
-            return `__STACK__[${func.stackLevel-1}] = ${stackExpr}`;
-            // return "";
+            // return `__STACK__[${func.stackLevel-1}] = ${stackExpr}`;
+            return "";
+        }
+        else if(typeof stackExpr === "object") {
+            func.stackData.push(stackExpr);
+            // return `--[[VIRTUAL REG PUSH TO ${this.stackLevel-1}]]`;
+            // return `__STACK__[${func.stackLevel-1}] = ${func.regManager.getPhysicalRegisterName(stackExpr)}`;
+            return "";
         }
         else {
             func.stackData.push(false);
@@ -191,10 +203,16 @@ export class wasm2lua {
         
         let lastData = func.stackData.pop();
         func.stackLevel--;
-        if(lastData !== false) {
-            // return `--[[VIRTUAL POP TO ${this.stackLevel}]] ${lastData}`;
-            return `__STACK__[${func.stackLevel}]`;
-            // return lastData;
+        if(typeof lastData === "string") {
+            // return `--[[VIRTUAL POP TO ${func.stackLevel}]] ${lastData}`;
+            // return `__STACK__[${func.stackLevel}]`;
+            return lastData;
+        }
+        else if(typeof lastData === "object") {
+            func.regManager.freeRegister(lastData);
+            // return `--[[VIRTUAL REG POP TO ${func.stackLevel}]] ${func.regManager.getPhysicalRegisterName(lastData)}`;
+            // return `__STACK__[${func.stackLevel}]`;
+            return func.regManager.getPhysicalRegisterName(lastData);
         }
         else {
             return `__STACK__[${func.stackLevel}]`;
@@ -565,18 +583,20 @@ export class wasm2lua {
 
         this.endAllBlocks(buf,state);
         
-        this.write(buf,"do return ");
+        if(state.stackLevel > 1) {
+            this.write(buf,"do return ");
 
-        let nRets = state.funcType ? state.funcType.results.length : 0;
-        for(let i=0;i < nRets;i++) {
-            this.write(buf,this.getPop(state));
-            if(nRets !== (i + 1)) {
-                this.write(buf,",");
+            let nRets = state.funcType ? state.funcType.results.length : 0;
+            for(let i=0;i < nRets;i++) {
+                this.write(buf,this.getPop(state));
+                if(nRets !== (i + 1)) {
+                    this.write(buf,",");
+                }
             }
-        }
 
-        this.write(buf,"; end;");
-        this.newLine(buf);
+            this.write(buf,"; end;");
+            this.newLine(buf);
+        }
 
         this.outdent(buf);
 
@@ -746,26 +766,22 @@ export class wasm2lua {
                         case "const": {
                             if(ins.args[0].type == "LongNumberLiteral") {
                                 let _const = (ins.args[0] as LongNumberLiteral).value;
-                                this.write(buf,this.getPushStack(state,`__LONG_INT__(${_const.low},${_const.high})`));
-                                this.newLine(buf);
+                                this.writeLn(buf,this.getPushStack(state,`__LONG_INT__(${_const.low},${_const.high})`));
                             }
                             else {
                                 let _const = (ins.args[0] as NumberLiteral).value;
-                                this.write(buf,this.getPushStack(state,_const.toString()));
-                                this.newLine(buf);
+                                this.writeLn(buf,this.getPushStack(state,_const.toString()));
                             }
                             break;
                         }
                         case "get_global": {
                             let globID = (ins.args[0] as NumberLiteral).value;
-                            this.write(buf,this.getPushStack(state,"__GLOBALS__["+globID+"]"));
-                            this.newLine(buf);
+                            this.writeLn(buf,this.getPushStack(state,"__GLOBALS__["+globID+"]"));
                             break;
                         }
                         case "set_global": {
                             let globID = (ins.args[0] as NumberLiteral).value;
-                            this.write(buf,"__GLOBALS__["+globID+"] = "+this.getPop(state)+";");
-                            this.newLine(buf);
+                            this.writeLn(buf,"__GLOBALS__["+globID+"] = "+this.getPop(state)+";");
                             break;
                         }
                         case "get_local": {
@@ -776,8 +792,7 @@ export class wasm2lua {
                             }
                             state.locals[locID].lastRef = insCount;
 
-                            this.write(buf,this.getPushStack(state,state.regManager.getPhysicalRegisterName(state.locals[locID])));
-                            this.newLine(buf);
+                            this.writeLn(buf,this.getPushStack(state,state.locals[locID]));
 
                             if(insCount == insLastRefs[locID]) {
                                 state.regManager.freeRegister(state.locals[locID]);
@@ -815,8 +830,7 @@ export class wasm2lua {
                             this.write(buf,state.regManager.getPhysicalRegisterName(state.locals[locID]));
                             this.write(buf," = "+this.getPop(state)+" ; ");
                             // read back
-                            this.write(buf,this.getPushStack(state,state.regManager.getPhysicalRegisterName(state.locals[locID])));
-                            this.newLine(buf);
+                            this.writeLn(buf,this.getPushStack(state,state.locals[locID]));
 
                             if(insCount == insLastRefs[locID]) {
                                 state.regManager.freeRegister(state.locals[locID]);
@@ -827,12 +841,12 @@ export class wasm2lua {
                         // Arithmetic
                         //////////////////////////////////////////////////////////////
                         case "sqrt": {
-                            this.write(buf,this.getPushStack(state,`math.sqrt(${this.getPop(state)})`));
+                            this.writeLn(buf,this.getPushStack(state,`math.sqrt(${this.getPop(state)})`));
 
                             break;
                         }
                         case "neg": {
-                            this.write(buf,this.getPushStack(state,`-(${this.getPop(state)})`));
+                            this.writeLn(buf,this.getPushStack(state,`-(${this.getPop(state)})`));
 
                             break;
                         }
@@ -1403,11 +1417,12 @@ export class wasm2lua {
 }
 
 // Allow custom in/out file while defaulting to swad's meme :)
-// let infile  = process.argv[2] || (__dirname + "/../test/addTwo.wasm");
-let infile  = process.argv[2] || (__dirname + "/../test/ammo.wasm");
+let infile  = process.argv[2] || (__dirname + "/../test/addTwo.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/ammo.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testorder.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testorder2.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testorder3.wasm");
