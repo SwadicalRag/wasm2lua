@@ -28,6 +28,7 @@ function makeBinaryStringLiteral(array) {
 }
 function sanitizeIdentifier(ident) {
     return ident
+        .replace(/\$/g, "__IDENT_CHAR_DOLLAR__")
         .replace(/\./g, "__IDENT_CHAR_DOT__")
         .replace(/\-/g, "__IDENT_CHAR_MINUS__");
 }
@@ -403,11 +404,16 @@ class wasm2lua {
         this.newLine(buf);
         return buf.join("");
     }
-    beginBlock(buf, state, block) {
-        this.write(buf, sanitizeIdentifier(`::${block.id}_start::`));
+    beginBlock(buf, state, block, customStart) {
         state.blocks.push(block);
+        this.write(buf, sanitizeIdentifier(`::${block.id}_start::`));
         this.newLine(buf);
-        this.write(buf, "do");
+        if (typeof customStart === "string") {
+            this.write(buf, customStart);
+        }
+        else {
+            this.write(buf, "do");
+        }
         this.indent();
         this.newLine(buf);
         return block;
@@ -418,6 +424,9 @@ class wasm2lua {
         }
     }
     endBlocksUntil(buf, state, tgtBlock) {
+        if (tgtBlock.hasClosed) {
+            return;
+        }
         while (state.blocks.length > 0) {
             if (state.blocks[state.blocks.length - 1] == tgtBlock) {
                 break;
@@ -426,6 +435,9 @@ class wasm2lua {
         }
     }
     endBlocksUntilEx(buf, state, tgtBlock) {
+        if (tgtBlock.hasClosed) {
+            return;
+        }
         while (state.blocks.length > 0) {
             this.endBlock(buf, state);
             if (state.blocks[state.blocks.length - 1] == tgtBlock) {
@@ -442,6 +454,7 @@ class wasm2lua {
         return false;
     }
     endBlockInternal(buf, block) {
+        block.hasClosed = true;
         this.outdent(buf);
         this.write(buf, "end");
         this.newLine(buf);
@@ -532,7 +545,7 @@ class wasm2lua {
                                 state.locals[locID].firstRef = insCount;
                             }
                             state.locals[locID].lastRef = insCount;
-                            this.write(buf, this.getPushStack(state, state.regManager.getPhysicalRegisterName(state.locals[locID])));
+                            this.write(buf, state.regManager.getPhysicalRegisterName(state.locals[locID]));
                             this.write(buf, " = " + this.getPop(state) + ";");
                             this.newLine(buf);
                             if (insCount == insLastRefs[locID]) {
@@ -547,7 +560,7 @@ class wasm2lua {
                                 state.locals[locID].firstRef = insCount;
                             }
                             state.locals[locID].lastRef = insCount;
-                            this.write(buf, this.getPushStack(state, state.regManager.getPhysicalRegisterName(state.locals[locID])));
+                            this.write(buf, state.regManager.getPhysicalRegisterName(state.locals[locID]));
                             this.write(buf, " = " + this.getPop(state) + " ; ");
                             this.write(buf, this.getPushStack(state, state.regManager.getPhysicalRegisterName(state.locals[locID])));
                             this.newLine(buf);
@@ -689,10 +702,10 @@ class wasm2lua {
                             if (targetBlock) {
                                 this.write(buf, "goto ");
                                 if (targetBlock.blockType == "loop") {
-                                    this.write(buf, `${targetBlock.id}_start`);
+                                    this.write(buf, sanitizeIdentifier(`${targetBlock.id}_start`));
                                 }
                                 else {
-                                    this.write(buf, `${targetBlock.id}_fin`);
+                                    this.write(buf, sanitizeIdentifier(`${targetBlock.id}_fin`));
                                 }
                             }
                             else {
@@ -708,10 +721,10 @@ class wasm2lua {
                             if (targetBlock) {
                                 this.write(buf, "goto ");
                                 if (targetBlock.blockType == "loop") {
-                                    this.write(buf, `${targetBlock.id}_start`);
+                                    this.write(buf, sanitizeIdentifier(`${targetBlock.id}_start`));
                                 }
                                 else {
-                                    this.write(buf, `${targetBlock.id}_fin`);
+                                    this.write(buf, sanitizeIdentifier(`${targetBlock.id}_fin`));
                                 }
                             }
                             else {
@@ -920,30 +933,20 @@ class wasm2lua {
                         this.write(buf, "-- WARNING: 'if test' present, and was not handled");
                         this.newLine(buf);
                     }
-                    this.write(buf, "if ");
-                    this.write(buf, this.getPop(state));
-                    this.write(buf, " then");
-                    this.indent();
-                    this.newLine(buf);
                     let ifBlock = this.beginBlock(buf, state, {
                         id: `if_${ins.loc.start.line}_${ins.loc.start.column}`,
                         blockType: "if",
-                    });
+                    }, `if ${this.getPop(state)} then`);
                     this.write(buf, this.processInstructions(ins.consequent, state));
-                    this.outdent(buf);
+                    this.endBlocksUntil(buf, state, ifBlock);
                     if (ins.alternate.length > 0) {
+                        this.outdent();
                         this.write(buf, "else");
                         this.indent();
                         this.newLine(buf);
-                        let elseBlock = this.beginBlock(buf, state, {
-                            id: `else_${ins.loc.start.line}_${ins.loc.start.column}`,
-                            blockType: "if",
-                        });
                         this.write(buf, this.processInstructions(ins.alternate, state));
-                        this.outdent(buf);
                     }
-                    this.write(buf, "end");
-                    this.newLine(buf);
+                    this.endBlocksUntilEx(buf, state, ifBlock);
                     break;
                 }
                 default: {
@@ -957,6 +960,12 @@ class wasm2lua {
     }
     processInstructionsPass3(insArr, state) {
         let t_buf = [];
+        if (!state.funcType) {
+            console.log("Error: funcType not found");
+        }
+        else {
+            console.log(state.funcType.params.length);
+        }
         if ((state.regManager.totalRegisters - (state.funcType ? state.funcType.params.length : 0)) > 0) {
             this.write(t_buf, "local ");
             for (let i = (state.funcType ? state.funcType.params.length : 0); i < state.regManager.totalRegisters; i++) {
@@ -1000,9 +1009,9 @@ class wasm2lua {
     }
     processModuleExport(node, modState) {
         let buf = [];
-        this.write(buf, "__EXPORTS__.");
+        this.write(buf, "__EXPORTS__[\"");
         this.write(buf, node.name);
-        this.write(buf, " = ");
+        this.write(buf, "\"] = ");
         switch (node.descr.exportType) {
             case "Func": {
                 let fstate = this.getFuncByIndex(modState, node.descr.id);

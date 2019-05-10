@@ -6,6 +6,7 @@ class VirtualRegisterManager {
         this.registerCache = [];
         this.registers = [];
         this.namedRegisters = new Map();
+        this.totalRegisters = 0;
     }
     getNextFreeRegisterID() {
         for (let i = 0; i < this.registers.length; i++) {
@@ -25,7 +26,7 @@ class VirtualRegisterManager {
         this.namedRegisters.set(name, reg);
         this.registers.push(reg);
         this.registerCache.push(reg);
-        this.totalRegisters = Math.max(this.registers.length);
+        this.totalRegisters = Math.max(this.totalRegisters, this.registers.length);
         this.registers.sort((a, b) => {
             return a.id - b.id;
         });
@@ -39,7 +40,7 @@ class VirtualRegisterManager {
         };
         this.registers.push(reg);
         this.registerCache.push(reg);
-        this.totalRegisters = Math.max(this.registers.length);
+        this.totalRegisters = Math.max(this.totalRegisters, this.registers.length);
         this.registers.sort((a, b) => {
             return a.id - b.id;
         });

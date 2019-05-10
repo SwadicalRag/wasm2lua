@@ -14,7 +14,7 @@ export class VirtualRegisterManager {
     registers: VirtualRegister[] = [];
     namedRegisters = new Map<string,VirtualRegister>();
 
-    totalRegisters: number;
+    totalRegisters: number = 0;
 
     getNextFreeRegisterID() {
         // assumes this.registers is sorted by ASC
@@ -41,7 +41,7 @@ export class VirtualRegisterManager {
         this.registers.push(reg);
         this.registerCache.push(reg);
 
-        this.totalRegisters = Math.max(this.registers.length);
+        this.totalRegisters = Math.max(this.totalRegisters,this.registers.length);
         this.registers.sort((a,b) => {
             return a.id - b.id;
         });
@@ -59,7 +59,7 @@ export class VirtualRegisterManager {
         this.registers.push(reg);
         this.registerCache.push(reg);
 
-        this.totalRegisters = Math.max(this.registers.length);
+        this.totalRegisters = Math.max(this.totalRegisters,this.registers.length);
         this.registers.sort((a,b) => {
             return a.id - b.id;
         });
