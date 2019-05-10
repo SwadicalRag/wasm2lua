@@ -404,7 +404,7 @@ class wasm2lua {
         return buf.join("");
     }
     beginBlock(buf, state, block) {
-        this.write(buf, `::${block.id}_start::`);
+        this.write(buf, sanitizeIdentifier(`::${block.id}_start::`));
         state.blocks.push(block);
         this.newLine(buf);
         this.write(buf, "do");
@@ -445,7 +445,7 @@ class wasm2lua {
         this.outdent(buf);
         this.write(buf, "end");
         this.newLine(buf);
-        this.write(buf, `::${block.id}_fin::`);
+        this.write(buf, sanitizeIdentifier(`::${block.id}_fin::`));
         this.newLine(buf);
     }
     processInstructions(insArr, state) {

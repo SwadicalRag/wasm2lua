@@ -618,7 +618,7 @@ export class wasm2lua {
     beginBlock(buf: string[],state: WASMFuncState,block: WASMBlockState) {
         // BLOCK BEGINS MUST BE CLOSED BY BLOCK ENDS!!!!
         // TODO: blocks can "return" stuff
-        this.write(buf,`::${block.id}_start::`);
+        this.write(buf,sanitizeIdentifier(`::${block.id}_start::`));
         state.blocks.push(block);
         this.newLine(buf);
         this.write(buf,"do");
@@ -664,7 +664,7 @@ export class wasm2lua {
         this.outdent(buf);
         this.write(buf,"end");
         this.newLine(buf);
-        this.write(buf,`::${block.id}_fin::`);
+        this.write(buf,sanitizeIdentifier(`::${block.id}_fin::`));
         this.newLine(buf);
     }
 
