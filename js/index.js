@@ -738,11 +738,11 @@ class wasm2lua {
                                 break;
                             }
                         case "eqz": {
-                            this.write(buf, "__TMP__ = ");
+                            let resultVar = state.regManager.createTempRegister();
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = (`);
                             this.write(buf, this.getPop(state));
-                            this.write(buf, "; ");
-                            this.write(buf, this.getPushStack(state));
-                            this.write(buf, "(__TMP__==0) and 1 or 0;");
+                            this.write(buf, "==0) and 1 or 0; ");
+                            this.write(buf, this.getPushStack(state, resultVar));
                             this.newLine(buf);
                             break;
                         }
