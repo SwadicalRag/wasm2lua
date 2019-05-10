@@ -148,6 +148,10 @@ export class wasm2lua {
     }
 
     write(buf: string[],str: string) {buf.push(str);}
+    writeEx(buf: string[],str: string,offset: number) {
+        if(offset < 0) {offset += buf.length;}
+        buf.splice(offset,0,str);
+    }
 
     writeHeader(buf: string[]) {
         this.write(buf,wasm2lua.fileHeader);
@@ -318,7 +322,7 @@ export class wasm2lua {
                 };
 
                 this.write(buf,this.processInstructions(field.init,global_init_state));
-                this.write(buf,this.processInstructionsPass3(field.init,global_init_state));
+                this.writeEx(buf,this.processInstructionsPass3(field.init,global_init_state),-1);
 
                 this.write(buf,"__GLOBALS__["+state.nextGlobalIndex+"] = "+this.getPop(global_init_state)+";");
 
@@ -357,7 +361,7 @@ export class wasm2lua {
                 };
 
                 this.write(buf,this.processInstructions(field.offset,global_init_state));
-                this.write(buf,this.processInstructionsPass3(field.offset,global_init_state));
+                this.writeEx(buf,this.processInstructionsPass3(field.offset,global_init_state),-1);
 
                 // bias the table offset so we can just use lua table indexing like lazy bastards
                 this.write(buf,`__TABLE_OFFSET_${table_index}__ = `+this.getPop(global_init_state)+" - 1;");
@@ -554,7 +558,7 @@ export class wasm2lua {
 
         // PASS 1 & 2
         this.write(buf,this.processInstructions(node.body,state));
-        this.write(buf,this.processInstructionsPass3(node.body,state));
+        this.writeEx(buf,this.processInstructionsPass3(node.body,state),-1);
 
         this.endAllBlocks(buf,state);
         
@@ -619,11 +623,28 @@ export class wasm2lua {
         this.write(buf,"do");
         this.indent();
         this.newLine(buf);
+        return block;
     }
 
     endAllBlocks(buf: string[],state: WASMFuncState) {
         while(state.blocks.length > 0) {
             this.endBlock(buf,state);
+        }
+    }
+
+    endBlocksUntil(buf: string[],state: WASMFuncState,tgtBlock: WASMBlockState) {
+        while(state.blocks.length > 0) {
+            if(state.blocks[state.blocks.length - 1] == tgtBlock) {break;}
+
+            this.endBlock(buf,state);
+        }
+    }
+
+    endBlocksUntilEx(buf: string[],state: WASMFuncState,tgtBlock: WASMBlockState) {
+        while(state.blocks.length > 0) {
+            this.endBlock(buf,state);
+
+            if(state.blocks[state.blocks.length - 1] == tgtBlock) {break;}
         }
     }
 
@@ -1193,17 +1214,18 @@ export class wasm2lua {
                     this.write(buf,"if ");
                     this.write(buf,this.getPop(state));
                     this.write(buf," then");
+
+                    this.indent();
+                    this.newLine(buf);
                     
-                    this.beginBlock(buf,state,{
+                    let ifBlock = this.beginBlock(buf,state,{
                         id: `if_${ins.loc.start.line}_${ins.loc.start.column}`,
                         blockType: "if",
                     });
 
-                    this.indent();
-                    this.newLine(buf);
-
-                    this.processInstructions(ins.consequent,state);
+                    this.write(buf,this.processInstructions(ins.consequent,state));
                     
+                    // this.endBlocksUntilEx(buf,state,ifBlock);
                     this.outdent(buf);
 
                     if(ins.alternate.length > 0) {
@@ -1211,12 +1233,13 @@ export class wasm2lua {
                         this.indent();
                         this.newLine(buf);
                     
-                        this.beginBlock(buf,state,{
+                        let elseBlock = this.beginBlock(buf,state,{
                             id: `else_${ins.loc.start.line}_${ins.loc.start.column}`,
                             blockType: "if",
                         });
 
-                        this.processInstructions(ins.alternate,state);
+                        this.write(buf,this.processInstructions(ins.alternate,state));
+                        // this.endBlocksUntil(buf,state,elseBlock);
                         
                         this.outdent(buf);
                     }
@@ -1372,8 +1395,8 @@ export class wasm2lua {
 
 // Allow custom in/out file while defaulting to swad's meme :)
 // let infile  = process.argv[2] || (__dirname + "/../test/addTwo.wasm");
-let infile  = process.argv[2] || (__dirname + "/../test/ammo.wasm");
-// let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/ammo.wasm");
+let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testorder.wasm");
