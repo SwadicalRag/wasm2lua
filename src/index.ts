@@ -61,7 +61,8 @@ function makeBinaryStringLiteral(array: number[]) {
 // Probably won't work on lua implementations with sane identifier parsing rules.
 function sanitizeIdentifier(ident: string) {
     return ident
-        .replace(/\./g,"__IDENT_CHAR_DOT__");
+        .replace(/\./g,"__IDENT_CHAR_DOT__")
+        .replace(/\-/g,"__IDENT_CHAR_MINUS__");
 }
 
 interface WASMModuleState {

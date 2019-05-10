@@ -28,7 +28,8 @@ function makeBinaryStringLiteral(array) {
 }
 function sanitizeIdentifier(ident) {
     return ident
-        .replace(/\./g, "__IDENT_CHAR_DOT__");
+        .replace(/\./g, "__IDENT_CHAR_DOT__")
+        .replace(/\-/g, "__IDENT_CHAR_MINUS__");
 }
 const FUNC_VAR_HEADER = "local __TMP__,__TMP2__,__STACK__ = nil,nil,{};";
 class wasm2lua {
