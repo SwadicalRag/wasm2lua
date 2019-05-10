@@ -534,7 +534,7 @@ export class wasm2lua {
         if(node.signature.type == "Signature") {
             let i = 0;
             for(let param of node.signature.params) {
-                let reg = state.regManager.createRegister(`arg{$1}`);
+                let reg = state.regManager.createRegister(`arg${1}`);
                 state.locals[i] = reg;
                 this.write(buf,state.regManager.getPhysicalRegisterName(reg));
 
@@ -1278,6 +1278,10 @@ export class wasm2lua {
                 }
             }
 
+            if(state.regManager.totalRegisters > 150) {
+                console.log(`${state.id}: WARNING: ${state.regManager.totalRegisters} REGISTERS USED`);
+            }
+
             this.write(t_buf,";");
             this.newLine(t_buf);
         }
@@ -1395,8 +1399,8 @@ export class wasm2lua {
 
 // Allow custom in/out file while defaulting to swad's meme :)
 // let infile  = process.argv[2] || (__dirname + "/../test/addTwo.wasm");
-// let infile  = process.argv[2] || (__dirname + "/../test/ammo.wasm");
-let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
+let infile  = process.argv[2] || (__dirname + "/../test/ammo.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testorder.wasm");

@@ -367,7 +367,7 @@ class wasm2lua {
         if (node.signature.type == "Signature") {
             let i = 0;
             for (let param of node.signature.params) {
-                let reg = state.regManager.createRegister(`arg{$1}`);
+                let reg = state.regManager.createRegister(`arg${1}`);
                 state.locals[i] = reg;
                 this.write(buf, state.regManager.getPhysicalRegisterName(reg));
                 if ((i + 1) !== node.signature.params.length) {
@@ -964,6 +964,9 @@ class wasm2lua {
                     this.write(t_buf, ",");
                 }
             }
+            if (state.regManager.totalRegisters > 150) {
+                console.log(`${state.id}: WARNING: ${state.regManager.totalRegisters} REGISTERS USED`);
+            }
             this.write(t_buf, ";");
             this.newLine(t_buf);
         }
@@ -1091,7 +1094,7 @@ wasm2lua.instructionBinOpFuncRemap = {
     rotr: "bot.ror"
 };
 exports.wasm2lua = wasm2lua;
-let infile = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
+let infile = process.argv[2] || (__dirname + "/../test/ammo.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
 let whitelist = process.argv[4] ? process.argv[4].split(",") : null;
 let wasm = fs.readFileSync(infile);
