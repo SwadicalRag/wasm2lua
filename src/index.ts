@@ -318,6 +318,7 @@ export class wasm2lua {
                 };
 
                 this.write(buf,this.processInstructions(field.init,global_init_state));
+                this.write(buf,this.processInstructionsPass3(field.init,global_init_state));
 
                 this.write(buf,"__GLOBALS__["+state.nextGlobalIndex+"] = "+this.getPop(global_init_state)+";");
 
@@ -356,6 +357,7 @@ export class wasm2lua {
                 };
 
                 this.write(buf,this.processInstructions(field.offset,global_init_state));
+                this.write(buf,this.processInstructionsPass3(field.offset,global_init_state));
 
                 // bias the table offset so we can just use lua table indexing like lazy bastards
                 this.write(buf,`__TABLE_OFFSET_${table_index}__ = `+this.getPop(global_init_state)+" - 1;");
@@ -550,7 +552,9 @@ export class wasm2lua {
         this.write(buf,FUNC_VAR_HEADER);
         this.newLine(buf);
 
+        // PASS 1 & 2
         this.write(buf,this.processInstructions(node.body,state));
+        this.write(buf,this.processInstructionsPass3(node.body,state));
 
         this.endAllBlocks(buf,state);
         
@@ -1233,12 +1237,16 @@ export class wasm2lua {
             // PASS 2B: kill unused variables
         }
 
+        return buf.join("");
+    }
+
+    processInstructionsPass3(insArr: Instruction[],state: WASMFuncState) {
         // PASS 3: emit register header
         //////////////////////////////////////////////////////////////
 
-        if((state.regManager.totalRegisters - (state.funcType ? state.funcType.params.length : 0)) > 0) {
-            let t_buf: string[] = [];
+        let t_buf: string[] = [];
 
+        if((state.regManager.totalRegisters - (state.funcType ? state.funcType.params.length : 0)) > 0) {
             this.write(t_buf,"local ");
             for(let i=(state.funcType ? state.funcType.params.length : 0);i < state.regManager.totalRegisters;i++) {
                 this.write(t_buf,`reg${i}`);
@@ -1249,11 +1257,9 @@ export class wasm2lua {
 
             this.write(t_buf,";");
             this.newLine(t_buf);
-
-            buf.splice(0,0,[t_buf.join("")]);
         }
 
-        return buf.join("");
+        return t_buf.join("");
     }
 
     writeFunctionCall(state: WASMFuncState, buf: string[], func: string, sig: Signature) {
@@ -1366,10 +1372,10 @@ export class wasm2lua {
 
 // Allow custom in/out file while defaulting to swad's meme :)
 // let infile  = process.argv[2] || (__dirname + "/../test/addTwo.wasm");
-// let infile  = process.argv[2] || (__dirname + "/../test/ammo.wasm");
+let infile  = process.argv[2] || (__dirname + "/../test/ammo.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
-let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testorder.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testorder2.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testorder3.wasm");
