@@ -214,7 +214,9 @@ export class wasm2lua {
         // }
 
         if(func.stackLevel == 1) {
-            throw new Error("attempt to pop below zero");
+            // throw new Error("attempt to pop below zero");
+            console.log("attempt to pop below zero");
+            return "--[[WARNING: NEGATIVE POP]] nil";
         }
         
         let lastData = func.stackData.pop();
@@ -1520,7 +1522,8 @@ export class wasm2lua {
 // let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
-let infile  = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
+let infile  = process.argv[2] || (__dirname + "/../test/test2.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testorder.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testorder2.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testorder3.wasm");

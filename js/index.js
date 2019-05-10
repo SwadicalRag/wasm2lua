@@ -104,7 +104,8 @@ class wasm2lua {
     }
     getPop(func) {
         if (func.stackLevel == 1) {
-            throw new Error("attempt to pop below zero");
+            console.log("attempt to pop below zero");
+            return "--[[WARNING: NEGATIVE POP]] nil";
         }
         let lastData = func.stackData.pop();
         func.stackLevel--;
@@ -1190,7 +1191,7 @@ wasm2lua.instructionBinOpFuncRemap = {
     rotr: "bot.ror"
 };
 exports.wasm2lua = wasm2lua;
-let infile = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
+let infile = process.argv[2] || (__dirname + "/../test/test2.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
 let whitelist = process.argv[4] ? process.argv[4].split(",") : null;
 let wasm = fs.readFileSync(infile);
