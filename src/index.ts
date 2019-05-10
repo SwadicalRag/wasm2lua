@@ -186,9 +186,9 @@ export class wasm2lua {
         func.stackLevel++;
         if(typeof stackExpr === "string") {
             func.stackData.push(stackExpr);
-            return `--[[VIRTUAL PUSH TO ${func.stackLevel-1}]]`;
+            // return `--[[VIRTUAL PUSH TO ${func.stackLevel-1}]]`;
             // return `__STACK__[${func.stackLevel-1}] = ${stackExpr}`;
-            // return "";
+            return "";
         }
         else if(typeof stackExpr === "object") {
             if(resolveRegister) {
@@ -198,9 +198,9 @@ export class wasm2lua {
                 func.stackData.push(stackExpr);
             }
 
-            return `--[[VIRTUAL REG PUSH TO ${func.stackLevel-1}]]`;
+            // return `--[[VIRTUAL REG PUSH TO ${func.stackLevel-1}]]`;
             // return `__STACK__[${func.stackLevel-1}] = ${func.regManager.getPhysicalRegisterName(stackExpr)}`;
-            // return "";
+            return "";
         }
         else {
             func.stackData.push(false);
@@ -220,15 +220,15 @@ export class wasm2lua {
         let lastData = func.stackData.pop();
         func.stackLevel--;
         if(typeof lastData === "string") {
-            return `--[[VIRTUAL POP TO ${func.stackLevel - 1}]] ${lastData}`;
+            // return `--[[VIRTUAL POP TO ${func.stackLevel - 1}]] ${lastData}`;
             // return `__STACK__[${func.stackLevel}]`;
-            // return lastData;
+            return lastData;
         }
         else if(typeof lastData === "object") {
             func.regManager.freeRegister(lastData);
-            return `--[[VIRTUAL REG POP TO ${func.stackLevel - 1}]] ${func.regManager.getPhysicalRegisterName(lastData)}`;
+            // return `--[[VIRTUAL REG POP TO ${func.stackLevel - 1}]] ${func.regManager.getPhysicalRegisterName(lastData)}`;
             // return `__STACK__[${func.stackLevel}]`;
-            // return func.regManager.getPhysicalRegisterName(lastData);
+            return func.regManager.getPhysicalRegisterName(lastData);
         }
         else {
             return `__STACK__[${func.stackLevel}]`;

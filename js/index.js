@@ -86,7 +86,7 @@ class wasm2lua {
         func.stackLevel++;
         if (typeof stackExpr === "string") {
             func.stackData.push(stackExpr);
-            return `--[[VIRTUAL PUSH TO ${func.stackLevel - 1}]]`;
+            return "";
         }
         else if (typeof stackExpr === "object") {
             if (resolveRegister) {
@@ -95,7 +95,7 @@ class wasm2lua {
             else {
                 func.stackData.push(stackExpr);
             }
-            return `--[[VIRTUAL REG PUSH TO ${func.stackLevel - 1}]]`;
+            return "";
         }
         else {
             func.stackData.push(false);
@@ -109,11 +109,11 @@ class wasm2lua {
         let lastData = func.stackData.pop();
         func.stackLevel--;
         if (typeof lastData === "string") {
-            return `--[[VIRTUAL POP TO ${func.stackLevel - 1}]] ${lastData}`;
+            return lastData;
         }
         else if (typeof lastData === "object") {
             func.regManager.freeRegister(lastData);
-            return `--[[VIRTUAL REG POP TO ${func.stackLevel - 1}]] ${func.regManager.getPhysicalRegisterName(lastData)}`;
+            return func.regManager.getPhysicalRegisterName(lastData);
         }
         else {
             return `__STACK__[${func.stackLevel}]`;
