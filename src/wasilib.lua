@@ -88,6 +88,15 @@ return function(memory)
         return __WASI_ESUCCESS
     end
 
+    function WASI.environ_get(addr_argv, addr_argv_buf)
+        -- unsupported
+        --print("environ_get",addr_argv, addr_argv_buf)
+        memory:write32(addr_argv, 0)
+        memory:write32(addr_argv_buf, 0)
+
+        return __WASI_ESUCCESS
+    end
+
     function WASI.args_sizes_get(out_argc, out_argv_buf_size)
         -- unsupported
         --print("args_sizes_get",out_argc,out_argv_buf_size)
