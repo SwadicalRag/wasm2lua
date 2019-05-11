@@ -4,8 +4,6 @@ import * as fs from "fs";
 
 import * as child_process from "child_process";
 
-import Int64 = require("node-int64");
-
 interface TestValue {
     type: "i32" | "i64";
     value: string;
@@ -106,6 +104,7 @@ function compileModule(file: string) {
 
 function compileAndRunTests(commands: TestCmd[]) {
     if (commands.length>0) {
+        console.log(`Running ${commands.length} tests...`);
         let compiled = commands.map(compileCommand).join("\n");
         fs.writeFileSync(test_dir+"test_run.lua",fileHeader+compiled);
 
@@ -141,12 +140,32 @@ function compileValue(value: TestValue) {
     if (value.type=="i32") {
         return value.value;
     } else if (value.type=="i64") {
-        var num = BigInt(value.value);
+        let num = BigInt(value.value);
         let low = num & BigInt(0xFFFFFFFF);
         let high = num >> BigInt(32);
 
         return `__LONG_INT__(${low},${high})`;
+    } else if (value.type=="f32") {
+        let convert_buffer = Buffer.alloc(4);
+        convert_buffer.writeInt32LE(+value.value,0);
+        let float_val = convert_buffer.readFloatLE(0);
+
+        return compileFloatValue(float_val);
+    } else if (value.type=="f64") {
+        let num = BigInt(value.value);
+        let array = new BigInt64Array(1);
+        array[0] = num;
+        let float_val = new Float64Array(array.buffer)[0];
+
+        return compileFloatValue(float_val);
     } else {
         throw new Error("bad type "+value.type);
     }
+}
+
+function compileFloatValue(value: number) {
+    if (value != value) {
+        return "(0/0)"
+    }
+    return value.toString(); // eugh
 }

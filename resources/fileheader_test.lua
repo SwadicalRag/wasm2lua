@@ -9,7 +9,9 @@ local function checkResults(expected,results)
         return false
     end
     for i=1,#expected do
-        if expected[i] ~= results[i] then
+        if expected[i] ~= expected[i] then
+            return results[i] ~= results[i]
+        elseif expected[i] ~= results[i] then
             return false
         end
     end
@@ -43,13 +45,13 @@ local function runTest(num,func,args,expected)
     if type(expected)=="string" then
         if success then
             print()
-            print(">>>  TEST @ LINE " .. num .. " FAIL (NO TRAP)")
+            print("NO TRAP -- LINE " .. num .. " -- " .. func)
             printResults("Expected",expected)
             printResults("Received",results)
         end
     elseif not success then
         print()
-        print(">>>  TEST @ LINE " .. num .. " FAIL (TRAP)")
+        print("TRAP -- LINE " .. num .. " -- " .. func)
         printResults("Expected",expected)
         printResults("Received",error)
     end
