@@ -28,6 +28,7 @@ function processTestFile(filename) {
                 compileModule(wasm_file);
                 break;
             case "assert_malformed":
+            case "assert_invalid":
                 break;
             default:
                 commandQueue.push(cmd);
@@ -66,6 +67,9 @@ function compileAndRunTests(commands) {
 function compileCommand(cmd, test_num) {
     if (cmd.type == "assert_return" || cmd.type == "assert_trap") {
         let instr = cmd.action;
+        if (instr.type != "invoke") {
+            throw new Error("Unhandled instr type: " + instr.type);
+        }
         let expected = cmd.type == "assert_trap" ? `"trap"` :
             `{${cmd.expected.map(compileValue).join(",")}}`;
         return `runTest(${cmd.line},"${instr.field}",{${instr.args.map(compileValue).join(",")}},${expected})`;

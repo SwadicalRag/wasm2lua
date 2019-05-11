@@ -42,7 +42,11 @@ interface TestCmdAssertMalformed {
     type: "assert_malformed";
 }
 
-type TestCmd = (TestCmdModule | TestCmdAssertReturn | TestCmdAssertTrap | TestCmdAssertMalformed) & {line: number};
+interface TestCmdAssertInvalid {
+    type: "assert_invalid";
+}
+
+type TestCmd = (TestCmdModule | TestCmdAssertReturn | TestCmdAssertTrap | TestCmdAssertMalformed | TestCmdAssertInvalid) & {line: number};
 
 function fixWSLPath(path) {
     path = path.replace(/(.):\\/g,(_,x)=>`/mnt/${x.toLowerCase()}/`);
@@ -78,7 +82,8 @@ function processTestFile(filename: string) {
                 let wasm_file = pathJoin(dirname(filename),cmd.filename);
                 compileModule(wasm_file);
                 break;
-            case "assert_malformed":
+            case "assert_malformed": // should not compile to binary
+            case "assert_invalid":   // compiled to binary but should be rejected by compiler / vm 
                 // Don't care.
                 break;
             default:
@@ -125,6 +130,9 @@ function compileAndRunTests(commands: TestCmd[]) {
 function compileCommand(cmd: TestCmd, test_num: number) {
     if (cmd.type == "assert_return" || cmd.type == "assert_trap") {
         let instr = cmd.action;
+        if (instr.type != "invoke") {
+            throw new Error("Unhandled instr type: "+instr.type);
+        }
 
         let expected = cmd.type == "assert_trap" ? `"trap"` :
             `{${cmd.expected.map(compileValue).join(",")}}`;

@@ -23,11 +23,17 @@ local function runTest(num,func,args,expected)
     local results
 
     local function printResults(name,list)
-        local str_list = {}
-        for i=1,#list do
-            str_list[i] = tostring(list[i])
+        local str
+        if type(list)=="string" then
+            str = list
+        else
+            local str_list = {}
+            for i=1,#list do
+                str_list[i] = tostring(list[i])
+            end
+            str = table.concat(str_list,",")
         end
-        print("\t" .. name .. ": " .. table.concat(str_list,","))
+        print("\t" .. name .. ": " .. str)
     end
 
     local success, error = pcall(function()
