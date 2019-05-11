@@ -756,26 +756,30 @@ export class wasm2lua {
         this.write(buf,sanitizeIdentifier(`::${block.id}_fin::`));
         this.newLine(buf);
 
-        if(block.blockType == "loop") {
+        /*if(block.blockType == "loop") {
             // reset stack to normal layout
             let popCnt = state.stackLevel - block.enterStackLevel;
             for(let i=0;i < popCnt;i++) {
                 this.getPop(state);
             }
         }
-        else if((block.blockType == "block") || (block.blockType == "if")) {
+        else if((block.blockType == "block") || (block.blockType == "if")) */{
             // these blocks can return stuff
             if(block.resultType !== null) {
                 this.write(buf,state.regManager.getPhysicalRegisterName(block.resultRegister) + " = " + this.getPop(state));
                 this.newLine(buf);
-                this.writeLn(buf,this.getPushStack(state,block.resultRegister));
-                this.writeLn(buf,"-- BLOCK RET")
             }
             
             // reset stack to normal layout
             let popCnt = state.stackLevel - block.enterStackLevel;
             for(let i=0;i < popCnt;i++) {
                 this.getPop(state);
+            }
+
+            // push the return value
+            if(block.resultType !== null) {
+                this.writeLn(buf,this.getPushStack(state,block.resultRegister));
+                this.writeLn(buf,"-- BLOCK RET")
             }
         }
     }
@@ -1326,6 +1330,9 @@ export class wasm2lua {
                             this.newLine(buf);
                             break;
                         }
+                        case "nop":
+                            // nop :)
+                            break;
                         default: {
                             //this.write(buf,"-- TODO "+ins.id+" "+JSON.stringify(ins));
                             this.write(buf,"error('TODO "+ins.id+"');");
@@ -1369,7 +1376,7 @@ export class wasm2lua {
 
                     let block = this.beginBlock(buf,state,{
                         id: ins.label.value,
-                        resultType: (ins.type == "LoopInstruction") ? null : ins.result, 
+                        resultType: (ins.type == "LoopInstruction") ? ins.resulttype : ins.result, 
                         blockType,
                         enterStackLevel: state.stackLevel,
                     });
@@ -1485,9 +1492,10 @@ export class wasm2lua {
         if(sig.results.length > 1) {
             this.write(buf,"__TMP__ = {");
         }
-        else {
+        else if (sig.results.length == 1) {
             this.write(buf,"__TMP__ = ");
         }
+        // else zero rets
 
         this.write(buf,func + "(");
         let args: string[] = [];
@@ -1504,8 +1512,10 @@ export class wasm2lua {
                 this.write(buf,"__TMP__[" + (i+1) + "];");
             }
         }
-        else {
+        else if (sig.results.length == 1) {
             this.write(buf,"; " + this.getPushStack(state) + " __TMP__;");
+        } else {
+            this.write(buf,";"); // zero rets
         }
     }
 
