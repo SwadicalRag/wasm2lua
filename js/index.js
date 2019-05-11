@@ -965,7 +965,7 @@ class wasm2lua {
                                 }
                                 if (is_narrow_u64_load) {
                                     if (ins.id.endsWith("_s")) {
-                                        this.write(buf, "__TMP__=__LONG_INT__(__TMP__,-1);");
+                                        this.write(buf, "__TMP__=__LONG_INT__(__TMP__,__TMP__ < 0 and -1 or 0);");
                                     }
                                     else {
                                         this.write(buf, "__TMP__=__LONG_INT__(__TMP__,0);");
