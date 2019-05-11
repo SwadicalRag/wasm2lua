@@ -4,6 +4,8 @@ import * as fs from "fs";
 
 import * as child_process from "child_process";
 
+import Int64 = require("node-int64");
+
 interface TestValue {
     type: "i32" | "i64";
     value: string;
@@ -45,7 +47,7 @@ interface TestCmdAssertMalformed {
 type TestCmd = (TestCmdModule | TestCmdAssertReturn | TestCmdAssertTrap | TestCmdAssertMalformed) & {line: number};
 
 function fixWSLPath(path) {
-    path = path.replace(/(.):\\/g,(_,x)=>{ console.log(x); return `/mnt/${x.toLowerCase()}/`; });
+    path = path.replace(/(.):\\/g,(_,x)=>`/mnt/${x.toLowerCase()}/`);
     path = path.replace(/\\/g,"/");
     return path;
 }
@@ -91,7 +93,7 @@ function processTestFile(filename: string) {
 }
 
 function compileModule(file: string) {
-    console.log("COMPILE",file);
+    console.log("Compiling:",file);
     let result = child_process.spawnSync(process.argv0,[
         pathJoin(__dirname,"index.js"),
         file
@@ -113,9 +115,10 @@ function compileAndRunTests(commands: TestCmd[]) {
         ]);
 
         console.log(result.stdout.toString());
-        console.log(result.stderr.toString());
-
-        throw "meh";
+        if (result.status!=0) {
+            console.log(result.stderr.toString());
+            throw new Error("execution failed");
+        }
     }
     commands.length = 0;
 }
@@ -124,7 +127,10 @@ function compileCommand(cmd: TestCmd, test_num: number) {
     if (cmd.type == "assert_return" || cmd.type == "assert_trap") {
         let instr = cmd.action;
 
-        return `runTest(${test_num},"${instr.field}",{${instr.args.map(compileValue).join(",")}},"trap")`
+        let expected = cmd.type == "assert_trap" ? `"trap"` :
+            `{${cmd.expected.map(compileValue).join(",")}}`;
+
+        return `runTest(${cmd.line},"${instr.field}",{${instr.args.map(compileValue).join(",")}},${expected})`
 
     } else {
         throw new Error("Unhandled command: "+(<any>cmd).type);
@@ -134,7 +140,13 @@ function compileCommand(cmd: TestCmd, test_num: number) {
 function compileValue(value: TestValue) {
     if (value.type=="i32") {
         return value.value;
+    } else if (value.type=="i64") {
+        var num = BigInt(value.value);
+        let low = num & BigInt(0xFFFFFFFF);
+        let high = num >> BigInt(32);
+
+        return `__LONG_INT__(${low},${high})`;
     } else {
-        throw new Error("ugh");
+        throw new Error("bad type "+value.type);
     }
 }

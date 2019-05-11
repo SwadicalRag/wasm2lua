@@ -105,7 +105,15 @@ local function __LONG_INT__(low,high)
     return setmetatable({low,high},__LONG_INT_CLASS__)
 end
 
+_G.__LONG_INT__ = __LONG_INT__
+
 __LONG_INT_CLASS__ = {
+    __tostring = function(self)
+        return "__LONG_INT__("..self[1]..","..self[2]..")"
+    end,
+    __eq = function(a,b)
+        return a[1]==b[1] and a[2]==b[2]
+    end,
     __index = {
         store = function(self,mem,loc)
             local low = self[1]

@@ -4,7 +4,7 @@ const path_1 = require("path");
 const fs = require("fs");
 const child_process = require("child_process");
 function fixWSLPath(path) {
-    path = path.replace(/(.):\\/g, (_, x) => { console.log(x); return `/mnt/${x.toLowerCase()}/`; });
+    path = path.replace(/(.):\\/g, (_, x) => `/mnt/${x.toLowerCase()}/`);
     path = path.replace(/\\/g, "/");
     return path;
 }
@@ -36,7 +36,7 @@ function processTestFile(filename) {
     compileAndRunTests(commandQueue);
 }
 function compileModule(file) {
-    console.log("COMPILE", file);
+    console.log("Compiling:", file);
     let result = child_process.spawnSync(process.argv0, [
         path_1.join(__dirname, "index.js"),
         file
@@ -55,15 +55,19 @@ function compileAndRunTests(commands) {
             "luajit " + fixWSLPath(test_dir + "test_run.lua")
         ]);
         console.log(result.stdout.toString());
-        console.log(result.stderr.toString());
-        throw "meh";
+        if (result.status != 0) {
+            console.log(result.stderr.toString());
+            throw new Error("execution failed");
+        }
     }
     commands.length = 0;
 }
 function compileCommand(cmd, test_num) {
     if (cmd.type == "assert_return" || cmd.type == "assert_trap") {
         let instr = cmd.action;
-        return `runTest(${test_num},"${instr.field}",{${instr.args.map(compileValue).join(",")}},"trap")`;
+        let expected = cmd.type == "assert_trap" ? `"trap"` :
+            `{${cmd.expected.map(compileValue).join(",")}}`;
+        return `runTest(${cmd.line},"${instr.field}",{${instr.args.map(compileValue).join(",")}},${expected})`;
     }
     else {
         throw new Error("Unhandled command: " + cmd.type);
@@ -73,8 +77,14 @@ function compileValue(value) {
     if (value.type == "i32") {
         return value.value;
     }
+    else if (value.type == "i64") {
+        var num = BigInt(value.value);
+        let low = num & BigInt(0xFFFFFFFF);
+        let high = num >> BigInt(32);
+        return `__LONG_INT__(${low},${high})`;
+    }
     else {
-        throw new Error("ugh");
+        throw new Error("bad type " + value.type);
     }
 }
 //# sourceMappingURL=test.js.map
