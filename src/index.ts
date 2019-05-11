@@ -957,26 +957,23 @@ export class wasm2lua {
                             let convert_bool = wasm2lua.instructionBinOpRemap[ins.id].bool_result;
                             let unsigned = wasm2lua.instructionBinOpRemap[ins.id].unsigned;
 
-                            this.write(buf,"__TMP__ = ");
-                            this.write(buf,this.getPop(state));
-                            this.write(buf,"; ");
-                            this.write(buf,"__TMP2__ = ");
-                            this.write(buf,this.getPop(state));
-                            this.write(buf,"; ");
+                            let tmp = this.getPop(state);
+                            let tmp2 = this.getPop(state);
+
                             this.write(buf,this.getPushStack(state));
                             if (convert_bool) {
                                 if (unsigned) {
-                                    this.write(buf,"(__UNSIGNED__(__TMP2__) "+op+" __UNSIGNED__(__TMP__)) and 1 or 0");
+                                    this.write(buf,`(__UNSIGNED__(${tmp2}) ${op} __UNSIGNED__(${tmp})) and 1 or 0`);
                                 } else {
-                                    this.write(buf,"(__TMP2__ "+op+" __TMP__) and 1 or 0");
+                                    this.write(buf,`(${tmp2} ${op} ${tmp}) and 1 or 0`);
                                 }
                             } else if (ins.object=="i32") {
                                 // i32 arithmetic ops need normalized
                                 // i32 bit ops already normalize results
                                 // other types shouldn't need to be normalized
-                                this.write(buf,"bit.tobit(__TMP2__ "+op+" __TMP__)");
+                                this.write(buf,`bit.tobit(${tmp2} ${op} ${tmp})`);
                             } else {
-                                this.write(buf,"__TMP2__ "+op+" __TMP__");
+                                this.write(buf,`${tmp2} ${op} ${tmp}`);
                             }
                             this.write(buf,";");
                             this.newLine(buf);
