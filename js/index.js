@@ -705,27 +705,16 @@ class wasm2lua {
                         case "rotl":
                         case "rotr":
                             {
+                                let tmp = this.getPop(state);
+                                let tmp2 = this.getPop(state);
+                                this.write(buf, this.getPushStack(state));
                                 if (ins.object == "i32") {
                                     let op_func = wasm2lua.instructionBinOpFuncRemap[ins.id];
-                                    this.write(buf, "__TMP__ = ");
-                                    this.write(buf, this.getPop(state));
-                                    this.write(buf, "; ");
-                                    this.write(buf, "__TMP2__ = ");
-                                    this.write(buf, this.getPop(state));
-                                    this.write(buf, "; ");
-                                    this.write(buf, this.getPushStack(state));
                                     this.write(buf, op_func);
-                                    this.write(buf, "(__TMP2__,__TMP__);");
+                                    this.write(buf, `(${tmp2},${tmp});`);
                                 }
                                 else if (ins.object == "i64") {
-                                    this.write(buf, "__TMP__ = ");
-                                    this.write(buf, this.getPop(state));
-                                    this.write(buf, "; ");
-                                    this.write(buf, "__TMP2__ = ");
-                                    this.write(buf, this.getPop(state));
-                                    this.write(buf, "; ");
-                                    this.write(buf, this.getPushStack(state));
-                                    this.write(buf, `__TMP2__:_${ins.id}(__TMP__);`);
+                                    this.write(buf, `${tmp2}:_${ins.id}(${tmp});`);
                                 }
                                 else {
                                     this.write(buf, "error('BIT OP ON UNSUPPORTED TYPE: " + ins.object + "," + ins.id + "');");
