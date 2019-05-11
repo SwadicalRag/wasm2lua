@@ -116,6 +116,8 @@ __LONG_INT_CLASS__ = {
     end,
     __index = {
         store = function(self,mem,loc)
+            assert((loc >= 0) and (loc < (mem._len - 7)),"out of memory access")
+
             local low = self[1]
             local high = self[2]
 
@@ -123,11 +125,21 @@ __LONG_INT_CLASS__ = {
             __MEMORY_WRITE_32__(mem,loc+4,high)
         end,
         load = function(self,mem,loc)
+
             local low =  __MEMORY_READ_32__(mem,loc)
             local high = __MEMORY_READ_32__(mem,loc+4)
 
             self[1] = low
             self[2] = high
+        end,
+        store32 = function(self,mem,loc)
+           __MEMORY_WRITE_32__(mem,loc,self[1])
+        end,
+        store16 = function(self,mem,loc)
+            __MEMORY_WRITE_16__(mem,loc,self[1])
+        end,
+        store8 = function(self,mem,loc)
+            __MEMORY_WRITE_8__(mem,loc,self[1])
         end,
         _shl = function(a,b)
             local shift = b[1]

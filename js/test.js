@@ -70,7 +70,7 @@ function compileCommand(cmd, test_num) {
         if (instr.type != "invoke") {
             throw new Error("Unhandled instr type: " + instr.type);
         }
-        let expected = cmd.type == "assert_trap" ? `"trap"` :
+        let expected = cmd.type == "assert_trap" ? `"${cmd.text}"` :
             `{${cmd.expected.map(compileValue).join(",")}}`;
         return `runTest(${cmd.line},"${instr.field}",{${instr.args.map(compileValue).join(",")}},${expected})`;
     }
