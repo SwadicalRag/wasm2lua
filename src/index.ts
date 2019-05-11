@@ -145,10 +145,12 @@ export class wasm2lua {
                 buf.pop();
             }
 
-            let mat = buf[buf.length - 1].match(/^([\s\S]*?)\n(?:    )*$/);
-            if(mat) {
-                // fix up indent
-                buf[buf.length - 1] = mat[1] + "\n" + (("    ").repeat(this.indentLevel));
+            if (buf.length>0) {
+                let mat = buf[buf.length - 1].match(/^([\s\S]*?)\n(?:    )*$/);
+                if(mat) {
+                    // fix up indent
+                    buf[buf.length - 1] = mat[1] + "\n" + (("    ").repeat(this.indentLevel));
+                }
             }
         }
     }
@@ -1161,8 +1163,11 @@ export class wasm2lua {
                                 this.write(buf,";");
                                 this.newLine(buf);
                             });
-                            this.write(buf,"end");
-                            this.newLine(buf);
+                            if (ins.args.length>1) {
+                                // single-target branch tables have no surrounding control structure
+                                this.write(buf,"end");
+                                this.newLine(buf);
+                            }
                         }
                         // Memory
                         //////////////////////////////////////////////////////////////

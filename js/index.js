@@ -56,9 +56,11 @@ class wasm2lua {
             while (buf[buf.length - 1] === "") {
                 buf.pop();
             }
-            let mat = buf[buf.length - 1].match(/^([\s\S]*?)\n(?:    )*$/);
-            if (mat) {
-                buf[buf.length - 1] = mat[1] + "\n" + (("    ").repeat(this.indentLevel));
+            if (buf.length > 0) {
+                let mat = buf[buf.length - 1].match(/^([\s\S]*?)\n(?:    )*$/);
+                if (mat) {
+                    buf[buf.length - 1] = mat[1] + "\n" + (("    ").repeat(this.indentLevel));
+                }
             }
         }
     }
@@ -857,8 +859,10 @@ class wasm2lua {
                                 this.write(buf, ";");
                                 this.newLine(buf);
                             });
-                            this.write(buf, "end");
-                            this.newLine(buf);
+                            if (ins.args.length > 1) {
+                                this.write(buf, "end");
+                                this.newLine(buf);
+                            }
                         }
                         case "store":
                         case "store8":
