@@ -712,6 +712,10 @@ class wasm2lua {
                         case "div":
                         case "eq":
                         case "ne":
+                        case "lt":
+                        case "le":
+                        case "ge":
+                        case "gt":
                         case "lt_s":
                         case "le_s":
                         case "ge_s":
@@ -1242,6 +1246,10 @@ wasm2lua.instructionBinOpRemap = {
     div: { op: "/" },
     eq: { op: "==", bool_result: true },
     ne: { op: "~=", bool_result: true },
+    lt: { op: "<", bool_result: true },
+    le: { op: "<=", bool_result: true },
+    ge: { op: ">=", bool_result: true },
+    gt: { op: ">", bool_result: true },
     lt_s: { op: "<", bool_result: true },
     le_s: { op: "<=", bool_result: true },
     ge_s: { op: ">=", bool_result: true },
