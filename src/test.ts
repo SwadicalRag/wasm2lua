@@ -38,6 +38,12 @@ interface TestCmdAssertTrap {
     text: string;
 }
 
+interface TestCmdAssertExhaust {
+    type: "assert_exhaustion";
+    action: TestInstr;
+    expected: TestValue[];
+}
+
 interface TestCmdAssertMalformed {
     type: "assert_malformed";
 }
@@ -46,7 +52,7 @@ interface TestCmdAssertInvalid {
     type: "assert_invalid";
 }
 
-type TestCmd = (TestCmdModule | TestCmdAssertReturn | TestCmdAssertTrap | TestCmdAssertMalformed | TestCmdAssertInvalid) & {line: number};
+type TestCmd = (TestCmdModule | TestCmdAssertReturn | TestCmdAssertTrap | TestCmdAssertMalformed | TestCmdAssertInvalid | TestCmdAssertExhaust) & {line: number};
 
 function fixWSLPath(path) {
     path = path.replace(/(.):\\/g,(_,x)=>`/mnt/${x.toLowerCase()}/`);
@@ -128,18 +134,21 @@ function compileAndRunTests(commands: TestCmd[]) {
 }
 
 function compileCommand(cmd: TestCmd, test_num: number) {
-    if (cmd.type == "assert_return" || cmd.type == "assert_trap") {
+    if (cmd.type == "assert_return" || cmd.type == "assert_trap" || cmd.type == "assert_exhaustion") {
         let instr = cmd.action;
         if (instr.type != "invoke") {
             throw new Error("Unhandled instr type: "+instr.type);
         }
 
-        let expected = cmd.type == "assert_trap" ? `"${cmd.text}"` :
+        let expected =
+            cmd.type == "assert_trap" ? `"${cmd.text}"` :
+            cmd.type == "assert_exhaustion" ? `"exhaustion"` :
             `{${cmd.expected.map(compileValue).join(",")}}`;
 
         return `runTest(${cmd.line},"${instr.field}",{${instr.args.map(compileValue).join(",")}},${expected})`
 
     } else {
+        console.log(cmd);
         throw new Error("Unhandled command: "+(<any>cmd).type);
     }
 }
@@ -155,7 +164,7 @@ function compileValue(value: TestValue) {
         return `__LONG_INT__(${low},${high})`;
     } else if (value.type=="f32") {
         let convert_buffer = Buffer.alloc(4);
-        convert_buffer.writeInt32LE(+value.value,0);
+        convert_buffer.writeUInt32LE(+value.value,0);
         let float_val = convert_buffer.readFloatLE(0);
 
         return compileFloatValue(float_val);

@@ -65,16 +65,18 @@ function compileAndRunTests(commands) {
     commands.length = 0;
 }
 function compileCommand(cmd, test_num) {
-    if (cmd.type == "assert_return" || cmd.type == "assert_trap") {
+    if (cmd.type == "assert_return" || cmd.type == "assert_trap" || cmd.type == "assert_exhaustion") {
         let instr = cmd.action;
         if (instr.type != "invoke") {
             throw new Error("Unhandled instr type: " + instr.type);
         }
         let expected = cmd.type == "assert_trap" ? `"${cmd.text}"` :
-            `{${cmd.expected.map(compileValue).join(",")}}`;
+            cmd.type == "assert_exhaustion" ? `"exhaustion"` :
+                `{${cmd.expected.map(compileValue).join(",")}}`;
         return `runTest(${cmd.line},"${instr.field}",{${instr.args.map(compileValue).join(",")}},${expected})`;
     }
     else {
+        console.log(cmd);
         throw new Error("Unhandled command: " + cmd.type);
     }
 }
@@ -90,7 +92,7 @@ function compileValue(value) {
     }
     else if (value.type == "f32") {
         let convert_buffer = Buffer.alloc(4);
-        convert_buffer.writeInt32LE(+value.value, 0);
+        convert_buffer.writeUInt32LE(+value.value, 0);
         let float_val = convert_buffer.readFloatLE(0);
         return compileFloatValue(float_val);
     }
