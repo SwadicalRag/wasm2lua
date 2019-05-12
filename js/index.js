@@ -136,12 +136,12 @@ class wasm2lua {
             return `__STACK__[${func.stackLevel}]`;
         }
     }
-    getPeek(func) {
-        if (func.stackLevel == 1) {
+    getPeek(func, n = 0) {
+        if (func.stackLevel - n <= 1) {
             console.log("attempt to peek below zero");
             return "--[[WARNING: NEGATIVE PEEK]] nil";
         }
-        let lastData = func.stackData[func.stackData.length - 1];
+        let lastData = func.stackData[func.stackData.length - n - 1];
         if (typeof lastData === "string") {
             return lastData;
         }
@@ -149,7 +149,7 @@ class wasm2lua {
             return func.regManager.getPhysicalRegisterName(lastData);
         }
         else {
-            return `__STACK__[${func.stackLevel}]`;
+            return `__STACK__[${func.stackLevel - n - 1}]`;
         }
     }
     stackDrop(func) {
@@ -581,12 +581,23 @@ class wasm2lua {
             }
         }
         else if (blocksToExit == state.blocks.length) {
-            this.write(buf, "do return end");
+            this.writeReturn(buf, state);
         }
         else {
             this.write(buf, "goto ____UNRESOLVED_DEST____");
         }
         this.write(buf, ";");
+    }
+    writeReturn(buf, state) {
+        this.write(buf, "do return ");
+        let nRets = state.funcType ? state.funcType.results.length : 0;
+        for (let i = 0; i < nRets; i++) {
+            this.write(buf, this.getPeek(state, i));
+            if (nRets !== (i + 1)) {
+                this.write(buf, ",");
+            }
+        }
+        this.write(buf, " end");
     }
     processInstructionsPass1(insArr, state) {
         for (let ins of insArr) {
@@ -1024,15 +1035,7 @@ class wasm2lua {
                             break;
                         }
                         case "return": {
-                            this.write(buf, "do return ");
-                            let nRets = state.funcType ? state.funcType.results.length : 0;
-                            for (let i = 0; i < nRets; i++) {
-                                this.write(buf, this.getPop(state));
-                                if (nRets !== (i + 1)) {
-                                    this.write(buf, ",");
-                                }
-                            }
-                            this.write(buf, "; end;");
+                            this.writeReturn(buf, state);
                             this.newLine(buf);
                             break;
                         }
