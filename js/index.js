@@ -568,10 +568,10 @@ class wasm2lua {
     }
     writeBranch(buf, state, blocksToExit) {
         let targetBlock = state.blocks[state.blocks.length - blocksToExit - 1];
-        if (targetBlock.resultType !== null) {
-            this.write(buf, state.regManager.getPhysicalRegisterName(targetBlock.resultRegister) + " = " + this.getPeek(state) + "; ");
-        }
         if (targetBlock) {
+            if (targetBlock.resultType !== null) {
+                this.write(buf, state.regManager.getPhysicalRegisterName(targetBlock.resultRegister) + " = " + this.getPeek(state) + "; ");
+            }
             this.write(buf, "goto ");
             if (targetBlock.blockType == "loop") {
                 this.write(buf, sanitizeIdentifier(`${targetBlock.id}_start`));
@@ -579,6 +579,9 @@ class wasm2lua {
             else {
                 this.write(buf, sanitizeIdentifier(`${targetBlock.id}_fin`));
             }
+        }
+        else if (blocksToExit == state.blocks.length) {
+            this.write(buf, "do return end");
         }
         else {
             this.write(buf, "goto ____UNRESOLVED_DEST____");
@@ -869,6 +872,11 @@ class wasm2lua {
                             this.write(buf, `__TMP__ = ${this.getPop(state)};`);
                             this.newLine(buf);
                             let arg_count = ins.args.length;
+                            if (arg_count > 1000) {
+                                this.write(buf, "error('jump table too big')");
+                                this.newLine(buf);
+                                break;
+                            }
                             ins.args.forEach((target, i) => {
                                 if (i != 0) {
                                     this.write(buf, "else");
@@ -886,6 +894,7 @@ class wasm2lua {
                                 this.write(buf, "end");
                                 this.newLine(buf);
                             }
+                            break;
                         }
                         case "store":
                         case "store8":

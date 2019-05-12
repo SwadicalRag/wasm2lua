@@ -146,7 +146,7 @@ function compileCommand(cmd: TestCmd, test_num: number) {
 
 function compileValue(value: TestValue) {
     if (value.type=="i32") {
-        return value.value;
+        return (+value.value)|0;
     } else if (value.type=="i64") {
         let num = BigInt(value.value);
         let low = num & BigInt(0xFFFFFFFF);

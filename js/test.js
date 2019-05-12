@@ -80,7 +80,7 @@ function compileCommand(cmd, test_num) {
 }
 function compileValue(value) {
     if (value.type == "i32") {
-        return value.value;
+        return (+value.value) | 0;
     }
     else if (value.type == "i64") {
         let num = BigInt(value.value);
