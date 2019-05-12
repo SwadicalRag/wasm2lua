@@ -712,10 +712,12 @@ export class wasm2lua {
         shr_u: "bit.rshift", // logical shift
         shr_s: "bit.arshift", // arithmetic shift
         rotl: "bit.rol",
-        rotr: "bot.ror",
+        rotr: "bit.ror",
 
         // unary
-        ctz: "__CTZ__"
+        clz: "__CLZ__",
+        ctz: "__CTZ__",
+        popcnt: "__POPCNT__"
     };
 
     beginBlock(buf: string[],state: WASMFuncState,block: WASMBlockState,customStart?: string) {
@@ -1118,7 +1120,9 @@ export class wasm2lua {
 
                             break;
                         }
+                        case "clz":
                         case "ctz":
+                        case "popcnt":
                         {
                             var arg = this.getPop(state);
                             if (ins.object=="i64") {

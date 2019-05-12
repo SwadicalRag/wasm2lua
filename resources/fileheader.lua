@@ -101,6 +101,18 @@ end
 
 -- extra bit ops
 
+local __clz_tab = {3, 2, 2, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0}
+__clz_tab[0] = 4
+
+local function __CLZ__(x)
+    local n = 0
+    if bit.band(x,0xFFFF0000) == 0 then n    = 16; x = bit.lshift(x,16) end
+    if bit.band(x,0xFF000000) == 0 then n = n + 8; x = bit.lshift(x,8) end
+    if bit.band(x,0xF0000000) == 0 then n = n + 4; x = bit.lshift(x,4) end
+    n = n + __clz_tab[bit.rshift(x,28)]
+    return n
+end
+
 local __ctz_tab = {}
 
 for i = 0,31 do
@@ -108,7 +120,14 @@ for i = 0,31 do
 end
 
 local function __CTZ__(x)
+    if x == 0 then return 32 end
     return __ctz_tab[ bit.rshift( bit.band(x,-x) * 125613361 , 27 ) ]
+end
+
+local function __POPCNT__(x)
+    -- the really cool algorithm uses a multiply that can overflow, so we're stuck with this
+    -- TODO 256 bit LUT
+    return -1
 end
 
 local __LONG_INT_CLASS__

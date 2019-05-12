@@ -804,7 +804,9 @@ class wasm2lua {
                                 this.newLine(buf);
                                 break;
                             }
+                        case "clz":
                         case "ctz":
+                        case "popcnt":
                             {
                                 var arg = this.getPop(state);
                                 if (ins.object == "i64") {
@@ -1291,8 +1293,10 @@ wasm2lua.instructionBinOpFuncRemap = {
     shr_u: "bit.rshift",
     shr_s: "bit.arshift",
     rotl: "bit.rol",
-    rotr: "bot.ror",
-    ctz: "__CTZ__"
+    rotr: "bit.ror",
+    clz: "__CLZ__",
+    ctz: "__CTZ__",
+    popcnt: "__POPCNT__"
 };
 exports.wasm2lua = wasm2lua;
 let infile = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
