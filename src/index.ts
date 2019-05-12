@@ -257,6 +257,26 @@ export class wasm2lua {
         }
     }
 
+    getPeek(func: WASMFuncState) {
+        if(func.stackLevel == 1) {
+            console.log("attempt to peek below zero");
+            return "--[[WARNING: NEGATIVE PEEK]] nil";
+        }
+
+        let lastData = func.stackData[func.stackData.length-1];
+
+        if(typeof lastData === "string") {
+            return lastData;
+        }
+        else if(typeof lastData === "object") {
+            // only peeking, so no chance we want to free the register?
+            return func.regManager.getPhysicalRegisterName(lastData);
+        }
+        else {
+            return `__STACK__[${func.stackLevel}]`;
+        }
+    }
+
     stackDrop(func: WASMFuncState) {
         this.getPop(func);
     }
@@ -750,38 +770,76 @@ export class wasm2lua {
 
     endBlockInternal(buf: string[],block: WASMBlockState,state: WASMFuncState) {
         block.hasClosed = true;
+        
+        if(block.resultType !== null) {
+            this.write(buf,state.regManager.getPhysicalRegisterName(block.resultRegister) + " = " + this.getPop(state));
+            this.newLine(buf);
+        }
+        
+        // reset stack to normal layout
+        let popCnt = state.stackLevel - block.enterStackLevel;
+        for(let i=0;i < popCnt;i++) {
+            this.getPop(state);
+        }
+
+        // push the return value
+        if(block.resultType !== null) {
+            this.writeLn(buf,"-- BLOCK RET ("+block.blockType+"):");
+            this.writeLn(buf,this.getPushStack(state,block.resultRegister));
+        }
+        
         this.outdent(buf);
         this.write(buf,"end");
         this.newLine(buf);
         this.write(buf,sanitizeIdentifier(`::${block.id}_fin::`));
         this.newLine(buf);
+    }
 
-        /*if(block.blockType == "loop") {
-            // reset stack to normal layout
-            let popCnt = state.stackLevel - block.enterStackLevel;
-            for(let i=0;i < popCnt;i++) {
-                this.getPop(state);
+    startElseSubBlock(buf: string[], block: WASMBlockState, state: WASMFuncState) {
+        if(block.resultType !== null) {
+            this.write(buf,state.regManager.getPhysicalRegisterName(block.resultRegister) + " = " + this.getPop(state));
+            this.newLine(buf);
+        }
+        
+        // reset stack to normal layout
+        let popCnt = state.stackLevel - block.enterStackLevel;
+        for(let i=0;i < popCnt;i++) {
+            this.getPop(state);
+        }
+
+        // push the return value
+        if(block.resultType !== null) {
+            this.writeLn(buf,"-- BLOCK RET !!! ("+block.blockType+"):");
+            this.writeLn(buf,this.getPushStack(state,block.resultRegister));
+        }
+        
+        this.outdent(buf);
+        this.write(buf,"else");
+        this.newLine(buf);
+        this.indent();
+    }
+
+    writeBranch(buf: string[], state: WASMFuncState, blocksToExit: number) {
+        let targetBlock = state.blocks[state.blocks.length - blocksToExit - 1];
+
+        if(targetBlock.resultType !== null) {
+            this.write(buf,state.regManager.getPhysicalRegisterName(targetBlock.resultRegister) + " = " + this.getPeek(state)+ "; ");
+        }
+
+        if(targetBlock) {
+            this.write(buf,"goto ")
+            if(targetBlock.blockType == "loop") {
+                this.write(buf,sanitizeIdentifier(`${targetBlock.id}_start`));
+            }
+            else {
+                this.write(buf,sanitizeIdentifier(`${targetBlock.id}_fin`));
             }
         }
-        else if((block.blockType == "block") || (block.blockType == "if")) */{
-            // these blocks can return stuff
-            if(block.resultType !== null) {
-                this.write(buf,state.regManager.getPhysicalRegisterName(block.resultRegister) + " = " + this.getPop(state));
-                this.newLine(buf);
-            }
-            
-            // reset stack to normal layout
-            let popCnt = state.stackLevel - block.enterStackLevel;
-            for(let i=0;i < popCnt;i++) {
-                this.getPop(state);
-            }
-
-            // push the return value
-            if(block.resultType !== null) {
-                this.writeLn(buf,this.getPushStack(state,block.resultRegister));
-                this.writeLn(buf,"-- BLOCK RET")
-            }
+        else {
+            this.write(buf,"goto ____UNRESOLVED_DEST____");
         }
+
+        this.write(buf,";");
     }
 
     processInstructionsPass1(insArr: Instruction[],state: WASMFuncState) {
@@ -1095,44 +1153,15 @@ export class wasm2lua {
                             this.write(buf,this.getPop(state));
                             this.write(buf,"~=0 then ");
 
-                            let blocksToExit = (ins.args[0] as NumberLiteral).value;
-                            let targetBlock = state.blocks[state.blocks.length - blocksToExit - 1];
-
-                            if(targetBlock) {
-                                this.write(buf,"goto ")
-                                if(targetBlock.blockType == "loop") {
-                                    this.write(buf,sanitizeIdentifier(`${targetBlock.id}_start`));
-                                }
-                                else {
-                                    this.write(buf,sanitizeIdentifier(`${targetBlock.id}_fin`));
-                                }
-                            }
-                            else {
-                                this.write(buf,"goto ____UNRESOLVED_DEST____");
-                            }
+                            this.writeBranch(buf,state, (ins.args[0] as NumberLiteral).value);
 
                             this.write(buf," end;");
                             this.newLine(buf);
+
                             break;
                         }
                         case "br": {
-                            let blocksToExit = (ins.args[0] as NumberLiteral).value;
-                            let targetBlock = state.blocks[state.blocks.length - blocksToExit - 1];
-
-                            if(targetBlock) {
-                                this.write(buf,"goto ")
-                                if(targetBlock.blockType == "loop") {
-                                    this.write(buf,sanitizeIdentifier(`${targetBlock.id}_start`));
-                                }
-                                else {
-                                    this.write(buf,sanitizeIdentifier(`${targetBlock.id}_fin`));
-                                }
-                            }
-                            else {
-                                this.write(buf,"goto ____UNRESOLVED_DEST____");
-                            }
-
-                            this.write(buf,";");
+                            this.writeBranch(buf,state, (ins.args[0] as NumberLiteral).value);
                             this.newLine(buf);
                             break;
                         }
@@ -1141,30 +1170,18 @@ export class wasm2lua {
                             this.newLine(buf);
                             let arg_count = ins.args.length;
                             ins.args.forEach((target,i)=>{
-                                let blocksToExit = (target as NumberLiteral).value;
-                                let targetBlock = state.blocks[state.blocks.length - blocksToExit - 1];
 
-                                if(targetBlock) {
-                                    if (i!=0) {
-                                        this.write(buf,"else");
-                                    }
-                                    if (i<arg_count-1) {
-                                        this.write(buf,`if __TMP__ == ${i} then goto `);
-                                    } else {
-                                        this.write(buf," goto ");
-                                    }
-                                    if(targetBlock.blockType == "loop") {
-                                        this.write(buf,`${targetBlock.id}_start`);
-                                    }
-                                    else {
-                                        this.write(buf,`${targetBlock.id}_fin`);
-                                    }
+                                if (i!=0) {
+                                    this.write(buf,"else");
                                 }
-                                else {
-                                    this.write(buf,"goto ____UNRESOLVED_DEST____");
+
+                                if (i<arg_count-1) {
+                                    this.write(buf,`if __TMP__ == ${i} then `);
+                                } else {
+                                    this.write(buf," ");
                                 }
-    
-                                this.write(buf,";");
+
+                                this.writeBranch(buf,state, (target as NumberLiteral).value);
                                 this.newLine(buf);
                             });
                             if (ins.args.length>1) {
@@ -1389,40 +1406,32 @@ export class wasm2lua {
                     break;
                 }
                 case "IfInstruction": {
-                    this.write(buf,"-- <IF>");
-                    this.newLine(buf);
 
-                    if(ins.test.length > 0) {
-                        this.write(buf,"-- WARNING: 'if test' present, and was not handled");
+                    if (ins.test.length > 0) {
+                        this.write(buf,"error('if test nyi')");
                         this.newLine(buf);
                     }
-                    
-                    let ifBlock = this.beginBlock(buf,state,{
+
+                    let block = this.beginBlock(buf,state,{
                         id: `if_${ins.loc.start.line}_${ins.loc.start.column}`,
                         blockType: "if",
                         resultType: ins.result,
-                        enterStackLevel: state.stackLevel,
-                    },`if ${this.getPop(state)} then`);
+                        enterStackLevel: state.stackLevel
+                    },`if ${this.getPop(state)} ~= 0 then`);
 
-                    if(ifBlock.resultType !== null) {
-                        ifBlock.resultRegister = state.regManager.createTempRegister();
+                    if(block.resultType !== null) {
+                        block.resultRegister = state.regManager.createTempRegister();
                     }
 
                     this.write(buf,this.processInstructionsPass2(ins.consequent,state));
-                    
-                    // sometimes blocks arent ended so we manually end em
-                    this.endBlocksUntil(buf,state,ifBlock);
 
-                    if(ins.alternate.length > 0) {
-                        this.outdent();
-                        this.write(buf,"else")
-                        this.indent();
-                        this.newLine(buf);
+                    // write else
 
+                    if (ins.alternate.length > 0) {
+                        this.startElseSubBlock(buf,block,state);
+    
                         this.write(buf,this.processInstructionsPass2(ins.alternate,state));
                     }
-                    
-                    this.endBlocksUntilEx(buf,state,ifBlock); // ditto above
 
                     break;
                 }
