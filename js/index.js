@@ -775,6 +775,10 @@ class wasm2lua {
                         case "shr_s":
                         case "rotl":
                         case "rotr":
+                        case "div_s":
+                        case "div_u":
+                        case "rem_s":
+                        case "rem_u":
                             {
                                 if (ins.object == "i32") {
                                     let op_func = wasm2lua.instructionBinOpFuncRemap[ins.id];
@@ -1294,6 +1298,10 @@ wasm2lua.instructionBinOpFuncRemap = {
     shr_s: "bit.arshift",
     rotl: "bit.rol",
     rotr: "bit.ror",
+    div_s: "__DIVIDE_S__",
+    div_u: "__DIVIDE_U__",
+    rem_s: "__MODULO_S__",
+    rem_u: "__MODULO_U__",
     clz: "__CLZ__",
     ctz: "__CTZ__",
     popcnt: "__POPCNT__"

@@ -26,6 +26,8 @@ import { VirtualRegisterManager, VirtualRegister } from "./virtualregistermanage
 - Might want to use actual loops, might be more jit friendly.
 - Statically determine stack depth everywhere. Should improve performance and reduce the need for temporary vars, while not requiring any complex folding logic.
     - Attempted ^this^, not sure I did it correctly.
+
+- __MODULO_S__ probably will not JIT.
 */
 
 /* TODO BLOCKS:
@@ -714,6 +716,12 @@ export class wasm2lua {
         rotl: "bit.rol",
         rotr: "bit.ror",
 
+        // division
+        div_s: "__DIVIDE_S__",
+        div_u: "__DIVIDE_U__",
+        rem_s: "__MODULO_S__",
+        rem_u: "__MODULO_U__",
+
         // unary
         clz: "__CLZ__",
         ctz: "__CTZ__",
@@ -1091,6 +1099,11 @@ export class wasm2lua {
                         case "shr_s":
                         case "rotl":
                         case "rotr":
+
+                        case "div_s":
+                        case "div_u":
+                        case "rem_s":
+                        case "rem_u":
                         {
                             if (ins.object=="i32") {
                                 let op_func = wasm2lua.instructionBinOpFuncRemap[ins.id];
