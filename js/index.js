@@ -292,7 +292,7 @@ class wasm2lua {
                 this.processInstructionsPass1(field.offset, global_init_state);
                 this.write(buf, this.processInstructionsPass2(field.offset, global_init_state));
                 this.writeEx(buf, this.processInstructionsPass3(field.offset, global_init_state), -1);
-                this.write(buf, `__TABLE_OFFSET_${table_index}__ = ` + this.getPop(global_init_state) + " - 1;");
+                this.write(buf, `__TABLE_OFFSET_${table_index}__ = 1 - ` + this.getPop(global_init_state) + ";");
                 this.newLine(buf);
                 this.outdent(buf);
                 this.newLine(buf);

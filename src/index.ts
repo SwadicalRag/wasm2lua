@@ -453,7 +453,7 @@ export class wasm2lua {
                 this.writeEx(buf,this.processInstructionsPass3(field.offset,global_init_state),-1);
 
                 // bias the table offset so we can just use lua table indexing like lazy bastards
-                this.write(buf,`__TABLE_OFFSET_${table_index}__ = `+this.getPop(global_init_state)+" - 1;");
+                this.write(buf,`__TABLE_OFFSET_${table_index}__ = 1 - `+this.getPop(global_init_state)+";");
                 this.newLine(buf);
 
                 this.outdent(buf);
