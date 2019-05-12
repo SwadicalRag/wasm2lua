@@ -790,6 +790,18 @@ class wasm2lua {
                                 this.newLine(buf);
                                 break;
                             }
+                        case "ctz":
+                            {
+                                var arg = this.getPop(state);
+                                if (ins.object == "i64") {
+                                    this.write(buf, this.getPushStack(state, arg + ":_" + ins.id + "()"));
+                                }
+                                else {
+                                    let op_func = wasm2lua.instructionBinOpFuncRemap[ins.id];
+                                    this.write(buf, this.getPushStack(state, op_func + "(" + arg + ")"));
+                                }
+                                break;
+                            }
                         case "eqz": {
                             let resultVar = state.regManager.createTempRegister();
                             this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = (`);
@@ -1267,7 +1279,8 @@ wasm2lua.instructionBinOpFuncRemap = {
     shr_u: "bit.rshift",
     shr_s: "bit.arshift",
     rotl: "bit.rol",
-    rotr: "bot.ror"
+    rotr: "bot.ror",
+    ctz: "__CTZ__"
 };
 exports.wasm2lua = wasm2lua;
 let infile = process.argv[2] || (__dirname + "/../test/testwasi.wasm");

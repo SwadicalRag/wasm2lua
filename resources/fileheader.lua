@@ -99,6 +99,18 @@ local function __UNSIGNED__(value)
     return value
 end
 
+-- extra bit ops
+
+local __ctz_tab = {}
+
+for i = 0,31 do
+    __ctz_tab[ bit.rshift( 125613361 * bit.lshift(1,i) , 27 ) ] = i
+end
+
+local function __CTZ__(x)
+    return __ctz_tab[ bit.rshift( bit.band(x,-x) * 125613361 , 27 ) ]
+end
+
 local __LONG_INT_CLASS__
 
 local function __LONG_INT__(low,high)

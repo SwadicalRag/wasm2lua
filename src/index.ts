@@ -704,6 +704,7 @@ export class wasm2lua {
     };
 
     static instructionBinOpFuncRemap = {
+        // binary
         and: "bit.band",
         or: "bit.bor",
         xor: "bit.bxor",
@@ -711,7 +712,10 @@ export class wasm2lua {
         shr_u: "bit.rshift", // logical shift
         shr_s: "bit.arshift", // arithmetic shift
         rotl: "bit.rol",
-        rotr: "bot.ror"
+        rotr: "bot.ror",
+
+        // unary
+        ctz: "__CTZ__"
     };
 
     beginBlock(buf: string[],state: WASMFuncState,block: WASMBlockState,customStart?: string) {
@@ -1094,6 +1098,18 @@ export class wasm2lua {
                                 this.write(buf,"error('BIT OP ON UNSUPPORTED TYPE: "+ins.object+","+ins.id+"');");
                             }
                             this.newLine(buf);
+
+                            break;
+                        }
+                        case "ctz":
+                        {
+                            var arg = this.getPop(state);
+                            if (ins.object=="i64") {
+                                this.write(buf, this.getPushStack(state, arg + ":_" + ins.id +"()" ));
+                            } else {
+                                let op_func = wasm2lua.instructionBinOpFuncRemap[ins.id];
+                                this.write(buf, this.getPushStack(state, op_func+"("+arg+")" ));
+                            }
 
                             break;
                         }
