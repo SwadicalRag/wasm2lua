@@ -973,7 +973,9 @@ class wasm2lua {
                         case "load32_u": {
                             let targ = state.modState.memoryAllocations.get(0);
                             if (targ) {
-                                this.write(buf, "__TMP__ = ");
+                                let tempVar = state.regManager.createTempRegister();
+                                let vname = state.regManager.getPhysicalRegisterName(tempVar);
+                                this.write(buf, `${vname} = `);
                                 let is_narrow_u64_load = (ins.object == "u64" && ins.id != "load");
                                 if (ins.object == "u32" || is_narrow_u64_load) {
                                     if (ins.id.startsWith("load16")) {
@@ -997,12 +999,12 @@ class wasm2lua {
                                         else {
                                             throw new Error("signed load " + ins.id);
                                         }
-                                        this.write(buf, `__TMP__=bit.arshift(bit.lshift(__TMP__,${shift}),${shift});`);
+                                        this.write(buf, `${vname}=bit.arshift(bit.lshift(${vname},${shift}),${shift});`);
                                     }
                                 }
                                 else if (ins.object == "u64") {
                                     if (ins.id == "load") {
-                                        this.write(buf, `__LONG_INT__(0,0); __TMP__:${ins.id}(${targ},${this.getPop(state)}+${ins.args[0].value});`);
+                                        this.write(buf, `__LONG_INT__(0,0); ${vname}:${ins.id}(${targ},${this.getPop(state)}+${ins.args[0].value});`);
                                     }
                                     else {
                                         throw new Error("narrow u64 loads NYI " + ins.id);
@@ -1023,14 +1025,13 @@ class wasm2lua {
                                 }
                                 if (is_narrow_u64_load) {
                                     if (ins.id.endsWith("_s")) {
-                                        this.write(buf, "__TMP__=__LONG_INT__(__TMP__,__TMP__ < 0 and -1 or 0);");
+                                        this.write(buf, `${vname}=__LONG_INT__(${vname},${vname} < 0 and -1 or 0);`);
                                     }
                                     else {
-                                        this.write(buf, "__TMP__=__LONG_INT__(__TMP__,0);");
+                                        this.write(buf, `${vname}=__LONG_INT__(${vname},0);`);
                                     }
                                 }
-                                this.write(buf, this.getPushStack(state) + "__TMP__;");
-                                this.newLine(buf);
+                                this.writeLn(buf, this.getPushStack(state, tempVar));
                             }
                             else {
                                 this.write(buf, "-- WARNING: COULD NOT FIND MEMORY TO READ");
