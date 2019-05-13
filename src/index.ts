@@ -101,7 +101,7 @@ interface WASM2LuaOptions {
     compileFlags?: string[];
 }
 
-const FUNC_VAR_HEADER = "local __STACK__ = {};";
+const FUNC_VAR_HEADER = "";
 
 export class wasm2lua {
     outBuf: string[] = [];

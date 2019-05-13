@@ -32,7 +32,7 @@ function sanitizeIdentifier(ident) {
         .replace(/\./g, "__IDENT_CHAR_DOT__")
         .replace(/\-/g, "__IDENT_CHAR_MINUS__");
 }
-const FUNC_VAR_HEADER = "local __STACK__ = {};";
+const FUNC_VAR_HEADER = "";
 class wasm2lua {
     constructor(program_binary, options = {}) {
         this.program_binary = program_binary;
