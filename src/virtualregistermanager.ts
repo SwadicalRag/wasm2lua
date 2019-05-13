@@ -103,7 +103,7 @@ export class VirtualRegisterManager {
         this.namedRegisters.delete(reg.name);
         let id = this.registers.indexOf(reg);
         if(id !== -1) {
-            this.registers.splice(id);
+            this.registers.splice(id,1);
         }
     }
 }
