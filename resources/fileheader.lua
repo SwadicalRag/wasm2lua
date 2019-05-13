@@ -195,6 +195,14 @@ local __FLOAT__ = {
     end,
     truncate = function(x)
         return x > 0 and math.floor(x) or math.ceil(x)
+    end,
+    min = function(x,y)
+        if x ~= x or y ~= y then return 0 / 0 end
+        return math.min(x,y)
+    end,
+    max = function(x,y)
+        if x ~= x or y ~= y then return 0 / 0 end
+        return math.max(x,y)
     end
 }
 

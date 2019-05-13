@@ -807,11 +807,13 @@ class wasm2lua {
                         case "div_u":
                         case "rem_s":
                         case "rem_u":
+                        case "min":
+                        case "max":
                             {
                                 let tmp = this.getPop(state);
                                 let tmp2 = this.getPop(state);
                                 this.write(buf, this.getPushStack(state));
-                                if (ins.object == "i32") {
+                                if (ins.object == "i32" || ins.object == "f32" || ins.object == "f64") {
                                     let op_func = wasm2lua.instructionBinOpFuncRemap[ins.id];
                                     this.write(buf, op_func);
                                     this.write(buf, `(${tmp2},${tmp});`);
@@ -1352,7 +1354,9 @@ wasm2lua.instructionBinOpFuncRemap = {
     nearest: "__FLOAT__.nearest",
     trunc: "__FLOAT__.truncate",
     floor: "math.floor",
-    ceil: "math.ceil"
+    ceil: "math.ceil",
+    min: "__FLOAT__.min",
+    max: "__FLOAT__.max"
 };
 exports.wasm2lua = wasm2lua;
 let infile = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
