@@ -583,10 +583,6 @@ class wasm2lua {
         this.newLine(buf);
     }
     startElseSubBlock(buf, block, state) {
-        if (block.resultType !== null) {
-            this.write(buf, state.regManager.getPhysicalRegisterName(block.resultRegister) + " = " + this.getPop(state));
-            this.newLine(buf);
-        }
         let popCnt = state.stackLevel - block.enterStackLevel;
         for (let i = 0; i < popCnt; i++) {
             this.getPop(state);
@@ -598,6 +594,7 @@ class wasm2lua {
     }
     writeBranch(buf, state, blocksToExit) {
         let targetBlock = state.blocks[state.blocks.length - blocksToExit - 1];
+        let currentBlock = state.blocks[state.blocks.length - 1];
         if (targetBlock) {
             if (targetBlock.resultType !== null) {
                 this.write(buf, state.regManager.getPhysicalRegisterName(targetBlock.resultRegister) + " = " + this.getPeek(state) + "; ");
@@ -689,7 +686,7 @@ class wasm2lua {
                     let blockType = (ins.type == "LoopInstruction") ? "loop" : "block";
                     let block = this.beginBlock([], state, {
                         id: ins.label.value,
-                        resultType: (ins.type == "LoopInstruction") ? ins.resulttype : ins.result,
+                        resultType: null,
                         blockType,
                         enterStackLevel: state.stackLevel,
                     });
@@ -708,9 +705,9 @@ class wasm2lua {
                     let block = this.beginBlock([], state, {
                         id: `if_${ins.loc.start.line}_${ins.loc.start.column}`,
                         blockType: "if",
-                        resultType: ins.result,
+                        resultType: null,
                         enterStackLevel: state.stackLevel
-                    }, `if ${this.getPop(state)} ~= 0 then`);
+                    });
                     this.processInstructionsPass1(ins.consequent, state);
                     if (ins.alternate.length > 0) {
                         this.startElseSubBlock([], block, state);
@@ -818,7 +815,7 @@ class wasm2lua {
                                 let op = wasm2lua.instructionBinOpRemap[ins.id].op;
                                 let convert_bool = wasm2lua.instructionBinOpRemap[ins.id].bool_result;
                                 let unsigned = wasm2lua.instructionBinOpRemap[ins.id].unsigned;
-                                let resultVar = state.regManager.createTempRegister();
+                                let resultVar = this.fn_createTempRegister(buf, state);
                                 let tmp = this.getPop(state);
                                 let tmp2 = this.getPop(state);
                                 this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = `);
@@ -861,7 +858,7 @@ class wasm2lua {
                         case "min":
                         case "max":
                             {
-                                let resultVar = state.regManager.createTempRegister();
+                                let resultVar = this.fn_createTempRegister(buf, state);
                                 let tmp = this.getPop(state);
                                 let tmp2 = this.getPop(state);
                                 this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = `);
@@ -931,7 +928,7 @@ class wasm2lua {
                         case "demote/f64":
                             break;
                         case "extend_u/i32": {
-                            let resultVar = state.regManager.createTempRegister();
+                            let resultVar = this.fn_createTempRegister(buf, state);
                             let tmp = this.getPop(state);
                             this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(${tmp},0);`);
                             this.write(buf, this.getPushStack(state, resultVar));
@@ -1031,7 +1028,7 @@ class wasm2lua {
                         case "load32_u": {
                             let targ = state.modState.memoryAllocations.get(0);
                             if (targ) {
-                                let tempVar = state.regManager.createTempRegister();
+                                let tempVar = this.fn_createTempRegister(buf, state);
                                 let vname = state.regManager.getPhysicalRegisterName(tempVar);
                                 this.write(buf, `${vname} = `);
                                 let is_narrow_u64_load = (ins.object == "u64" && ins.id != "load");
@@ -1099,7 +1096,7 @@ class wasm2lua {
                         }
                         case "grow_memory": {
                             let targ = state.modState.memoryAllocations.get(0);
-                            let tempVar = state.regManager.createTempRegister();
+                            let tempVar = this.fn_createTempRegister(buf, state);
                             this.write(buf, `${state.regManager.getPhysicalRegisterName(tempVar)} = __MEMORY_GROW__(${targ},__UNSIGNED__(${this.getPop(state)})); `);
                             this.write(buf, this.getPushStack(state, tempVar));
                             this.newLine(buf);
@@ -1262,7 +1259,12 @@ class wasm2lua {
                 }
             }
             if (state.regManager.totalRegisters > 150) {
-                console.log(`${state.id}: WARNING: ${state.regManager.totalRegisters} REGISTERS USED`);
+                if (state.regManager.totalRegisters >= 200) {
+                    console.error(`ERROR: [${state.id}] ${state.regManager.totalRegisters} REGISTERS USED`);
+                }
+                else {
+                    console.log(`WARNING: [${state.id}] ${state.regManager.totalRegisters} REGISTERS USED`);
+                }
             }
             this.write(t_buf, ";");
             this.newLine(t_buf);
@@ -1272,7 +1274,7 @@ class wasm2lua {
     writeFunctionCall(state, buf, func, sig) {
         let argsReg = [];
         for (let i = 0; i < sig.results.length; i++) {
-            let reg = state.regManager.createTempRegister();
+            let reg = this.fn_createTempRegister(buf, state);
             argsReg.push(reg);
             this.write(buf, state.regManager.getPhysicalRegisterName(reg));
             if ((i + 1) !== sig.results.length) {
