@@ -1275,6 +1275,25 @@ export class wasm2lua {
                             this.newLine(buf);
                             break;
                         }
+                        case "extend_s/i32": {
+                            let resultVar = this.fn_createTempRegister(buf,state);
+                            let tmp = this.getPop(state);
+                            // i extract 1st MSB (sign) into high uint32 and last 31 LSBs into low uint32
+                            // i didnt verify this but i think it should work
+                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(bit.band(${tmp},0x7FFFFFFF),bit.band(${tmp},0x80000000));`);
+                            this.write(buf,this.getPushStack(state,resultVar));
+                            this.newLine(buf);
+                            break;
+                        }
+                        case "wrap/i64": {
+                            let resultVar = this.fn_createTempRegister(buf,state);
+                            let tmp = this.getPop(state);
+                            // return low uint32
+                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = ${this.getPop(state)}[1];`);
+                            this.write(buf,this.getPushStack(state,resultVar));
+                            this.newLine(buf);
+                            break;
+                        }
                         // Branching
                         //////////////////////////////////////////////////////////////
                         case "br_if": {
@@ -1455,6 +1474,13 @@ export class wasm2lua {
                             this.write(buf,`${state.regManager.getPhysicalRegisterName(tempVar)} = __MEMORY_GROW__(${targ},__UNSIGNED__(${this.getPop(state)})); `);
                             this.write(buf,this.getPushStack(state,tempVar));
                             this.newLine(buf);
+                            break;
+                        }
+                        case "current_memory": {
+                            let targ = state.modState.memoryAllocations.get(0);
+                            // TODO: is target always 0?
+
+                            this.writeLn(buf,this.getPushStack(state,`${targ}._page_count`));
                             break;
                         }
                         // Misc
