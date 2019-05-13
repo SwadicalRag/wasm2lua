@@ -116,6 +116,8 @@ export class wasm2lua {
     globalRemaps: Map<string,string>;
     globalTypes: Signature[] = [];
 
+    registerDebugOutput = false;
+
     static fileHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
     static funcHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
 
@@ -174,6 +176,36 @@ export class wasm2lua {
         this.newLine(buf);
     }
 
+    fn_freeRegisterEx(buf: string[],func: WASMFuncState,reg: VirtualRegister) {
+        func.regManager.freeRegister(reg);
+        if(this.registerDebugOutput) {
+            this.write(buf,`--[[register ${func.regManager.getPhysicalRegisterName(reg)} (${reg.name}) freed]]`);
+        }
+    }
+
+    fn_freeRegister(buf: string[],func: WASMFuncState,reg: VirtualRegister) {
+        func.registersToBeFreed.push(reg);
+        if(this.registerDebugOutput) {
+            this.write(buf,`--[[register ${func.regManager.getPhysicalRegisterName(reg)} (${reg.name}) added to free-queue]]`);
+        }
+    }
+
+    fn_createTempRegister(buf: string[],func: WASMFuncState) {
+        let reg = func.regManager.createTempRegister();
+        if(this.registerDebugOutput) {
+            this.write(buf,`--[[register ${func.regManager.getPhysicalRegisterName(reg)} (temp) allocated]]`);
+        }
+        return reg;
+    }
+
+    fn_createNamedRegister(buf: string[],func: WASMFuncState,name: string) {
+        let reg = func.regManager.createRegister(name);
+        if(this.registerDebugOutput) {
+            this.write(buf,`--[[register ${func.regManager.getPhysicalRegisterName(reg)} (${reg.name}) allocated]]`);
+        }
+        return reg;
+    }
+
     getPushStack(func: WASMFuncState,stackExpr?: string | VirtualRegister,resolveRegister?: boolean) {
         // if(true) {
         //     if(typeof stackExpr !== "undefined") {
@@ -229,26 +261,36 @@ export class wasm2lua {
             return lastData;
         }
         else if(typeof lastData === "object") {
+            // IMPORTANT TODO: previously, registers were freed prematurely by the pop function
+            // registers can be popped and then used at a later stage...
+            // I need to figure out a way to gracefully pop registers rather than rely on an offset
+
+            let buf = []
+
             lastData.stackEntryCount--;
             if(lastData.stackEntryCount == 0) {
                 if(typeof lastData.lastRef === "number") {
                     if(func.insCountPass2 >= lastData.lastRef) {
+                        // lastData.lastRef = func.insCountPass2 + 20;
                         // func.registersToBeFreed.push(lastData);
-                        func.regManager.freeRegister(lastData);
+                        this.fn_freeRegister(buf,func,lastData);
                     }
                 }
                 else {
+                    // lastData.lastRef = func.insCountPass2 + 20;
                     // func.registersToBeFreed.push(lastData);
-                    func.regManager.freeRegister(lastData);
+                    this.fn_freeRegister(buf,func,lastData);
                 }
             }
             else if(lastData.stackEntryCount < 0) {
                 throw new Error("just wHat")
             }
 
+            this.write(buf,func.regManager.getPhysicalRegisterName(lastData));
+
             // return `--[[VIRTUAL REG POP TO ${func.stackLevel - 1}]] ${func.regManager.getPhysicalRegisterName(lastData)}`;
             // return `__STACK__[${func.stackLevel}]`;
-            return func.regManager.getPhysicalRegisterName(lastData);
+            return buf.join("");
         }
         else {
             return `__STACK__[${func.stackLevel}]`;
@@ -605,7 +647,7 @@ export class wasm2lua {
         if(node.signature.type == "Signature") {
             let i = 0;
             for(let param of node.signature.params) {
-                let reg = state.regManager.createRegister(`arg${i}`);
+                let reg = this.fn_createNamedRegister(buf,state,`arg${i}`);
                 state.locals[i] = reg;
                 this.write(buf,state.regManager.getPhysicalRegisterName(reg));
 
@@ -881,7 +923,7 @@ export class wasm2lua {
                         case "get_local": {
                             let locID = (ins.args[0] as NumberLiteral).value;
                             if(!state.locals[locID]) {
-                                state.locals[locID] = state.regManager.createRegister(`loc${locID}`);
+                                state.locals[locID] = this.fn_createNamedRegister(buf,state,`loc${locID}`);
                             }
                             if(typeof state.locals[locID].firstRef === "undefined") {
                                 state.locals[locID].firstRef = state.insCountPass2;
@@ -895,7 +937,7 @@ export class wasm2lua {
                         case "set_local": {
                             let locID = (ins.args[0] as NumberLiteral).value;
                             if(!state.locals[locID]) {
-                                state.locals[locID] = state.regManager.createRegister(`loc${locID}`);
+                                state.locals[locID] = this.fn_createNamedRegister(buf,state,`loc${locID}`);
                             }
                             if(typeof state.locals[locID].firstRef === "undefined") {
                                 state.locals[locID].firstRef = state.insCountPass2;
@@ -911,7 +953,7 @@ export class wasm2lua {
                         case "tee_local": {
                             let locID = (ins.args[0] as NumberLiteral).value;
                             if(!state.locals[locID]) {
-                                state.locals[locID] = state.regManager.createRegister(`loc${locID}`);
+                                state.locals[locID] = this.fn_createNamedRegister(buf,state,`loc${locID}`);
                             }
                             if(typeof state.locals[locID].firstRef === "undefined") {
                                 state.locals[locID].firstRef = state.insCountPass2;
@@ -1008,7 +1050,7 @@ export class wasm2lua {
                             break;
                         }
                         case "eqz": {
-                            let resultVar = state.regManager.createTempRegister();
+                            let resultVar = this.fn_createTempRegister(buf,state);
                             this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = (`);
                             this.write(buf,this.getPop(state));
                             this.write(buf,"==0) and 1 or 0; ");
@@ -1020,30 +1062,16 @@ export class wasm2lua {
                             // Freaking ternary op. This is a dumb way to compile this
                             // but it allows us to handle it without adding another temp var.
 
-                            let popCondVar = state.regManager.createTempRegister();
-                            this.write(buf,state.regManager.getPhysicalRegisterName(popCondVar) + " = ");
-                            this.write(buf,this.getPop(state));
-                            this.write(buf,"; ");
-
-                            let retVar1 = state.regManager.createTempRegister();
-                            this.write(buf,state.regManager.getPhysicalRegisterName(retVar1) + " = ");
-                            this.write(buf,this.getPop(state));
-                            this.write(buf,"; ");
-
-                            let retVar2 = state.regManager.createTempRegister();
-                            this.write(buf,state.regManager.getPhysicalRegisterName(retVar2) + " = ");
-                            this.write(buf,this.getPop(state));
-                            this.write(buf,"; ");
+                            let resultVar = this.fn_createTempRegister(buf,state);
                             
-                            let resultVar = state.regManager.createTempRegister();
-                            this.write(buf,`if ${state.regManager.getPhysicalRegisterName(popCondVar)} == 0 then `);
-                            this.write(buf,` ${state.regManager.getPhysicalRegisterName(resultVar)} = ${state.regManager.getPhysicalRegisterName(retVar1)} `);
-                            this.write(buf,`else ${state.regManager.getPhysicalRegisterName(resultVar)} = ${state.regManager.getPhysicalRegisterName(retVar2)} `);
+                            let popCond = this.getPop(state);
+                            let ret1 = this.getPop(state);
+                            let ret2 = this.getPop(state);
+                            
+                            this.write(buf,`if ${popCond} == 0 then `);
+                            this.write(buf,` ${state.regManager.getPhysicalRegisterName(resultVar)} = ${ret1} `);
+                            this.write(buf,`else ${state.regManager.getPhysicalRegisterName(resultVar)} = ${ret2} `);
                             this.write(buf,"end;");
-
-                            state.regManager.freeRegister(popCondVar);
-                            state.regManager.freeRegister(retVar1);
-                            state.regManager.freeRegister(retVar2);
 
                             this.write(buf,this.getPushStack(state,resultVar));
 
@@ -1323,7 +1351,7 @@ export class wasm2lua {
                     });
 
                     if(block.resultType !== null) {
-                        block.resultRegister = state.regManager.createTempRegister();
+                        block.resultRegister = this.fn_createTempRegister(buf,state);
                     }
 
                     this.write(buf,this.processInstructionsPass2(ins.instr,state));
@@ -1346,7 +1374,7 @@ export class wasm2lua {
                     },`if ${this.getPop(state)} then`);
 
                     if(ifBlock.resultType !== null) {
-                        ifBlock.resultRegister = state.regManager.createTempRegister();
+                        ifBlock.resultRegister = this.fn_createTempRegister(buf,state);
                     }
 
                     this.write(buf,this.processInstructionsPass2(ins.consequent,state));
@@ -1385,7 +1413,7 @@ export class wasm2lua {
 
                         if(state.insCountPass2 >= state.insLastRefs[locID]) {
                             if(state.locals[locID].stackEntryCount == 0) {
-                                state.regManager.freeRegister(state.locals[locID]);
+                                this.fn_freeRegister(buf,state,state.locals[locID]);
                             }
                         }
 
@@ -1394,10 +1422,25 @@ export class wasm2lua {
                 }
             }
 
-            for(let reg of state.registersToBeFreed) {
-                state.regManager.freeRegister(reg);
+            let regIdx = 0;
+            while(state.registersToBeFreed[regIdx]) {
+                let reg = state.registersToBeFreed[regIdx];
+
+                if(typeof reg.lastRef === "number") {
+                    if(state.insCountPass2 >= reg.lastRef) {
+                        this.fn_freeRegisterEx(buf,state,reg);
+                        state.registersToBeFreed.splice(regIdx,1);
+                        continue;
+                    }
+                }
+                else {
+                    this.fn_freeRegisterEx(buf,state,reg);
+                    state.registersToBeFreed.splice(regIdx,1);
+                    continue;
+                }
+                
+                regIdx++;
             }
-            state.registersToBeFreed = [];
         }
 
         return buf.join("");
@@ -1408,6 +1451,30 @@ export class wasm2lua {
         //////////////////////////////////////////////////////////////
 
         let t_buf: string[] = [];
+
+        if(state.regManager.virtualDisabled) {
+            this.write(t_buf,"local ");
+
+            let seen = {};
+            for(let i=(state.funcType ? state.funcType.params.length : 0);i < state.regManager.registerCache.length;i++) {
+                let reg = state.regManager.registerCache[i];
+                let name = state.regManager.getPhysicalRegisterName(reg);
+                if(seen[name]) {continue;}
+                seen[name] = true;
+                this.write(t_buf,name);
+                this.write(t_buf,",");
+            }
+            
+            if(t_buf.pop() !== ",") {
+                // no vars were declared.
+                return "";
+            }
+
+            this.write(t_buf,";");
+            this.newLine(t_buf);
+
+            return t_buf.join("");
+        }
 
         if((state.regManager.totalRegisters - (state.funcType ? state.funcType.params.length : 0)) > 0) {
             this.write(t_buf,"local ");

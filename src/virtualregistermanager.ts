@@ -16,6 +16,8 @@ export class VirtualRegisterManager {
     registers: VirtualRegister[] = [];
     namedRegisters = new Map<string,VirtualRegister>();
 
+    virtualDisabled = false;
+
     totalRegisters: number = 0;
 
     getNextFreeRegisterID() {
@@ -30,7 +32,19 @@ export class VirtualRegisterManager {
         return this.registers.length;
     }
 
-    getPhysicalRegisterName(reg: VirtualRegister) {return `reg${reg.id}`;}
+    getPhysicalRegisterName(reg: VirtualRegister) {
+        if(this.virtualDisabled) {
+            if(reg.name === "temp") {
+                return `tmp${reg.id}`;
+            }
+            else {
+                return reg.name;
+            }
+        }
+        else {
+            return `reg${reg.id}`;
+        }
+    }
 
     createRegister(name: string) {
         let reg = {
@@ -84,6 +98,8 @@ export class VirtualRegisterManager {
     }
 
     freeRegister(reg: VirtualRegister) {
+        if(this.virtualDisabled) {return;}
+        
         this.namedRegisters.delete(reg.name);
         let id = this.registers.indexOf(reg);
         if(id !== -1) {

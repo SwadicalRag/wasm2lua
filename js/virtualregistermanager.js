@@ -6,6 +6,7 @@ class VirtualRegisterManager {
         this.registerCache = [];
         this.registers = [];
         this.namedRegisters = new Map();
+        this.virtualDisabled = false;
         this.totalRegisters = 0;
     }
     getNextFreeRegisterID() {
@@ -16,7 +17,19 @@ class VirtualRegisterManager {
         }
         return this.registers.length;
     }
-    getPhysicalRegisterName(reg) { return `reg${reg.id}`; }
+    getPhysicalRegisterName(reg) {
+        if (this.virtualDisabled) {
+            if (reg.name === "temp") {
+                return `tmp${reg.id}`;
+            }
+            else {
+                return reg.name;
+            }
+        }
+        else {
+            return `reg${reg.id}`;
+        }
+    }
     createRegister(name) {
         let reg = {
             id: this.getNextFreeRegisterID(),
@@ -58,6 +71,9 @@ class VirtualRegisterManager {
         }
     }
     freeRegister(reg) {
+        if (this.virtualDisabled) {
+            return;
+        }
         this.namedRegisters.delete(reg.name);
         let id = this.registers.indexOf(reg);
         if (id !== -1) {
