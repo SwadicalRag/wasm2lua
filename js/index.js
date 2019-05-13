@@ -872,7 +872,8 @@ class wasm2lua {
                             {
                                 let tmp = this.getPop(state);
                                 let tmp2 = this.getPop(state);
-                                this.write(buf, this.getPushStack(state));
+                                let resultVar = state.regManager.createTempRegister();
+                                this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = `);
                                 if (ins.object == "i32") {
                                     let op_func = wasm2lua.instructionBinOpFuncRemap[ins.id];
                                     this.write(buf, op_func);
@@ -884,6 +885,7 @@ class wasm2lua {
                                 else {
                                     this.write(buf, "error('BIT OP ON UNSUPPORTED TYPE: " + ins.object + "," + ins.id + "');");
                                 }
+                                this.write(buf, this.getPushStack(state, resultVar));
                                 this.newLine(buf);
                                 break;
                             }
