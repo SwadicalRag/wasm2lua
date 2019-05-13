@@ -14,29 +14,16 @@ import { VirtualRegisterManager, VirtualRegister } from "./virtualregistermanage
 
 /* TODO TYPES:
 
-- Assume that anything on the stack is already normalized to the correct type.
-- ???? Some ops require normalization (add, sub, mul), while others do not (and, or).
-    - Apparently we are supposed to trap on overflow??? This seems like a lot of work. Need to investigate more.
-- Comparison ops should be normalized (bool -> i32(?)).
-- Many ops (comparisons, divisions, and shifts) are sign-dependant. This may be difficult to implement.
 - i64 will be a pain, but may be necessary due to runtime usage.
 - f32/f64 will be easy to implement, but very hard to read/write to memory in a way friendly to the jit. Soft floats are a potential last resort.
-- Signed loads still need sign extended, unsigned loads need to do what signed loads currently do.
+
 */
 
 /* TODO OPTIMIZATION:
 
 - Memory: Use 32 bits per table cell instead of 8, more is possible but probably a bad idea.
 - Might want to use actual loops, might be more jit friendly.
-- Statically determine stack depth everywhere. Should improve performance and reduce the need for temporary vars, while not requiring any complex folding logic.
-    - Attempted ^this^, not sure I did it correctly.
 
-*/
-
-/* TODO BLOCKS:
-
- - handle results
- - make sure stack depth is correct on exit?
 */
 
 // this may or may not be the best way to handle memory init but is pretty fast+easy to do for now
@@ -833,17 +820,11 @@ export class wasm2lua {
         for(let i=0;i < popCnt;i++) {
             this.getPop(state);
         }
-
-        // push the return value
-        if(block.resultType !== null) {
-            this.writeLn(buf,"-- BLOCK RET !!! ("+block.blockType+"):");
-            this.writeLn(buf,this.getPushStack(state,block.resultRegister));
-        }
         
         this.outdent(buf);
         this.write(buf,"else");
-        this.newLine(buf);
         this.indent();
+        this.newLine(buf);
     }
 
     writeBranch(buf: string[], state: WASMFuncState, blocksToExit: number) {

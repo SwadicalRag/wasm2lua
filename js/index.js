@@ -560,14 +560,10 @@ class wasm2lua {
         for (let i = 0; i < popCnt; i++) {
             this.getPop(state);
         }
-        if (block.resultType !== null) {
-            this.writeLn(buf, "-- BLOCK RET !!! (" + block.blockType + "):");
-            this.writeLn(buf, this.getPushStack(state, block.resultRegister));
-        }
         this.outdent(buf);
         this.write(buf, "else");
-        this.newLine(buf);
         this.indent();
+        this.newLine(buf);
     }
     writeBranch(buf, state, blocksToExit) {
         let targetBlock = state.blocks[state.blocks.length - blocksToExit - 1];
