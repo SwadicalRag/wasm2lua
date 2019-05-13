@@ -1209,10 +1209,10 @@ export class wasm2lua {
                         case "rem_s":
                         case "rem_u":
                         {
+                            let resultVar = state.regManager.createTempRegister();
+
                             let tmp = this.getPop(state);
                             let tmp2 = this.getPop(state);
-
-                            let resultVar = state.regManager.createTempRegister();
 
                             this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = `);
                             if (ins.object=="i32") {
