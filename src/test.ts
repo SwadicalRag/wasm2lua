@@ -62,7 +62,9 @@ function fixWSLPath(path) {
 
 let target = process.argv[2];
 
-let test_dir = pathJoin(__dirname,"../test/");
+let testDirectory = pathJoin(__dirname,"../test/");
+
+let testFileName = "";
 
 let fileHeader = fs.readFileSync(__dirname + "/../resources/fileheader_test.lua").toString();
 
@@ -103,10 +105,12 @@ function processTestFile(filename: string) {
 
 function compileModule(file: string) {
     console.log("Compiling:",file);
+    var file_index = file.match(/\.(\d+)\.wasm/)[1];
+    testFileName = `test${file_index}.lua`;
     let result = child_process.spawnSync(process.argv0,[
         pathJoin(__dirname,"index.js"),
         file,
-        test_dir+"test.lua",
+        `${testDirectory}${testFileName}`,
         "correct-multiply"
     ]);
     if (result.status!=0) {
@@ -119,11 +123,11 @@ function compileAndRunTests(commands: TestCmd[]) {
     if (commands.length>0) {
         console.log(`Running ${commands.length} tests...`);
         let compiled = commands.map(compileCommand).join("\n");
-        fs.writeFileSync(test_dir+"test_run.lua",fileHeader+compiled);
+        fs.writeFileSync(testDirectory+"test_run.lua",`local TEST_FILE = "${testFileName}"\n`+fileHeader+compiled);
 
         let result = child_process.spawnSync("bash",[
             "-c",
-            "luajit "+fixWSLPath(test_dir+"test_run.lua")
+            "luajit "+fixWSLPath(testDirectory+"test_run.lua")
         ]);
 
         console.log(result.stdout.toString());

@@ -2,7 +2,7 @@ ffi = require("ffi")
 
 local dir = debug.getinfo(1, "S").source:sub(2):match("(.*/)")
 
-dofile(dir.."test.lua")
+dofile(dir..TEST_FILE)
 
 local function checkResults(expected,results)
     if #expected ~= #results then
@@ -11,7 +11,7 @@ local function checkResults(expected,results)
     for i=1,#expected do
         if expected[i] ~= expected[i] then
             return results[i] ~= results[i]
-        elseif math.abs(expected[i]) == math.huge then
+        elseif type(expected[i]) == "table" or math.abs(expected[i]) == math.huge then
             return results[i] == expected[i]
         elseif math.abs((results[i] / expected[i]) - 1) > .0000001 then
             return false
