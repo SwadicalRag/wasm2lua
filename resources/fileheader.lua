@@ -183,6 +183,21 @@ local function __MULTIPLY_CORRECT__(a,b)
     )
 end
 
+-- Extra math functions for floats, stored in their own table since they're not likely to be used often.
+local __FLOAT__ = {
+    nearest = function(x)
+        if x % 1 == .5 then
+            -- Must round toward even in the event of a tie.
+            local y = math.floor(x)
+            return y + (y % 2)
+        end
+        return math.floor(x + .5)
+    end,
+    truncate = function(x)
+        return x > 0 and math.floor(x) or math.ceil(x)
+    end
+}
+
 local __LONG_INT_CLASS__
 
 local function __LONG_INT__(low,high)

@@ -767,7 +767,14 @@ export class wasm2lua {
         // unary
         clz: "__CLZ__",
         ctz: "__CTZ__",
-        popcnt: "__POPCNT__"
+        popcnt: "__POPCNT__",
+
+        sqrt: "math.sqrt",
+        nearest: "__FLOAT__.nearest",
+        trunc: "__FLOAT__.truncate",
+        floor: "math.floor",
+        ceil: "math.ceil"
+
     };
 
     beginBlock(buf: string[],state: WASMFuncState,block: WASMBlockState,customStart?: string) {
@@ -1064,11 +1071,6 @@ export class wasm2lua {
                         }
                         // Arithmetic
                         //////////////////////////////////////////////////////////////
-                        case "sqrt": {
-                            this.writeLn(buf,this.getPushStack(state,`math.sqrt(${this.getPop(state)})`));
-
-                            break;
-                        }
                         case "neg": {
                             this.writeLn(buf,this.getPushStack(state,`-(${this.getPop(state)})`));
 
@@ -1157,9 +1159,16 @@ export class wasm2lua {
 
                             break;
                         }
+                        // unary
                         case "clz":
                         case "ctz":
                         case "popcnt":
+
+                        case "sqrt":
+                        case "nearest":
+                        case "trunc":
+                        case "floor":
+                        case "ceil":
                         {
                             var arg = this.getPop(state);
                             if (ins.object=="i64") {
