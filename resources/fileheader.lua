@@ -160,7 +160,7 @@ end
 
 local function __MODULO_S__(a,b)
     if b == 0 then error("bad modulo") end
-    res = math.abs(a) % math.abs(b)
+    local res = math.abs(a) % math.abs(b)
     if a < 0 then  res = -res end
     return bit.tobit(res)
 end
@@ -169,6 +169,18 @@ local function __MODULO_U__(a,b)
     if b == 0 then error("bad modulo") end
     local res = __UNSIGNED__(a) % __UNSIGNED__(b)
     return bit.tobit(res)
+end
+
+-- Multiply two 32 bit integers without busting due to precision loss on overflow
+local function __MULTIPLY_CORRECT__(a,b)
+    local a_low = bit.band(a,65535)
+    local b_low = bit.band(b,65535)
+
+    return bit.tobit(
+        a_low * b_low +
+        bit.lshift(a_low * bit.rshift(b,16),16) +
+        bit.lshift(b_low * bit.rshift(a,16),16)
+    )
 end
 
 local __LONG_INT_CLASS__

@@ -5,6 +5,10 @@ import { isArray, print } from "util";
 import {ArrayMap} from "./arraymap"
 import { VirtualRegisterManager, VirtualRegister } from "./virtualregistermanager";
 
+/* SUPPORTED COMPILE FLAGS
+    correct-multiply: Compiles integer multiplications using a specialized algorithm which prevents them from breaking due to loss of precision.
+*/
+
 // TODO: Imported globals use global IDs that precede other global IDs
 // TODO: ^ The same applies to memories. ^
 
@@ -27,7 +31,6 @@ import { VirtualRegisterManager, VirtualRegister } from "./virtualregistermanage
 - Statically determine stack depth everywhere. Should improve performance and reduce the need for temporary vars, while not requiring any complex folding logic.
     - Attempted ^this^, not sure I did it correctly.
 
-- __MODULO_S__ probably will not JIT.
 */
 
 /* TODO BLOCKS:
@@ -106,6 +109,7 @@ interface WASMBlockState {
 
 interface WASM2LuaOptions {
     whitelist?: string[];
+    compileFlags?: string[];
 }
 
 const FUNC_VAR_HEADER = "local __TMP__,__TMP2__,__STACK__ = nil,nil,{};";
@@ -124,6 +128,10 @@ export class wasm2lua {
     private program_ast: Program;
 
     constructor(private program_binary: Buffer, private options: WASM2LuaOptions = {}) {
+
+        if (options.compileFlags == null) {
+            options.compileFlags = [];
+        }
 
         this.program_ast = decode(wasm,{
             // dump: true,
@@ -1079,10 +1087,11 @@ export class wasm2lua {
                                     this.write(buf,"(__TMP2__ "+op+" __TMP__) and 1 or 0");
                                 }
                             } else if (ins.object=="i32") {
-                                // i32 arithmetic ops need normalized
-                                // i32 bit ops already normalize results
-                                // other types shouldn't need to be normalized
-                                this.write(buf,"bit.tobit(__TMP2__ "+op+" __TMP__)");
+                                if (ins.id == "mul" && this.options.compileFlags.includes("correct-multiply")) {
+                                    this.write(buf,"__MULTIPLY_CORRECT__(__TMP2__,__TMP__)");
+                                } else {
+                                    this.write(buf,"bit.tobit(__TMP2__ "+op+" __TMP__)");
+                                }
                             } else {
                                 this.write(buf,"__TMP2__ "+op+" __TMP__");
                             }
@@ -1685,11 +1694,12 @@ let infile  = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testorder5.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testswitch.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
-let whitelist = process.argv[4] ? process.argv[4].split(",") : null;
+let compileFlags = process.argv[4] ? process.argv[4].split(",") : null;
+let whitelist = null;
 
 let wasm = fs.readFileSync(infile);
 
 // console.log(JSON.stringify(ast,null,4));
 
-let inst = new wasm2lua(wasm, {whitelist});
+let inst = new wasm2lua(wasm, {whitelist,compileFlags});
 fs.writeFileSync(outfile,inst.outBuf.join(""));

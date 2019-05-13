@@ -41,6 +41,9 @@ class wasm2lua {
         this.indentLevel = 0;
         this.moduleStates = [];
         this.globalTypes = [];
+        if (options.compileFlags == null) {
+            options.compileFlags = [];
+        }
         this.program_ast = wasm_parser_1.decode(wasm, {});
         this.process();
     }
@@ -758,7 +761,12 @@ class wasm2lua {
                                     }
                                 }
                                 else if (ins.object == "i32") {
-                                    this.write(buf, "bit.tobit(__TMP2__ " + op + " __TMP__)");
+                                    if (ins.id == "mul" && this.options.compileFlags.includes("correct-multiply")) {
+                                        this.write(buf, "__MULTIPLY_CORRECT__(__TMP2__,__TMP__)");
+                                    }
+                                    else {
+                                        this.write(buf, "bit.tobit(__TMP2__ " + op + " __TMP__)");
+                                    }
                                 }
                                 else {
                                     this.write(buf, "__TMP2__ " + op + " __TMP__");
@@ -1309,8 +1317,9 @@ wasm2lua.instructionBinOpFuncRemap = {
 exports.wasm2lua = wasm2lua;
 let infile = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
-let whitelist = process.argv[4] ? process.argv[4].split(",") : null;
+let compileFlags = process.argv[4] ? process.argv[4].split(",") : null;
+let whitelist = null;
 let wasm = fs.readFileSync(infile);
-let inst = new wasm2lua(wasm, { whitelist });
+let inst = new wasm2lua(wasm, { whitelist, compileFlags });
 fs.writeFileSync(outfile, inst.outBuf.join(""));
 //# sourceMappingURL=index.js.map

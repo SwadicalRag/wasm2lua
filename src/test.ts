@@ -105,7 +105,9 @@ function compileModule(file: string) {
     console.log("Compiling:",file);
     let result = child_process.spawnSync(process.argv0,[
         pathJoin(__dirname,"index.js"),
-        file
+        file,
+        test_dir+"test.lua",
+        "correct-multiply"
     ]);
     if (result.status!=0) {
         console.log(result.stderr.toString());
