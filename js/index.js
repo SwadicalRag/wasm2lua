@@ -134,8 +134,7 @@ class wasm2lua {
             return "";
         }
         else {
-            func.stackData.push(false);
-            return `__STACK__[${func.stackLevel - 1}] = `;
+            throw new Error("`stackExpr` must be a string or VirtualRegister");
         }
     }
     getPop(func) {
@@ -168,7 +167,7 @@ class wasm2lua {
             return buf.join("");
         }
         else {
-            return `__STACK__[${func.stackLevel}]`;
+            throw new Error("Could not resolve pop value");
         }
     }
     getPeek(func, n = 0) {
@@ -290,7 +289,6 @@ class wasm2lua {
                     insCountPass1: 0,
                     insCountPass2: 0,
                     insCountPass1LoopLifespanAdjs: new Map(),
-                    varRemaps: new Map(),
                     stackData: [],
                     stackLevel: 1,
                 };
@@ -324,7 +322,6 @@ class wasm2lua {
                     insLastAssigned: [],
                     insLastRefs: [],
                     blocks: [],
-                    varRemaps: new Map(),
                     stackData: [],
                     stackLevel: 1,
                 };
@@ -433,7 +430,6 @@ class wasm2lua {
             insCountPass1LoopLifespanAdjs: new Map(),
             locals: [],
             blocks: [],
-            varRemaps: new Map(),
             funcType,
             modState: state,
             stackData: [],

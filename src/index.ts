@@ -1,6 +1,6 @@
 import {decode} from "@webassemblyjs/wasm-parser"
 import * as fs from "fs"
-import { isArray, print } from "util";
+import { isArray } from "util";
 
 import {ArrayMap} from "./arraymap"
 import { VirtualRegisterManager, VirtualRegister } from "./virtualregistermanager";
@@ -78,11 +78,9 @@ interface WASMFuncState {
     registersToBeFreed: VirtualRegister[];
     locals: VirtualRegister[];
     blocks: WASMBlockState[];
-    varRemaps: Map<string,string>;
     funcType?: Signature;
     modState?: WASMModuleState;
 
-    // should probably go in funcstate (or more likely blockstate, but I couldn't be bothered to adjust stack methods.)
     stackLevel: number;
     stackData: (string | VirtualRegister | false)[];
 }
@@ -106,7 +104,6 @@ const FUNC_VAR_HEADER = "";
 export class wasm2lua {
     outBuf: string[] = [];
     indentLevel = 0;
-    // funcTypes: any[] = [];
     moduleStates: WASMModuleState[] = [];
     globalRemaps: Map<string,string>;
     globalTypes: Signature[] = [];
@@ -213,20 +210,9 @@ export class wasm2lua {
     }
 
     getPushStack(func: WASMFuncState,stackExpr: string | VirtualRegister,resolveRegister?: boolean) {
-        // if(true) {
-        //     if(typeof stackExpr !== "undefined") {
-        //         return `__STACK__[#__STACK__ + 1] = ${stackExpr};`;
-        //     }
-        //     else {
-        //         return `__STACK__[#__STACK__ + 1] = `;
-        //     }
-        // }
-
         func.stackLevel++;
         if(typeof stackExpr === "string") {
             func.stackData.push(stackExpr);
-            // return `--[[VIRTUAL PUSH TO ${func.stackLevel-1}]]`;
-            // return `__STACK__[${func.stackLevel-1}] = ${stackExpr}`;
             return "";
         }
         else if(typeof stackExpr === "object") {
@@ -238,21 +224,14 @@ export class wasm2lua {
                 func.stackData.push(stackExpr);
             }
 
-            // return `--[[VIRTUAL REG PUSH TO ${func.stackLevel-1}]]`;
-            // return `__STACK__[${func.stackLevel-1}] = ${func.regManager.getPhysicalRegisterName(stackExpr)}`;
             return "";
         }
         else {
-            func.stackData.push(false);
-            return `__STACK__[${func.stackLevel-1}] = `;
+            throw new Error("`stackExpr` must be a string or VirtualRegister")
         }
     }
 
     getPop(func: WASMFuncState) {
-        // if(true) {
-        //     return `__STACK_POP__(__STACK__)`;
-        // }
-
         if(func.stackLevel == 1) {
             // throw new Error("attempt to pop below zero");
             console.log("attempt to pop below zero");
@@ -262,8 +241,6 @@ export class wasm2lua {
         let lastData = func.stackData.pop();
         func.stackLevel--;
         if(typeof lastData === "string") {
-            // return `--[[VIRTUAL POP TO ${func.stackLevel - 1}]] ${lastData}`;
-            // return `__STACK__[${func.stackLevel}]`;
             return lastData;
         }
         else if(typeof lastData === "object") {
@@ -273,14 +250,10 @@ export class wasm2lua {
             if(lastData.stackEntryCount == 0) {
                 if(typeof lastData.lastRef === "number") {
                     if(func.insCountPass2 >= lastData.lastRef) {
-                        // lastData.lastRef = func.insCountPass2 + 20;
-                        // func.registersToBeFreed.push(lastData);
                         this.fn_freeRegister(buf,func,lastData);
                     }
                 }
                 else {
-                    // lastData.lastRef = func.insCountPass2 + 20;
-                    // func.registersToBeFreed.push(lastData);
                     this.fn_freeRegister(buf,func,lastData);
                 }
             }
@@ -290,12 +263,10 @@ export class wasm2lua {
 
             this.write(buf,func.regManager.getPhysicalRegisterName(lastData));
 
-            // return `--[[VIRTUAL REG POP TO ${func.stackLevel - 1}]] ${func.regManager.getPhysicalRegisterName(lastData)}`;
-            // return `__STACK__[${func.stackLevel}]`;
             return buf.join("");
         }
         else {
-            return `__STACK__[${func.stackLevel}]`;
+            throw new Error("Could not resolve pop value");
         }
     }
 
@@ -443,7 +414,6 @@ export class wasm2lua {
                     insCountPass1: 0,
                     insCountPass2: 0,
                     insCountPass1LoopLifespanAdjs: new Map(),
-                    varRemaps: new Map(),
                     stackData: [],
                     stackLevel: 1,
                 };
@@ -489,7 +459,6 @@ export class wasm2lua {
                     insLastAssigned: [],
                     insLastRefs: [],
                     blocks: [],
-                    varRemaps: new Map(),
                     stackData: [],
                     stackLevel: 1,
                 };
@@ -624,7 +593,6 @@ export class wasm2lua {
             insCountPass1LoopLifespanAdjs: new Map(),
             locals: [],
             blocks: [],
-            varRemaps: new Map(),
             funcType,
             modState: state,
             stackData: [],
