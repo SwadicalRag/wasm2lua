@@ -267,10 +267,6 @@ export class wasm2lua {
             return lastData;
         }
         else if(typeof lastData === "object") {
-            // IMPORTANT TODO: previously, registers were freed prematurely by the pop function
-            // registers can be popped and then used at a later stage...
-            // I need to figure out a way to gracefully pop registers rather than rely on an offset
-
             let buf = []
 
             lastData.stackEntryCount--;
@@ -791,7 +787,6 @@ export class wasm2lua {
 
     beginBlock(buf: string[],state: WASMFuncState,block: WASMBlockState,customStart?: string) {
         // BLOCK BEGINS MUST BE CLOSED BY BLOCK ENDS!!!!
-        // TODO: blocks can "return" stuff
         state.blocks.push(block);
         this.write(buf,sanitizeIdentifier(`::${block.id}_start::`));
         this.newLine(buf);
