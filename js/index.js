@@ -935,8 +935,10 @@ class wasm2lua {
                         case "demote/f64":
                             break;
                         case "extend_u/i32": {
+                            let resultVar = state.regManager.createTempRegister();
                             let tmp = this.getPop(state);
-                            this.write(buf, `${this.getPushStack(state)}__LONG_INT__(${tmp},0);`);
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(${tmp},0);`);
+                            this.write(buf, this.getPushStack(state, resultVar));
                             this.newLine(buf);
                             break;
                         }

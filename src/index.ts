@@ -1287,8 +1287,10 @@ export class wasm2lua {
                             break;
                         case "extend_u/i32": {
                             // Easy (signed extension will be slightly more of a pain)
+                            let resultVar = state.regManager.createTempRegister();
                             let tmp = this.getPop(state);
-                            this.write(buf,`${this.getPushStack(state)}__LONG_INT__(${tmp},0);`);
+                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(${tmp},0);`);
+                            this.write(buf,this.getPushStack(state,resultVar));
                             this.newLine(buf);
                             break;
                         }
