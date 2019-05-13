@@ -152,8 +152,7 @@ local function __DIVIDE_S__(a,b)
 end
 
 local function __DIVIDE_U__(a,b)
-    local res = __UNSIGNED__(a) / __UNSIGNED__(b)
-    res = math.floor(res)
+    local res = math.floor(__UNSIGNED__(a) / __UNSIGNED__(b))
     local int = bit.tobit(res)
     if res ~= int then error("bad division") end
     return int
@@ -169,7 +168,6 @@ end
 local function __MODULO_U__(a,b)
     if b == 0 then error("bad modulo") end
     local res = __UNSIGNED__(a) % __UNSIGNED__(b)
-    res = math.floor(res)
     return bit.tobit(res)
 end
 
