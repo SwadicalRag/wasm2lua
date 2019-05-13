@@ -99,7 +99,7 @@ interface WASM2LuaOptions {
     compileFlags?: string[];
 }
 
-const FUNC_VAR_HEADER = "local __TMP__,__TMP2__,__STACK__ = nil,nil,{};";
+const FUNC_VAR_HEADER = "local __STACK__ = {};";
 
 export class wasm2lua {
     outBuf: string[] = [];
@@ -1395,8 +1395,9 @@ export class wasm2lua {
                             let targ = state.modState.memoryAllocations.get(0);
                             // TODO: is target always 0?
 
-                            this.write(buf,`__TMP__ = __MEMORY_GROW__(${targ},__UNSIGNED__(${this.getPop(state)})); `);
-                            this.write(buf,`${this.getPushStack(state)}__TMP__;`);
+                            let tempVar = state.regManager.createTempRegister();
+                            this.write(buf,`${state.regManager.getPhysicalRegisterName(tempVar)} = __MEMORY_GROW__(${targ},__UNSIGNED__(${this.getPop(state)})); `);
+                            this.write(buf,this.getPushStack(state,tempVar));
                             this.newLine(buf);
                             break;
                         }
@@ -1606,13 +1607,20 @@ export class wasm2lua {
     }
 
     writeFunctionCall(state: WASMFuncState, buf: string[], func: string, sig: Signature) {
-        if(sig.results.length > 1) {
-            this.write(buf,"__TMP__ = {");
+        let argsReg:VirtualRegister[] = [];
+
+        for(let i=0;i < sig.results.length;i++) {
+            let reg = state.regManager.createTempRegister();
+            argsReg.push(reg);
+            this.write(buf,state.regManager.getPhysicalRegisterName(reg));
+            if((i+1) !== sig.results.length) {
+                this.write(buf,",");
+            }
         }
-        else if (sig.results.length == 1) {
-            this.write(buf,"__TMP__ = ");
+
+        if(sig.results.length > 0) {
+            this.write(buf," = ");
         }
-        // else zero rets
 
         this.write(buf,func + "(");
         let args: string[] = [];
@@ -1620,19 +1628,10 @@ export class wasm2lua {
             args.push(this.getPop(state));
         }
         this.write(buf,args.reverse().join(","));
-        this.write(buf,")");
+        this.write(buf,");");
 
-        if(sig.results.length > 1) {
-            this.write(buf,"};");
-            for(let i=0;i < sig.results.length;i++) {
-                this.write(buf,this.getPushStack(state));
-                this.write(buf,"__TMP__[" + (i+1) + "];");
-            }
-        }
-        else if (sig.results.length == 1) {
-            this.write(buf,"; " + this.getPushStack(state) + " __TMP__;");
-        } else {
-            this.write(buf,";"); // zero rets
+        for(let i=0;i < sig.results.length;i++) {
+            this.getPushStack(state,argsReg[i]);
         }
     }
 

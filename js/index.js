@@ -32,7 +32,7 @@ function sanitizeIdentifier(ident) {
         .replace(/\./g, "__IDENT_CHAR_DOT__")
         .replace(/\-/g, "__IDENT_CHAR_MINUS__");
 }
-const FUNC_VAR_HEADER = "local __TMP__,__TMP2__,__STACK__ = nil,nil,{};";
+const FUNC_VAR_HEADER = "local __STACK__ = {};";
 class wasm2lua {
     constructor(program_binary, options = {}) {
         this.program_binary = program_binary;
@@ -1041,8 +1041,9 @@ class wasm2lua {
                         }
                         case "grow_memory": {
                             let targ = state.modState.memoryAllocations.get(0);
-                            this.write(buf, `__TMP__ = __MEMORY_GROW__(${targ},__UNSIGNED__(${this.getPop(state)})); `);
-                            this.write(buf, `${this.getPushStack(state)}__TMP__;`);
+                            let tempVar = state.regManager.createTempRegister();
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(tempVar)} = __MEMORY_GROW__(${targ},__UNSIGNED__(${this.getPop(state)})); `);
+                            this.write(buf, this.getPushStack(state, tempVar));
                             this.newLine(buf);
                             break;
                         }
@@ -1211,11 +1212,17 @@ class wasm2lua {
         return t_buf.join("");
     }
     writeFunctionCall(state, buf, func, sig) {
-        if (sig.results.length > 1) {
-            this.write(buf, "__TMP__ = {");
+        let argsReg = [];
+        for (let i = 0; i < sig.results.length; i++) {
+            let reg = state.regManager.createTempRegister();
+            argsReg.push(reg);
+            this.write(buf, state.regManager.getPhysicalRegisterName(reg));
+            if ((i + 1) !== sig.results.length) {
+                this.write(buf, ",");
+            }
         }
-        else if (sig.results.length == 1) {
-            this.write(buf, "__TMP__ = ");
+        if (sig.results.length > 0) {
+            this.write(buf, " = ");
         }
         this.write(buf, func + "(");
         let args = [];
@@ -1223,19 +1230,9 @@ class wasm2lua {
             args.push(this.getPop(state));
         }
         this.write(buf, args.reverse().join(","));
-        this.write(buf, ")");
-        if (sig.results.length > 1) {
-            this.write(buf, "};");
-            for (let i = 0; i < sig.results.length; i++) {
-                this.write(buf, this.getPushStack(state));
-                this.write(buf, "__TMP__[" + (i + 1) + "];");
-            }
-        }
-        else if (sig.results.length == 1) {
-            this.write(buf, "; " + this.getPushStack(state) + " __TMP__;");
-        }
-        else {
-            this.write(buf, ";");
+        this.write(buf, ");");
+        for (let i = 0; i < sig.results.length; i++) {
+            this.getPushStack(state, argsReg[i]);
         }
     }
     processModuleExport(node, modState) {
