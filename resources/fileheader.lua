@@ -1,3 +1,8 @@
+if jit and jit.opt then
+    -- boost snapshot limit to 500
+    jit.opt.start("maxsnap=1000")
+end
+
 __MODULES__ = __MODULES__ or {}
 __GLOBALS__ = __GLOBALS__ or {}
 
@@ -209,7 +214,9 @@ local __FLOAT__ = {
 local __LONG_INT_CLASS__
 
 local function __LONG_INT__(low,high)
-    return setmetatable({low,high},__LONG_INT_CLASS__)
+    -- Note: Avoid using tail-calls on builtins
+    -- This aborts a JIT trace, and can be avoided by wrapping tail calls in parentheses
+    return (setmetatable({low,high},__LONG_INT_CLASS__))
 end
 
 _G.__LONG_INT__ = __LONG_INT__
