@@ -183,11 +183,16 @@ export class wasm2lua {
         }
     }
 
-    fn_freeRegister(buf: string[],func: WASMFuncState,reg: VirtualRegister) {
+    fn_freeRegisterAddQueue(buf: string[],func: WASMFuncState,reg: VirtualRegister) {
         func.registersToBeFreed.push(reg);
         if(this.registerDebugOutput) {
             this.write(buf,`--[[register ${func.regManager.getPhysicalRegisterName(reg)} (${reg.name}) added to free-queue]]`);
         }
+    }
+
+    fn_freeRegister(buf: string[],func: WASMFuncState,reg: VirtualRegister) {
+        // return this.fn_freeRegisterAddQueue(buf,func,reg);
+        return this.fn_freeRegisterEx(buf,func,reg);
     }
 
     fn_createTempRegister(buf: string[],func: WASMFuncState) {

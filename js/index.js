@@ -89,11 +89,14 @@ class wasm2lua {
             this.write(buf, `--[[register ${func.regManager.getPhysicalRegisterName(reg)} (${reg.name}) freed]]`);
         }
     }
-    fn_freeRegister(buf, func, reg) {
+    fn_freeRegisterAddQueue(buf, func, reg) {
         func.registersToBeFreed.push(reg);
         if (this.registerDebugOutput) {
             this.write(buf, `--[[register ${func.regManager.getPhysicalRegisterName(reg)} (${reg.name}) added to free-queue]]`);
         }
+    }
+    fn_freeRegister(buf, func, reg) {
+        return this.fn_freeRegisterEx(buf, func, reg);
     }
     fn_createTempRegister(buf, func) {
         let reg = func.regManager.createTempRegister();
