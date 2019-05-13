@@ -775,7 +775,18 @@ export class wasm2lua {
         // unary
         clz: "__CLZ__",
         ctz: "__CTZ__",
-        popcnt: "__POPCNT__"
+        popcnt: "__POPCNT__",
+
+        // floating point
+        sqrt: "math.sqrt",
+        nearest: "__FLOAT__.nearest",
+        trunc: "__FLOAT__.truncate",
+        floor: "math.floor",
+        ceil: "math.ceil",
+
+        min: "__FLOAT__.min",
+        max: "__FLOAT__.max"
+
     };
 
     beginBlock(buf: string[],state: WASMFuncState,block: WASMBlockState,customStart?: string) {
@@ -1131,11 +1142,6 @@ export class wasm2lua {
                         }
                         // Arithmetic
                         //////////////////////////////////////////////////////////////
-                        case "sqrt": {
-                            this.writeLn(buf,this.getPushStack(state,`math.sqrt(${this.getPop(state)})`));
-
-                            break;
-                        }
                         case "neg": {
                             this.writeLn(buf,this.getPushStack(state,`-(${this.getPop(state)})`));
 
@@ -1208,6 +1214,9 @@ export class wasm2lua {
                         case "div_u":
                         case "rem_s":
                         case "rem_u":
+
+                        case "min":
+                        case "max":
                         {
                             let resultVar = state.regManager.createTempRegister();
 
@@ -1215,7 +1224,7 @@ export class wasm2lua {
                             let tmp2 = this.getPop(state);
 
                             this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = `);
-                            if (ins.object=="i32") {
+                            if (ins.object=="i32" || ins.object == "f32" || ins.object == "f64") {
                                 let op_func = wasm2lua.instructionBinOpFuncRemap[ins.id];
     
                                 this.write(buf,op_func);
@@ -1230,9 +1239,16 @@ export class wasm2lua {
 
                             break;
                         }
+                        // unary
                         case "clz":
                         case "ctz":
                         case "popcnt":
+
+                        case "sqrt":
+                        case "nearest":
+                        case "trunc":
+                        case "floor":
+                        case "ceil":
                         {
                             var arg = this.getPop(state);
                             if (ins.object=="i64") {

@@ -11,7 +11,9 @@ local function checkResults(expected,results)
     for i=1,#expected do
         if expected[i] ~= expected[i] then
             return results[i] ~= results[i]
-        elseif expected[i] ~= results[i] then
+        elseif math.abs(expected[i]) == math.huge then
+            return results[i] == expected[i]
+        elseif math.abs((results[i] / expected[i]) - 1) > .0000001 then
             return false
         end
     end
