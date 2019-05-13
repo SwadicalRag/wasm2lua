@@ -276,8 +276,7 @@ class wasm2lua {
                 this.write(buf, "do");
                 this.indent();
                 this.newLine(buf);
-                this.write(buf, FUNC_VAR_HEADER);
-                this.newLine(buf);
+                this.writeLn(buf, FUNC_VAR_HEADER);
                 let global_init_state = {
                     id: "__GLOBAL_INIT__",
                     locals: [],
@@ -1365,7 +1364,6 @@ class wasm2lua {
     }
 }
 wasm2lua.fileHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
-wasm2lua.funcHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
 wasm2lua.instructionBinOpRemap = {
     add: { op: "+" },
     sub: { op: "-" },

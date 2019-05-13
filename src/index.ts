@@ -111,7 +111,6 @@ export class wasm2lua {
     registerDebugOutput = false;
 
     static fileHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
-    static funcHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
 
     private program_ast: Program;
 
@@ -399,8 +398,7 @@ export class wasm2lua {
                 this.indent();
                 this.newLine(buf);
 
-                this.write(buf,FUNC_VAR_HEADER);
-                this.newLine(buf);
+                this.writeLn(buf,FUNC_VAR_HEADER);
                 
                 // :thonk:
                 let global_init_state: WASMFuncState = {
