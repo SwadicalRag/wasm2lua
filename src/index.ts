@@ -1214,8 +1214,8 @@ export class wasm2lua {
                             break;
                         case "extend_u/i32": {
                             // Easy (signed extension will be slightly more of a pain)
-                            this.write(buf,`__TMP__=${this.getPop(state)}; `);
-                            this.write(buf,`${this.getPushStack(state)}__LONG_INT__(__TMP__,0);`);
+                            let tmp = this.getPop(state);
+                            this.write(buf,`${this.getPushStack(state)}__LONG_INT__(${tmp},0);`);
                             this.newLine(buf);
                             break;
                         }
@@ -1239,7 +1239,7 @@ export class wasm2lua {
                             break;
                         }
                         case "br_table": {
-                            this.write(buf,`__TMP__ = ${this.getPop(state)};`);
+                            let tmp = this.getPop(state);
                             this.newLine(buf);
                             let arg_count = ins.args.length;
             
@@ -1257,7 +1257,7 @@ export class wasm2lua {
                                 }
 
                                 if (i<arg_count-1) {
-                                    this.write(buf,`if __TMP__ == ${i} then `);
+                                    this.write(buf,`if ${tmp} == ${i} then `);
                                 } else {
                                     this.write(buf," ");
                                 }
@@ -1282,12 +1282,8 @@ export class wasm2lua {
                             // TODO: is target always 0?
 
                             if(targ) {
-                                this.write(buf,"__TMP__ = ");
-                                this.write(buf,this.getPop(state));
-                                this.write(buf,"; ");
-                                this.write(buf,"__TMP2__ = ");
-                                this.write(buf,this.getPop(state));
-                                this.write(buf,"; ");
+                                let tmp = this.getPop(state);
+                                let tmp2 = this.getPop(state);
 
                                 if (ins.object == "u32") {
                                     if(ins.id == "store16") {
@@ -1299,15 +1295,15 @@ export class wasm2lua {
                                     else {
                                         this.write(buf,"__MEMORY_WRITE_32__");
                                     }
-                                    this.write(buf,`(${targ},__TMP2__+${(ins.args[0] as NumberLiteral).value},__TMP__);`);
+                                    this.write(buf,`(${targ},${tmp2}+${(ins.args[0] as NumberLiteral).value},${tmp});`);
                                 } else if (ins.object == "u64") {
-                                    this.write(buf,`__TMP__:${ins.id}(${targ},__TMP2__+${(ins.args[0] as NumberLiteral).value});`);
+                                    this.write(buf,`${tmp}:${ins.id}(${targ},${tmp2}+${(ins.args[0] as NumberLiteral).value});`);
                                 } else if (ins.object == "f32") {
                                     this.write(buf,"__MEMORY_WRITE_32F__");
-                                    this.write(buf,`(${targ},__TMP2__+${(ins.args[0] as NumberLiteral).value},__TMP__);`);
+                                    this.write(buf,`(${targ},${tmp2}+${(ins.args[0] as NumberLiteral).value},${tmp});`);
                                 } else if (ins.object == "f64") {
                                     this.write(buf,"__MEMORY_WRITE_64F__");
-                                    this.write(buf,`(${targ},__TMP2__+${(ins.args[0] as NumberLiteral).value},__TMP__);`);
+                                    this.write(buf,`(${targ},${tmp2}+${(ins.args[0] as NumberLiteral).value},${tmp});`);
                                 } else {
                                     this.write(buf,"-- WARNING: UNSUPPORTED MEMORY OP ON TYPE: "+ins.object);
                                 }
