@@ -161,8 +161,8 @@ end
 
 local function __MODULO_S__(a,b)
     if b == 0 then error("bad modulo") end
-    local res = math.fmod(a,b) -- TODO NOT JIT COMPILED
-    res = math.floor(res)
+    res = math.abs(a) % math.abs(b)
+    if a < 0 then  res = -res end
     return bit.tobit(res)
 end
 
