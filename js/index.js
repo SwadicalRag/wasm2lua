@@ -935,6 +935,22 @@ class wasm2lua {
                             this.newLine(buf);
                             break;
                         }
+                        case "extend_s/i32": {
+                            let resultVar = this.fn_createTempRegister(buf, state);
+                            let tmp = this.getPop(state);
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(bit.band(${tmp},0x7FFFFFFF),bit.band(${tmp},0x80000000));`);
+                            this.write(buf, this.getPushStack(state, resultVar));
+                            this.newLine(buf);
+                            break;
+                        }
+                        case "wrap/i64": {
+                            let resultVar = this.fn_createTempRegister(buf, state);
+                            let tmp = this.getPop(state);
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = ${this.getPop(state)}[1];`);
+                            this.write(buf, this.getPushStack(state, resultVar));
+                            this.newLine(buf);
+                            break;
+                        }
                         case "br_if": {
                             this.write(buf, "if ");
                             this.write(buf, this.getPop(state));
@@ -1100,6 +1116,11 @@ class wasm2lua {
                             this.write(buf, `${state.regManager.getPhysicalRegisterName(tempVar)} = __MEMORY_GROW__(${targ},__UNSIGNED__(${this.getPop(state)})); `);
                             this.write(buf, this.getPushStack(state, tempVar));
                             this.newLine(buf);
+                            break;
+                        }
+                        case "current_memory": {
+                            let targ = state.modState.memoryAllocations.get(0);
+                            this.writeLn(buf, this.getPushStack(state, `${targ}._page_count`));
                             break;
                         }
                         case "return": {
