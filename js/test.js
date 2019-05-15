@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const path_1 = require("path");
 const fs = require("fs");
 const child_process = require("child_process");
+const textColors = require("colors");
 function fixWSLPath(path) {
     path = path.replace(/(.):\\/g, (_, x) => `/mnt/${x.toLowerCase()}/`);
     path = path.replace(/\\/g, "/");
@@ -61,7 +62,7 @@ function compileAndRunTests(commands) {
             "-c",
             "luajit " + fixWSLPath(testDirectory + "test_run.lua")
         ]);
-        console.log(result.stdout.toString());
+        console.log(textColors.red(result.stdout.toString()));
         if (result.status != 0) {
             console.log(result.stderr.toString());
             throw new Error("execution failed");

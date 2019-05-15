@@ -4,6 +4,8 @@ import * as fs from "fs";
 
 import * as child_process from "child_process";
 
+import * as textColors from "colors";
+
 interface TestValue {
     type: "i32" | "i64";
     value: string;
@@ -130,7 +132,7 @@ function compileAndRunTests(commands: TestCmd[]) {
             "luajit "+fixWSLPath(testDirectory+"test_run.lua")
         ]);
 
-        console.log(result.stdout.toString());
+        console.log(textColors.red(result.stdout.toString()));
         if (result.status!=0) {
             console.log(result.stderr.toString());
             throw new Error("execution failed");

@@ -140,7 +140,7 @@ class wasm2lua {
     getPop(func) {
         if (func.stackLevel == 1) {
             console.log("attempt to pop below zero");
-            return "--[[WARNING: NEGATIVE POP]] nil";
+            return "--[[WARNING: NEGATIVE POP]] (nil)";
         }
         let lastData = func.stackData.pop();
         func.stackLevel--;
@@ -583,6 +583,10 @@ class wasm2lua {
         this.newLine(buf);
     }
     startElseSubBlock(buf, block, state) {
+        if (block.resultType !== null) {
+            this.write(buf, state.regManager.getPhysicalRegisterName(block.resultRegister) + " = " + this.getPop(state));
+            this.newLine(buf);
+        }
         let popCnt = state.stackLevel - block.enterStackLevel;
         for (let i = 0; i < popCnt; i++) {
             this.getPop(state);
@@ -1014,7 +1018,7 @@ class wasm2lua {
                                     this.write(buf, `(${targ},${tmp2}+${ins.args[0].value},${tmp});`);
                                 }
                                 else if (ins.object == "u64") {
-                                    this.write(buf, `${tmp}:${ins.id}(${targ},${tmp2}+${ins.args[0].value});`);
+                                    this.write(buf, `(${tmp}):${ins.id}(${targ},${tmp2}+${ins.args[0].value});`);
                                 }
                                 else if (ins.object == "f32") {
                                     this.write(buf, "__MEMORY_WRITE_32F__");

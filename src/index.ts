@@ -234,7 +234,7 @@ export class wasm2lua {
         if(func.stackLevel == 1) {
             // throw new Error("attempt to pop below zero");
             console.log("attempt to pop below zero");
-            return "--[[WARNING: NEGATIVE POP]] nil";
+            return "--[[WARNING: NEGATIVE POP]] (nil)";
         }
         
         let lastData = func.stackData.pop();
@@ -838,10 +838,14 @@ export class wasm2lua {
         // TODO: is this right?
         // originally this was uncommented, but that doesn't make sense.
         // dont we assign the return to here AFTER the else block ends?
-        // if(block.resultType !== null) {
-        //     this.write(buf,state.regManager.getPhysicalRegisterName(block.resultRegister) + " = " + this.getPop(state));
-        //     this.newLine(buf);
-        // }
+
+        // cogg: Yes, this is correct. Both the if and else sub-blocks need to assign to the output register.
+        // Part of this function's job is to end the "if" sub-block. This is kind-of a crummy way to do this, but it seems to work.
+        // I wanted to use actual blocks for if/else, but it seemed like it would only make things more complicated.
+        if(block.resultType !== null) {
+            this.write(buf,state.regManager.getPhysicalRegisterName(block.resultRegister) + " = " + this.getPop(state));
+            this.newLine(buf);
+        }
         
         // reset stack to normal layout
         let popCnt = state.stackLevel - block.enterStackLevel;
@@ -1372,7 +1376,7 @@ export class wasm2lua {
                                     }
                                     this.write(buf,`(${targ},${tmp2}+${(ins.args[0] as NumberLiteral).value},${tmp});`);
                                 } else if (ins.object == "u64") {
-                                    this.write(buf,`${tmp}:${ins.id}(${targ},${tmp2}+${(ins.args[0] as NumberLiteral).value});`);
+                                    this.write(buf,`(${tmp}):${ins.id}(${targ},${tmp2}+${(ins.args[0] as NumberLiteral).value});`);
                                 } else if (ins.object == "f32") {
                                     this.write(buf,"__MEMORY_WRITE_32F__");
                                     this.write(buf,`(${targ},${tmp2}+${(ins.args[0] as NumberLiteral).value},${tmp});`);
