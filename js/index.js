@@ -30,6 +30,12 @@ function sanitizeIdentifier(ident) {
     return ident
         .replace(/\$/g, "__IDENT_CHAR_DOLLAR__")
         .replace(/\./g, "__IDENT_CHAR_DOT__")
+        .replace(/\:/g, "__IDENT_CHAR_COLON__")
+        .replace(/\~/g, "__IDENT_CHAR_TILDE__")
+        .replace(/\//g, "__IDENT_CHAR_FSLASH__")
+        .replace(/\#/g, "__IDENT_CHAR_HASH__")
+        .replace(/\</g, "__IDENT_CHAR_LT__")
+        .replace(/\>/g, "__IDENT_CHAR_GT__")
         .replace(/\-/g, "__IDENT_CHAR_MINUS__");
 }
 const FUNC_VAR_HEADER = "";
@@ -42,6 +48,8 @@ class wasm2lua {
         this.moduleStates = [];
         this.globalTypes = [];
         this.registerDebugOutput = false;
+        this.stackDebugOutput = false;
+        this.insDebugOutput = false;
         if (options.compileFlags == null) {
             options.compileFlags = [];
         }
@@ -121,7 +129,6 @@ class wasm2lua {
         func.stackLevel++;
         if (typeof stackExpr === "string") {
             func.stackData.push(stackExpr);
-            return "";
         }
         else if (typeof stackExpr === "object") {
             if (resolveRegister) {
@@ -131,10 +138,15 @@ class wasm2lua {
                 stackExpr.stackEntryCount++;
                 func.stackData.push(stackExpr);
             }
-            return "";
         }
         else {
             throw new Error("`stackExpr` must be a string or VirtualRegister");
+        }
+        if (this.stackDebugOutput) {
+            return `--[[PUSH TO ${func.stackLevel - 1}]]`;
+        }
+        else {
+            return "";
         }
     }
     getPop(func) {
@@ -145,7 +157,12 @@ class wasm2lua {
         let lastData = func.stackData.pop();
         func.stackLevel--;
         if (typeof lastData === "string") {
-            return lastData;
+            if (this.stackDebugOutput) {
+                return `--[[POP FROM ${func.stackLevel}]]${lastData}`;
+            }
+            else {
+                return lastData;
+            }
         }
         else if (typeof lastData === "object") {
             let buf = [];
@@ -164,7 +181,12 @@ class wasm2lua {
                 throw new Error("just wHat");
             }
             this.write(buf, func.regManager.getPhysicalRegisterName(lastData));
-            return buf.join("");
+            if (this.stackDebugOutput) {
+                return `--[[POP FROM ${func.stackLevel}]]${buf.join("")}`;
+            }
+            else {
+                return buf.join("");
+            }
         }
         else {
             throw new Error("Could not resolve pop value");
@@ -354,7 +376,6 @@ class wasm2lua {
                 this.newLine(buf);
             }
             else {
-                throw new Error("TODO - Module Section - " + field.type);
             }
         }
         if (this.options.whitelist != null) {
@@ -512,7 +533,7 @@ class wasm2lua {
     }
     beginBlock(buf, state, block, customStart) {
         state.blocks.push(block);
-        this.write(buf, sanitizeIdentifier(`::${block.id}_start::`));
+        this.write(buf, `::${sanitizeIdentifier(block.id)}_start::`);
         this.newLine(buf);
         if (typeof customStart === "string") {
             this.write(buf, customStart);
@@ -555,7 +576,7 @@ class wasm2lua {
         let block = state.blocks.pop();
         if (block) {
             this.endBlockInternal(buf, block, state);
-            if (state.stackLevel > block.enterStackLevel) {
+            if (state.stackLevel > (block.resultType === null ? block.enterStackLevel : block.enterStackLevel + 1)) {
                 this.writeLn(buf, "-- WARNING: a block as popped extra information into the stack.");
             }
             return true;
@@ -579,7 +600,7 @@ class wasm2lua {
         this.outdent(buf);
         this.write(buf, "end");
         this.newLine(buf);
-        this.write(buf, sanitizeIdentifier(`::${block.id}_fin::`));
+        this.write(buf, `::${sanitizeIdentifier(block.id)}_fin::`);
         this.newLine(buf);
     }
     startElseSubBlock(buf, block, state) {
@@ -726,6 +747,15 @@ class wasm2lua {
         let buf = [];
         for (let ins of insArr) {
             state.insCountPass2++;
+            if (this.insDebugOutput) {
+                if (ins.type == "Instr") {
+                    this.write(buf, "-- LOOK " + ins.id + " " + JSON.stringify(ins));
+                }
+                else {
+                    this.write(buf, "-- LOOK (!) " + ins.type + " " + JSON.stringify(ins));
+                }
+                this.newLine(buf);
+            }
             switch (ins.type) {
                 case "Instr": {
                     switch (ins.id) {
@@ -924,8 +954,10 @@ class wasm2lua {
                         }
                         case "drop": {
                             this.stackDrop(state);
-                            this.write(buf, "-- stack drop");
-                            this.newLine(buf);
+                            if (this.stackDebugOutput) {
+                                this.write(buf, "-- stack drop");
+                                this.newLine(buf);
+                            }
                             break;
                         }
                         case "promote/f32":
@@ -950,7 +982,7 @@ class wasm2lua {
                         case "wrap/i64": {
                             let resultVar = this.fn_createTempRegister(buf, state);
                             let tmp = this.getPop(state);
-                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = ${this.getPop(state)}[1];`);
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = ${tmp}[1];`);
                             this.write(buf, this.getPushStack(state, resultVar));
                             this.newLine(buf);
                             break;
@@ -1351,7 +1383,6 @@ class wasm2lua {
                 break;
             }
             default: {
-                throw new Error("TODO - Export - " + node.descr.exportType);
                 break;
             }
         }
@@ -1434,7 +1465,7 @@ wasm2lua.instructionBinOpFuncRemap = {
     max: "__FLOAT__.max"
 };
 exports.wasm2lua = wasm2lua;
-let infile = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
+let infile = process.argv[2] || (__dirname + "/../test/mandelbrot.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
 let compileFlags = process.argv[4] ? process.argv[4].split(",") : null;
 let whitelist = null;
