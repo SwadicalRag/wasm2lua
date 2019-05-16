@@ -376,6 +376,7 @@ class wasm2lua {
                 this.newLine(buf);
             }
             else {
+                throw new Error("TODO - Module Section - " + field.type);
             }
         }
         if (this.options.whitelist != null) {
@@ -1383,6 +1384,7 @@ class wasm2lua {
                 break;
             }
             default: {
+                throw new Error("TODO - Export - " + node.descr.exportType);
                 break;
             }
         }
@@ -1465,7 +1467,7 @@ wasm2lua.instructionBinOpFuncRemap = {
     max: "__FLOAT__.max"
 };
 exports.wasm2lua = wasm2lua;
-let infile = process.argv[2] || (__dirname + "/../test/mandelbrot.wasm");
+let infile = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
 let compileFlags = process.argv[4] ? process.argv[4].split(",") : null;
 let whitelist = null;
