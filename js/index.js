@@ -961,6 +961,8 @@ class wasm2lua {
                             }
                             break;
                         }
+                        case "convert_s/i32":
+                        case "convert_s/i64":
                         case "promote/f32":
                         case "demote/f64":
                             break;

@@ -1292,6 +1292,8 @@ export class wasm2lua {
                         }
                         // Type Conversions
                         //////////////////////////////////////////////////////////////
+                        case "convert_s/i32":
+                        case "convert_s/i64":
                         case "promote/f32":
                         case "demote/f64":
                             // These are no-ops.
