@@ -84,6 +84,7 @@ interface WASMFuncState {
     forceVarInit: Map<number, number[]>,
     registersToBeFreed: VirtualRegister[];
     locals: VirtualRegister[];
+    localTypes: Valtype[];
     blocks: WASMBlockState[];
     funcType?: Signature;
     modState?: WASMModuleState;
@@ -427,6 +428,7 @@ export class wasm2lua {
                 let global_init_state: WASMFuncState = {
                     id: "__GLOBAL_INIT__", 
                     locals: [],
+                    localTypes: [],
                     blocks: [],
                     regManager: new VirtualRegisterManager(),
                     insLastRefs: [],
@@ -472,6 +474,7 @@ export class wasm2lua {
                 let global_init_state: WASMFuncState = {
                     id: "__TABLE_INIT__", 
                     locals: [],
+                    localTypes: [],
                     regManager: new VirtualRegisterManager(),
                     registersToBeFreed: [],
                     insCountPass1: 0,
@@ -615,6 +618,7 @@ export class wasm2lua {
             insCountPass1LoopLifespanAdjs: new Map(),
             forceVarInit: new Map(),
             locals: [],
+            localTypes: [],
             blocks: [],
             funcType,
             modState: state,
@@ -949,7 +953,14 @@ export class wasm2lua {
                 case "Instr": {
                     switch(ins.id) {
                         case "local": {
-                            // no-op (i think)
+                            // record local types here
+                            state.localTypes = ins.args.map((arg)=> {
+                                if (arg.type=="ValtypeLiteral") {
+                                    return arg.name;
+                                } else {
+                                    throw new Error("Bad type???");
+                                }
+                            });
                             break;
                         }
                         case "get_local": {
@@ -1071,7 +1082,11 @@ export class wasm2lua {
                     }
     
                     this.write(buf,state.regManager.getPhysicalRegisterName(state.locals[locID]));
-                    this.write(buf," = 0;"); // TODO sub long int init if needed
+                    if (state.localTypes[locID] == "i64") {
+                        this.write(buf," = __LONG_INT__(0,0);");
+                    } else {
+                        this.write(buf," = 0;");
+                    }
                     this.newLine(buf);
                 });
             }
