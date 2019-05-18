@@ -970,6 +970,7 @@ export class wasm2lua {
 
                             let data = state.insLastAssigned[locID];
                             if(data == null && (locID > (state.funcType ? state.funcType.params.length : 0)) ) {
+                                // force initialization
 
                                 let forceInitIns = state.insCountPass1;
 
@@ -1381,7 +1382,7 @@ export class wasm2lua {
                             let resultVar = this.fn_createTempRegister(buf,state);
                             let tmp = this.getPop(state);
                             // return low uint32
-                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = ${tmp}[1];`);
+                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = (${tmp})[1];`);
                             this.write(buf,this.getPushStack(state,resultVar));
                             this.newLine(buf);
                             break;

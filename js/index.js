@@ -1031,7 +1031,7 @@ class wasm2lua {
                         case "wrap/i64": {
                             let resultVar = this.fn_createTempRegister(buf, state);
                             let tmp = this.getPop(state);
-                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = ${tmp}[1];`);
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = (${tmp})[1];`);
                             this.write(buf, this.getPushStack(state, resultVar));
                             this.newLine(buf);
                             break;
