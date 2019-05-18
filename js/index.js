@@ -689,6 +689,12 @@ class wasm2lua {
                             let data = state.insLastAssigned[locID];
                             if (data == null && (locID > (state.funcType ? state.funcType.params.length : 0))) {
                                 let forceInitIns = state.insCountPass1;
+                                for (let i = 0; i < state.blocks.length; i++) {
+                                    if (state.blocks[i].blockType == "loop") {
+                                        forceInitIns = state.blocks[i].insCountStart;
+                                        break;
+                                    }
+                                }
                                 if (state.forceVarInit.get(forceInitIns) == null) {
                                     state.forceVarInit.set(forceInitIns, []);
                                 }
@@ -729,6 +735,7 @@ class wasm2lua {
                         resultType: null,
                         blockType,
                         enterStackLevel: state.stackLevel,
+                        insCountStart: state.insCountPass1
                     });
                     this.processInstructionsPass1(ins.instr, state);
                     if (block.blockType === "loop") {
@@ -746,7 +753,8 @@ class wasm2lua {
                         id: `if_${ins.loc.start.line}_${ins.loc.start.column}`,
                         blockType: "if",
                         resultType: null,
-                        enterStackLevel: state.stackLevel
+                        enterStackLevel: state.stackLevel,
+                        insCountStart: state.insCountPass1
                     });
                     this.processInstructionsPass1(ins.consequent, state);
                     if (ins.alternate.length > 0) {
@@ -765,8 +773,10 @@ class wasm2lua {
             let forceInitVars = state.forceVarInit.get(state.insCountPass2);
             if (forceInitVars != null) {
                 forceInitVars.forEach((locID) => {
-                    this.write(buf, "-- FORCE INIT VAR");
-                    this.newLine(buf);
+                    if (this.insDebugOutput) {
+                        this.write(buf, "-- FORCE INIT VAR");
+                        this.newLine(buf);
+                    }
                     if (!state.locals[locID]) {
                         state.locals[locID] = this.fn_createNamedRegister(buf, state, `loc${locID}`);
                     }
@@ -1255,6 +1265,7 @@ class wasm2lua {
                         resultType: (ins.type == "LoopInstruction") ? ins.resulttype : ins.result,
                         blockType,
                         enterStackLevel: state.stackLevel,
+                        insCountStart: state.insCountPass2
                     });
                     if (block.resultType !== null) {
                         block.resultRegister = this.fn_createTempRegister(buf, state);
@@ -1271,7 +1282,8 @@ class wasm2lua {
                         id: `if_${ins.loc.start.line}_${ins.loc.start.column}`,
                         blockType: "if",
                         resultType: ins.result,
-                        enterStackLevel: state.stackLevel
+                        enterStackLevel: state.stackLevel,
+                        insCountStart: state.insCountPass2
                     }, `if ${this.getPop(state)} ~= 0 then`);
                     if (block.resultType !== null) {
                         block.resultRegister = this.fn_createTempRegister(buf, state);

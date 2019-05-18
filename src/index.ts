@@ -98,6 +98,7 @@ interface WASMBlockState {
     blockType: "block" | "loop" | "if";
     resultRegister?: VirtualRegister;
     resultType?: Valtype | null;
+    insCountStart: number;
     enterStackLevel: number; // used to check if we left a block with an extra item in the stack
     hasClosed?: true;
 }
@@ -969,8 +970,17 @@ export class wasm2lua {
 
                             let data = state.insLastAssigned[locID];
                             if(data == null && (locID > (state.funcType ? state.funcType.params.length : 0)) ) {
+
                                 let forceInitIns = state.insCountPass1;
-                                // TODO hoist init out of any loops
+
+                                // need to hoist init out of ALL loops.
+                                // find the _first_ (least nested) loop.
+                                for (let i=0;i<state.blocks.length;i++) {
+                                    if(state.blocks[i].blockType == "loop") {
+                                        forceInitIns = state.blocks[i].insCountStart;
+                                        break;
+                                    }
+                                }
 
                                 if (state.forceVarInit.get(forceInitIns) == null) {
                                     state.forceVarInit.set(forceInitIns,[]);
@@ -1019,6 +1029,7 @@ export class wasm2lua {
                         resultType: null, 
                         blockType,
                         enterStackLevel: state.stackLevel,
+                        insCountStart: state.insCountPass1
                     });
 
                     this.processInstructionsPass1(ins.instr,state)
@@ -1039,7 +1050,8 @@ export class wasm2lua {
                         id: `if_${ins.loc.start.line}_${ins.loc.start.column}`,
                         blockType: "if",
                         resultType: null,
-                        enterStackLevel: state.stackLevel
+                        enterStackLevel: state.stackLevel,
+                        insCountStart: state.insCountPass1
                     });
 
                     this.processInstructionsPass1(ins.consequent,state)
@@ -1070,8 +1082,10 @@ export class wasm2lua {
 
             if (forceInitVars != null) {
                 forceInitVars.forEach((locID) => {
-                    this.write(buf,"-- FORCE INIT VAR");
-                    this.newLine(buf);
+                    if(this.insDebugOutput) {
+                        this.write(buf,"-- FORCE INIT VAR");
+                        this.newLine(buf);
+                    }
     
                     if(!state.locals[locID]) {
                         state.locals[locID] = this.fn_createNamedRegister(buf,state,`loc${locID}`);
@@ -1626,6 +1640,7 @@ export class wasm2lua {
                         resultType: (ins.type == "LoopInstruction") ? ins.resulttype : ins.result, 
                         blockType,
                         enterStackLevel: state.stackLevel,
+                        insCountStart: state.insCountPass2
                     });
 
                     if(block.resultType !== null) {
@@ -1646,7 +1661,8 @@ export class wasm2lua {
                         id: `if_${ins.loc.start.line}_${ins.loc.start.column}`,
                         blockType: "if",
                         resultType: ins.result,
-                        enterStackLevel: state.stackLevel
+                        enterStackLevel: state.stackLevel,
+                        insCountStart: state.insCountPass2
                     },`if ${this.getPop(state)} ~= 0 then`);
 
                     if(block.resultType !== null) {
