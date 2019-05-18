@@ -310,6 +310,7 @@ class wasm2lua {
                     insCountPass1: 0,
                     insCountPass2: 0,
                     insCountPass1LoopLifespanAdjs: new Map(),
+                    forceVarInit: new Map(),
                     stackData: [],
                     stackLevel: 1,
                 };
@@ -339,6 +340,7 @@ class wasm2lua {
                     insCountPass1: 0,
                     insCountPass2: 0,
                     insCountPass1LoopLifespanAdjs: new Map(),
+                    forceVarInit: new Map(),
                     insLastAssigned: [],
                     insLastRefs: [],
                     blocks: [],
@@ -448,6 +450,7 @@ class wasm2lua {
             insCountPass1: 0,
             insCountPass2: 0,
             insCountPass1LoopLifespanAdjs: new Map(),
+            forceVarInit: new Map(),
             locals: [],
             blocks: [],
             funcType,
@@ -674,7 +677,11 @@ class wasm2lua {
                             state.insLastRefs[locID] = state.insCountPass1;
                             let data = state.insLastAssigned[locID];
                             if (data == null && (locID > (state.funcType ? state.funcType.params.length : 0))) {
-                                console.log("WARNING: use-before-assign of loc" + locID);
+                                let forceInitIns = state.insCountPass1;
+                                if (state.forceVarInit.get(forceInitIns) == null) {
+                                    state.forceVarInit.set(forceInitIns, []);
+                                }
+                                state.forceVarInit.get(forceInitIns).push(locID);
                             }
                             let lastLoop = this.getLastLoop(state);
                             if (lastLoop && (data == null || lastLoop !== data[1])) {
@@ -744,6 +751,23 @@ class wasm2lua {
         let buf = [];
         for (let ins of insArr) {
             state.insCountPass2++;
+            let forceInitVars = state.forceVarInit.get(state.insCountPass2);
+            if (forceInitVars != null) {
+                forceInitVars.forEach((locID) => {
+                    this.write(buf, "-- FORCE INIT VAR");
+                    this.newLine(buf);
+                    if (!state.locals[locID]) {
+                        state.locals[locID] = this.fn_createNamedRegister(buf, state, `loc${locID}`);
+                    }
+                    if (typeof state.locals[locID].firstRef === "undefined") {
+                        state.locals[locID].firstRef = state.insCountPass2;
+                        state.locals[locID].lastRef = state.insLastRefs[locID];
+                    }
+                    this.write(buf, state.regManager.getPhysicalRegisterName(state.locals[locID]));
+                    this.write(buf, " = 0;");
+                    this.newLine(buf);
+                });
+            }
             if (this.insDebugOutput) {
                 if (ins.type == "Instr") {
                     this.write(buf, "-- LOOK " + ins.id + " " + JSON.stringify(ins));

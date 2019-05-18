@@ -81,6 +81,7 @@ interface WASMFuncState {
     insCountPass1: number;
     insCountPass2: number;
     insCountPass1LoopLifespanAdjs: Map<number,WASMBlockState>;
+    forceVarInit: Map<number, number[]>,
     registersToBeFreed: VirtualRegister[];
     locals: VirtualRegister[];
     blocks: WASMBlockState[];
@@ -434,6 +435,7 @@ export class wasm2lua {
                     insCountPass1: 0,
                     insCountPass2: 0,
                     insCountPass1LoopLifespanAdjs: new Map(),
+                    forceVarInit: new Map(),
                     stackData: [],
                     stackLevel: 1,
                 };
@@ -475,6 +477,7 @@ export class wasm2lua {
                     insCountPass1: 0,
                     insCountPass2: 0,
                     insCountPass1LoopLifespanAdjs: new Map(),
+                    forceVarInit: new Map(),
                     insLastAssigned: [],
                     insLastRefs: [],
                     blocks: [],
@@ -610,6 +613,7 @@ export class wasm2lua {
             insCountPass1: 0,
             insCountPass2: 0,
             insCountPass1LoopLifespanAdjs: new Map(),
+            forceVarInit: new Map(),
             locals: [],
             blocks: [],
             funcType,
@@ -954,9 +958,14 @@ export class wasm2lua {
 
                             let data = state.insLastAssigned[locID];
                             if(data == null && (locID > (state.funcType ? state.funcType.params.length : 0)) ) {
-                                // TODO mark uninitialized vars for initialization
-                                // Initialization must be hoisted out of ALL loops.
-                                console.log("WARNING: use-before-assign of loc" + locID);
+                                let forceInitIns = state.insCountPass1;
+                                // TODO hoist init out of any loops
+
+                                if (state.forceVarInit.get(forceInitIns) == null) {
+                                    state.forceVarInit.set(forceInitIns,[]);
+                                }
+
+                                state.forceVarInit.get(forceInitIns).push(locID);
                             }
 
                             // Extend lifetime of variables that are accessed before assignment in loops.
@@ -1044,6 +1053,28 @@ export class wasm2lua {
         
         for(let ins of insArr) {
             state.insCountPass2++;
+
+            // check if any locals need force-initialized
+            let forceInitVars = state.forceVarInit.get(state.insCountPass2);
+
+            if (forceInitVars != null) {
+                forceInitVars.forEach((locID) => {
+                    this.write(buf,"-- FORCE INIT VAR");
+                    this.newLine(buf);
+    
+                    if(!state.locals[locID]) {
+                        state.locals[locID] = this.fn_createNamedRegister(buf,state,`loc${locID}`);
+                    }
+                    if(typeof state.locals[locID].firstRef === "undefined") {
+                        state.locals[locID].firstRef = state.insCountPass2;
+                        state.locals[locID].lastRef = state.insLastRefs[locID];
+                    }
+    
+                    this.write(buf,state.regManager.getPhysicalRegisterName(state.locals[locID]));
+                    this.write(buf," = 0;"); // TODO sub long int init if needed
+                    this.newLine(buf);
+                });
+            }
 
             if(this.insDebugOutput) {
                 if(ins.type == "Instr") {
