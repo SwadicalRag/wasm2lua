@@ -650,18 +650,14 @@ class wasm2lua {
                         case "get_local": {
                             let locID = ins.args[0].value;
                             state.insLastRefs[locID] = state.insCountPass1;
-                            if (locID > (state.funcType ? state.funcType.params.length : 0)) {
-                                let data = state.insLastAssigned[locID];
-                                if (!data) {
-                                    console.log("WARNING: use-before-assign of loc" + locID);
-                                }
-                                else {
-                                    let lastLoop = this.getLastLoop(state);
-                                    if (lastLoop && (lastLoop !== data[1])) {
-                                        if (!state.insCountPass1LoopLifespanAdjs.get(locID)) {
-                                            state.insCountPass1LoopLifespanAdjs.set(locID, lastLoop);
-                                        }
-                                    }
+                            let data = state.insLastAssigned[locID];
+                            if (data == null && (locID > (state.funcType ? state.funcType.params.length : 0))) {
+                                console.log("WARNING: use-before-assign of loc" + locID);
+                            }
+                            let lastLoop = this.getLastLoop(state);
+                            if (lastLoop && (data == null || lastLoop !== data[1])) {
+                                if (!state.insCountPass1LoopLifespanAdjs.get(locID)) {
+                                    state.insCountPass1LoopLifespanAdjs.set(locID, lastLoop);
                                 }
                             }
                             break;
