@@ -55,6 +55,12 @@ function sanitizeIdentifier(ident: string) {
     return ident
         .replace(/\$/g,"__IDENT_CHAR_DOLLAR__")
         .replace(/\./g,"__IDENT_CHAR_DOT__")
+        .replace(/\:/g,"__IDENT_CHAR_COLON__")
+        .replace(/\~/g,"__IDENT_CHAR_TILDE__")
+        .replace(/\//g,"__IDENT_CHAR_FSLASH__")
+        .replace(/\#/g,"__IDENT_CHAR_HASH__")
+        .replace(/\</g,"__IDENT_CHAR_LT__")
+        .replace(/\>/g,"__IDENT_CHAR_GT__")
         .replace(/\-/g,"__IDENT_CHAR_MINUS__");
 }
 
@@ -109,6 +115,8 @@ export class wasm2lua {
     globalTypes: Signature[] = [];
 
     registerDebugOutput = false;
+    stackDebugOutput = false;
+    insDebugOutput = false;
 
     static fileHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
 
@@ -212,7 +220,6 @@ export class wasm2lua {
         func.stackLevel++;
         if(typeof stackExpr === "string") {
             func.stackData.push(stackExpr);
-            return "";
         }
         else if(typeof stackExpr === "object") {
             if(resolveRegister) {
@@ -222,11 +229,16 @@ export class wasm2lua {
                 stackExpr.stackEntryCount++;
                 func.stackData.push(stackExpr);
             }
-
-            return "";
         }
         else {
             throw new Error("`stackExpr` must be a string or VirtualRegister")
+        }
+
+        if(this.stackDebugOutput) {
+            return `--[[PUSH TO ${func.stackLevel - 1}]]`;
+        }
+        else {
+            return "";
         }
     }
 
@@ -240,7 +252,12 @@ export class wasm2lua {
         let lastData = func.stackData.pop();
         func.stackLevel--;
         if(typeof lastData === "string") {
-            return lastData;
+            if(this.stackDebugOutput) {
+                return `--[[POP FROM ${func.stackLevel}]]${lastData}`;
+            }
+            else {
+                return lastData;
+            }
         }
         else if(typeof lastData === "object") {
             let buf = []
@@ -262,7 +279,12 @@ export class wasm2lua {
 
             this.write(buf,func.regManager.getPhysicalRegisterName(lastData));
 
-            return buf.join("");
+            if(this.stackDebugOutput) {
+                return `--[[POP FROM ${func.stackLevel}]]${buf.join("")}`;
+            }
+            else {
+                return buf.join("");
+            }
         }
         else {
             throw new Error("Could not resolve pop value");
@@ -752,7 +774,7 @@ export class wasm2lua {
     beginBlock(buf: string[],state: WASMFuncState,block: WASMBlockState,customStart?: string) {
         // BLOCK BEGINS MUST BE CLOSED BY BLOCK ENDS!!!!
         state.blocks.push(block);
-        this.write(buf,sanitizeIdentifier(`::${block.id}_start::`));
+        this.write(buf,`::${sanitizeIdentifier(block.id)}_start::`);
         this.newLine(buf);
         if(typeof customStart === "string") {
             this.write(buf,customStart);
@@ -797,7 +819,7 @@ export class wasm2lua {
         if(block) {
             this.endBlockInternal(buf,block,state);
 
-            if(state.stackLevel > block.enterStackLevel) {
+            if(state.stackLevel > (block.resultType === null ? block.enterStackLevel : block.enterStackLevel + 1)) {
                 this.writeLn(buf,"-- WARNING: a block as popped extra information into the stack.")
             }
 
@@ -830,7 +852,7 @@ export class wasm2lua {
         this.outdent(buf);
         this.write(buf,"end");
         this.newLine(buf);
-        this.write(buf,sanitizeIdentifier(`::${block.id}_fin::`));
+        this.write(buf,`::${sanitizeIdentifier(block.id)}_fin::`);
         this.newLine(buf);
     }
 
@@ -1023,13 +1045,15 @@ export class wasm2lua {
         for(let ins of insArr) {
             state.insCountPass2++;
 
-            // if(ins.type == "Instr") {
-            //     this.write(buf,"-- LOOK "+ins.id+" "+JSON.stringify(ins));
-            // }
-            // else {
-            //     this.write(buf,"-- LOOK (!) "+ins.type+" "+JSON.stringify(ins));
-            // }
-            // this.newLine(buf);
+            if(this.insDebugOutput) {
+                if(ins.type == "Instr") {
+                    this.write(buf,"-- LOOK "+ins.id+" "+JSON.stringify(ins));
+                }
+                else {
+                    this.write(buf,"-- LOOK (!) "+ins.type+" "+JSON.stringify(ins));
+                }
+                this.newLine(buf);
+            }
 
             switch(ins.type) {
                 case "Instr": {
@@ -1260,12 +1284,16 @@ export class wasm2lua {
                         }
                         case "drop": {
                             this.stackDrop(state);
-                            this.write(buf,"-- stack drop");
-                            this.newLine(buf);
+                            if(this.stackDebugOutput) {
+                                this.write(buf,"-- stack drop");
+                                this.newLine(buf);
+                            }
                             break;
                         }
                         // Type Conversions
                         //////////////////////////////////////////////////////////////
+                        case "convert_s/i32":
+                        case "convert_s/i64":
                         case "promote/f32":
                         case "demote/f64":
                             // These are no-ops.
@@ -1293,7 +1321,7 @@ export class wasm2lua {
                             let resultVar = this.fn_createTempRegister(buf,state);
                             let tmp = this.getPop(state);
                             // return low uint32
-                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = ${this.getPop(state)}[1];`);
+                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = ${tmp}[1];`);
                             this.write(buf,this.getPushStack(state,resultVar));
                             this.newLine(buf);
                             break;
@@ -1814,6 +1842,7 @@ export class wasm2lua {
 // let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/test2.wasm");
 let infile  = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/mandelbrot.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testx.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testorder.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testorder2.wasm");
