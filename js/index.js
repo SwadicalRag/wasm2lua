@@ -902,7 +902,12 @@ class wasm2lua {
                                 this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = `);
                                 if (convert_bool) {
                                     if (unsigned) {
-                                        this.write(buf, `(__UNSIGNED__(${tmp2}) ${op} __UNSIGNED__(${tmp})) and 1 or 0`);
+                                        if (ins.object == "i64") {
+                                            this.write(buf, `(${tmp2}):_${ins.id}(${tmp}) and 1 or 0`);
+                                        }
+                                        else {
+                                            this.write(buf, `(__UNSIGNED__(${tmp2}) ${op} __UNSIGNED__(${tmp})) and 1 or 0`);
+                                        }
                                     }
                                     else {
                                         this.write(buf, `(${tmp2} ${op} ${tmp}) and 1 or 0`);
@@ -949,7 +954,7 @@ class wasm2lua {
                                     this.write(buf, `(${tmp2},${tmp});`);
                                 }
                                 else if (ins.object == "i64") {
-                                    this.write(buf, `${tmp2}:_${ins.id}(${tmp});`);
+                                    this.write(buf, `(${tmp2}):_${ins.id}(${tmp});`);
                                 }
                                 else {
                                     this.write(buf, "error('BIT OP ON UNSUPPORTED TYPE: " + ins.object + "," + ins.id + "');");
@@ -979,9 +984,14 @@ class wasm2lua {
                             }
                         case "eqz": {
                             let resultVar = this.fn_createTempRegister(buf, state);
-                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = (`);
-                            this.write(buf, this.getPop(state));
-                            this.write(buf, "==0) and 1 or 0; ");
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = `);
+                            let value = this.getPop(state);
+                            if (ins.object == "i64") {
+                                this.write(buf, ` ((${value})[1] == 0) and ((${value})[2] == 0) and 1 or 0;`);
+                            }
+                            else {
+                                this.write(buf, `(${value} ==0) and 1 or 0;`);
+                            }
                             this.write(buf, this.getPushStack(state, resultVar));
                             this.newLine(buf);
                             break;
@@ -1181,7 +1191,7 @@ class wasm2lua {
                                 }
                                 if (is_narrow_u64_load) {
                                     if (ins.id.endsWith("_s")) {
-                                        this.write(buf, `${vname}=__LONG_INT__(${vname},${vname} < 0 and -1 or 0);`);
+                                        this.write(buf, `${vname}=__LONG_INT__(${vname},bit.arshift(${vname},31));`);
                                     }
                                     else {
                                         this.write(buf, `${vname}=__LONG_INT__(${vname},0);`);

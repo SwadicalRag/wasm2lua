@@ -94,8 +94,8 @@ function compileValue(value) {
     }
     else if (value.type == "i64") {
         let num = BigInt(value.value);
-        let low = num & BigInt(0xFFFFFFFF);
-        let high = num >> BigInt(32);
+        let low = Number(num & BigInt(0xFFFFFFFF)) | 0;
+        let high = Number(num >> BigInt(32)) | 0;
         return `__LONG_INT__(${low},${high})`;
     }
     else if (value.type == "f32") {

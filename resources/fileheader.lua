@@ -228,6 +228,12 @@ __LONG_INT_CLASS__ = {
     __eq = function(a,b)
         return a[1] == b[1] and a[2] == b[2]
     end,
+    __lt = function(a,b) -- <
+        if a[2] == b[2] then return a[1] < b[1] else return a[2] < b[2] end
+    end,
+    __le = function(a,b) -- <=
+        if a[2] == b[2] then return a[1] <= b[1] else return a[2] <= b[2] end
+    end,
     __index = {
         store = function(self,mem,loc)
             assert((loc >= 0) and (loc < (mem._len - 7)),"out of memory access")
@@ -255,27 +261,135 @@ __LONG_INT_CLASS__ = {
         store8 = function(self,mem,loc)
             __MEMORY_WRITE_8__(mem,loc,self[1])
         end,
-        _shl = function(a,b)
-            local shift = b[1]
-            if shift < 0 then
-                return __LONG_INT__(0,0)
-            end
-            local low =   a[1]
-            local high =  a[2]
-            -- TODO might be a better way to do this with rotates and masks...
-            if shift >= 32 then
-                high = bit.lshift(low,shift-32)
-                return __LONG_INT__(0,high)
+        _lt_u = function(a,b)
+            if __UNSIGNED__(a[2]) == __UNSIGNED__(b[2]) then
+                return __UNSIGNED__(a[1]) < __UNSIGNED__(b[1])
             else
-                high = bit.lshift(high,shift)
-                -- bits shifted from low part
-                high = bit.bor(high, bit.rshift(low,32-shift))
-                low = bit.lshift(low,shift)
-                return __LONG_INT__(low,high)
+                return __UNSIGNED__(a[2]) < __UNSIGNED__(b[2])
+            end
+        end,
+        _le_u = function(a,b)
+            if __UNSIGNED__(a[2]) == __UNSIGNED__(b[2]) then
+                return __UNSIGNED__(a[1]) <= __UNSIGNED__(b[1])
+            else
+                return __UNSIGNED__(a[2]) <= __UNSIGNED__(b[2])
+            end
+        end,
+        _gt_u = function(a,b)
+            if __UNSIGNED__(a[2]) == __UNSIGNED__(b[2]) then
+                return __UNSIGNED__(a[1]) > __UNSIGNED__(b[1])
+            else
+                return __UNSIGNED__(a[2]) > __UNSIGNED__(b[2])
+            end
+        end,
+        _ge_u = function(a,b)
+            if __UNSIGNED__(a[2]) == __UNSIGNED__(b[2]) then
+                return __UNSIGNED__(a[1]) >= __UNSIGNED__(b[1])
+            else
+                return __UNSIGNED__(a[2]) >= __UNSIGNED__(b[2])
+            end
+        end,
+        _shl = function(a,b)
+            local shift = bit.band(b[1],63)
+
+            local low, high
+            if shift < 32 then
+                high = bit.bor( bit.lshift(a[2],shift), shift == 0 and 0 or bit.rshift(a[1], 32-shift) )
+                low = bit.lshift(a[1],shift)
+            else
+                low = 0
+                high = bit.lshift(a[1],shift-32)
+            end
+
+            return __LONG_INT__(low,high)
+        end,
+        _shr_u = function(a,b)
+            local shift = bit.band(b[1],63)
+
+            local low, high
+            if shift < 32 then
+                low = bit.bor( bit.rshift(a[1],shift), shift == 0 and 0 or bit.lshift(a[2], 32-shift) )
+                high = bit.rshift(a[2],shift)
+            else
+                low = bit.rshift(a[2],shift-32)
+                high = 0
+            end
+
+            return __LONG_INT__(low,high)
+        end,
+        _shr_s = function(a,b)
+            local shift = bit.band(b[1],63)
+
+            local low, high
+            if shift < 32 then
+                low = bit.bor( bit.rshift(a[1],shift), shift == 0 and 0 or bit.lshift(a[2], 32-shift) )
+                high = bit.arshift(a[2],shift)
+            else
+                low = bit.arshift(a[2],shift-32)
+                high = bit.arshift(a[2],31)
+            end
+
+            return __LONG_INT__(low,high)
+        end,
+        _rotr = function(a,b)
+            local shift = bit.band(b[1],63)
+            local short_shift = bit.band(shift,31)
+
+            local res1, res2
+            if short_shift == 0 then
+                -- Need this special case because shifts of 32 aren't valid :(
+                res1 = a[1]
+                res2 = a[2]
+            else
+                res1 = bit.bor( bit.rshift(a[1],short_shift), bit.lshift(a[2], 32-short_shift) )
+                res2 = bit.bor( bit.rshift(a[2],short_shift), bit.lshift(a[1], 32-short_shift) )
+            end
+
+            if shift < 32 then
+                return __LONG_INT__(res1,res2)
+            else
+                return __LONG_INT__(res2,res1)
+            end
+        end,
+        _rotl = function(a,b)
+            local shift = bit.band(b[1],63)
+            local short_shift = bit.band(shift,31)
+
+            local res1, res2
+            if short_shift == 0 then
+                -- Need this special case because shifts of 32 aren't valid :(
+                res1 = a[1]
+                res2 = a[2]
+            else
+                res1 = bit.bor( bit.lshift(a[1],short_shift), bit.rshift(a[2], 32-short_shift) )
+                res2 = bit.bor( bit.lshift(a[2],short_shift), bit.rshift(a[1], 32-short_shift) )
+            end
+
+            if shift < 32 then
+                return __LONG_INT__(res1,res2)
+            else
+                return __LONG_INT__(res2,res1)
             end
         end,
         _or = function(a,b)
             return __LONG_INT__(bit.bor(a[1],b[1]), bit.bor(a[2],b[2]))
-        end
+        end,
+        _and = function(a,b)
+            return __LONG_INT__(bit.band(a[1],b[1]), bit.band(a[2],b[2]))
+        end,
+        _xor = function(a,b)
+            return __LONG_INT__(bit.bxor(a[1],b[1]), bit.bxor(a[2],b[2]))
+        end,
+        _clz = function(a)
+            local result = (a[2] ~= 0) and __CLZ__(a[2]) or 32 + __CLZ__(a[1])
+            return __LONG_INT__(result,0)
+        end,
+        _ctz = function(a)
+            local result = (a[1] ~= 0) and __CTZ__(a[1]) or 32 + __CTZ__(a[2])
+            return __LONG_INT__(result,0)
+        end,
+        _popcnt = function(a)
+            return __LONG_INT__( __POPCNT__(a[1]) + __POPCNT__(a[2]), 0)
+        end,
     }
 }
