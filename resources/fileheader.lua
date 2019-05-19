@@ -236,7 +236,42 @@ __LONG_INT_CLASS__ = {
         return __LONG_INT__( bit.tobit(low), bit.tobit(high) )
     end,
     __mul = function(a,b)
-        error("multiply nyi")
+
+        local a_1 = bit.band(a[1],65535)
+        local b_1 = bit.band(b[1],65535)
+
+        local a_2 = bit.rshift(a[1],16)
+        local b_2 = bit.rshift(b[1],16)
+
+        -- low 32 bits
+        local low = bit.tobit(a_1 * b_1)
+
+        -- middle 32 bits
+        local mid = bit.tobit(bit.rshift(low,16) + a_1 * b_2 + b_1 * a_2)
+
+        local a_3 = bit.band(a[2],65535)
+        local b_3 = bit.band(b[2],65535)
+
+        local a_4 = bit.rshift(a[2],16)
+        local b_4 = bit.rshift(b[2],16)
+
+        local high = bit.tobit(
+            bit.rshift(mid,16) +
+
+            a_1 * b_3 +
+            b_1 * a_3 +
+            a_2 * b_2 +
+
+            bit.lshift(a_1 * b_4 + b_1 * a_4 + a_2 * b_3 + b_2 * a_3,16) --[[+
+            bit.lshift(b_1 * a_4,16) +
+            bit.lshift(a_2 * b_3,16) +
+            bit.lshift(b_2 * a_3,16)]]
+        )
+
+        return __LONG_INT__(
+            bit.bor(bit.band(low,65535),bit.lshift(mid,16)),
+            high
+        )
     end,
     __eq = function(a,b)
         return a[1] == b[1] and a[2] == b[2]
