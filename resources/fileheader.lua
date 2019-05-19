@@ -236,41 +236,48 @@ __LONG_INT_CLASS__ = {
         return __LONG_INT__( bit.tobit(low), bit.tobit(high) )
     end,
     __mul = function(a,b)
+        -- copied from https://github.com/dcodeIO/long.js
 
-        local a_1 = bit.band(a[1],65535)
-        local b_1 = bit.band(b[1],65535)
+        local a48 = bit.rshift(a[2],16)
+        local a32 = bit.band(a[2],65535)
+        local a16 = bit.rshift(a[1],16)
+        local a00 = bit.band(a[1],65535)
 
-        local a_2 = bit.rshift(a[1],16)
-        local b_2 = bit.rshift(b[1],16)
+        local b48 = bit.rshift(b[2],16)
+        local b32 = bit.band(b[2],65535)
+        local b16 = bit.rshift(b[1],16)
+        local b00 = bit.band(b[1],65535)
 
-        -- low 32 bits
-        local low = bit.tobit(a_1 * b_1)
+        local c00 = a00 * b00
+        local c16 = bit.rshift(c00,16)
+        c00 = bit.band(c00,65535)
 
-        -- middle 32 bits
-        local mid = bit.tobit(bit.rshift(low,16) + a_1 * b_2 + b_1 * a_2)
+        c16 = c16 + a16 * b00
+        local c32 = bit.rshift(c16,16)
+        c16 = bit.band(c16,65535)
 
-        local a_3 = bit.band(a[2],65535)
-        local b_3 = bit.band(b[2],65535)
+        c16 = c16 + a00 * b16
+        c32 = c32 + bit.rshift(c16,16)
+        c16 = bit.band(c16,65535)
 
-        local a_4 = bit.rshift(a[2],16)
-        local b_4 = bit.rshift(b[2],16)
+        c32 = c32 + a32 * b00
+        local c48 = bit.rshift(c32,16)
+        c32 = bit.band(c32,65535)
 
-        local high = bit.tobit(
-            bit.rshift(mid,16) +
+        c32 = c32 + a16 * b16
+        c48 = c48 + bit.rshift(c32,16)
+        c32 = bit.band(c32,65535)
 
-            a_1 * b_3 +
-            b_1 * a_3 +
-            a_2 * b_2 +
+        c32 = c32 + a00 * b32
+        c48 = c48 + bit.rshift(c32,16)
+        c32 = bit.band(c32,65535)
 
-            bit.lshift(a_1 * b_4 + b_1 * a_4 + a_2 * b_3 + b_2 * a_3,16) --[[+
-            bit.lshift(b_1 * a_4,16) +
-            bit.lshift(a_2 * b_3,16) +
-            bit.lshift(b_2 * a_3,16)]]
-        )
+        c48 = c48 + a48 * b00 + a32 * b16 + a16 * b32 + a00 * b48
+        c48 = bit.band(c48,65535)
 
         return __LONG_INT__(
-            bit.bor(bit.band(low,65535),bit.lshift(mid,16)),
-            high
+            bit.bor(c00,bit.lshift(c16,16)),
+            bit.bor(c32,bit.lshift(c48,16))
         )
     end,
     __eq = function(a,b)
