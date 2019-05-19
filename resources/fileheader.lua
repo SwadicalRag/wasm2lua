@@ -225,6 +225,19 @@ __LONG_INT_CLASS__ = {
     __tostring = function(self)
         return "__LONG_INT__(" .. self[1] .. "," .. self[2] .. ")"
     end,
+    __add = function(a,b)
+        local low = __UNSIGNED__(a[1]) + __UNSIGNED__(b[1])
+        local high = a[2] + b[2] + (low >= 4294967296 and 1 or 0)
+        return __LONG_INT__( bit.tobit(low), bit.tobit(high) )
+    end,
+    __sub = function(a,b)
+        local low = __UNSIGNED__(a[1]) - __UNSIGNED__(b[1])
+        local high = a[2] - b[2] - (low < 0 and 1 or 0)
+        return __LONG_INT__( bit.tobit(low), bit.tobit(high) )
+    end,
+    __mul = function(a,b)
+        error("multiply nyi")
+    end,
     __eq = function(a,b)
         return a[1] == b[1] and a[2] == b[2]
     end,
@@ -260,6 +273,18 @@ __LONG_INT_CLASS__ = {
         end,
         store8 = function(self,mem,loc)
             __MEMORY_WRITE_8__(mem,loc,self[1])
+        end,
+        _div_s = function(a,b)
+            error("divide nyi")
+        end,
+        _div_u = function(a,b)
+            error("divide nyi")
+        end,
+        _rem_s = function(a,b)
+            error("divide nyi")
+        end,
+        _rem_u = function(a,b)
+            error("divide nyi")
         end,
         _lt_u = function(a,b)
             if __UNSIGNED__(a[2]) == __UNSIGNED__(b[2]) then
