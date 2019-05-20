@@ -837,9 +837,9 @@ export class wasm2lua {
             this.indent();
             this.newLine(buf);
             
-            this.write(buf,"::start::");
-            this.newLine(buf);
             this.write(buf,"local setjmpState;");
+            this.newLine(buf);
+            this.write(buf,"::start::");
             this.newLine(buf);
 
             this.write(buf,"local suc,");
@@ -865,7 +865,7 @@ export class wasm2lua {
             this.write(buf,"goto start;");
             this.outdent();
             this.newLine(buf)
-            this.writeLn(buf,"end");
+            this.writeLn(buf,"elseif not suc then return error(ret0) end");
             
             this.write(buf,"return ")
             for(let i=0;i < nRets;i++) {
@@ -1805,9 +1805,9 @@ export class wasm2lua {
                     let fstate = this.getFuncByIndex(state.modState,ins.index);
 
                     if((fstate && fstate.origID == "setjmp") || (ins.index.value == "setjmp")) {
+                        let resultVar = this.fn_createTempRegister(buf,state);
                         let jmpBufLoc = this.getPop(state);
 
-                        let resultVar = this.fn_createTempRegister(buf,state);
                         let resVarName = state.regManager.getPhysicalRegisterName(resultVar);
 
                         this.write(buf,`${resVarName} = {data = {},target = "jmp_${sanitizeIdentifier(ins.loc.start.line)}_${sanitizeIdentifier(ins.loc.start.column)}",result = 0};`);
