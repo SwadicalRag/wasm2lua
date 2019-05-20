@@ -1201,8 +1201,8 @@ class wasm2lua {
                             }
                             else {
                                 this.write(buf, "-- WARNING: COULD NOT FIND MEMORY TO READ");
-                                this.newLine(buf);
                             }
+                            this.newLine(buf);
                             break;
                         }
                         case "grow_memory": {
