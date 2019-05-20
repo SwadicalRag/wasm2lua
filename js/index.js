@@ -687,7 +687,7 @@ class wasm2lua {
                             let locID = ins.args[0].value;
                             state.insLastRefs[locID] = state.insCountPass1;
                             let data = state.insLastAssigned[locID];
-                            if (data == null && (locID > (state.funcType ? state.funcType.params.length : 0))) {
+                            if (data == null && (locID >= (state.funcType ? state.funcType.params.length : 0))) {
                                 let forceInitIns = state.insCountPass1;
                                 for (let i = 0; i < state.blocks.length; i++) {
                                     if (state.blocks[i].blockType == "loop") {
