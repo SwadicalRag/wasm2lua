@@ -51,7 +51,8 @@ function makeBinaryStringLiteral(array: number[]) {
 }
 
 // Probably won't work on lua implementations with sane identifier parsing rules.
-function sanitizeIdentifier(ident: string) {
+function sanitizeIdentifier(ident: string|number) {
+    ident = ident.toString();
     return ident
         .replace(/\$/g,"__IDENT_CHAR_DOLLAR__")
         .replace(/\./g,"__IDENT_CHAR_DOT__")
@@ -75,6 +76,7 @@ interface WASMModuleState {
 
 interface WASMFuncState {
     id: string;
+    origID: string;
     regManager: VirtualRegisterManager;
     insLastRefs: number[];
     insLastAssigned: [number,WASMBlockState | false][];
@@ -88,6 +90,9 @@ interface WASMFuncState {
     blocks: WASMBlockState[];
     funcType?: Signature;
     modState?: WASMModuleState;
+
+    hasSetjmp: boolean;
+    setJmps: CallInstruction[];
 
     stackLevel: number;
     stackData: (string | VirtualRegister | false)[];
@@ -428,6 +433,7 @@ export class wasm2lua {
                 // :thonk:
                 let global_init_state: WASMFuncState = {
                     id: "__GLOBAL_INIT__", 
+                    origID: "__GLOBAL_INIT__", 
                     locals: [],
                     localTypes: [],
                     blocks: [],
@@ -441,6 +447,8 @@ export class wasm2lua {
                     forceVarInit: new Map(),
                     stackData: [],
                     stackLevel: 1,
+                    hasSetjmp: false,
+                    setJmps: [],
                 };
 
                 this.processInstructionsPass1(field.init,global_init_state)
@@ -474,6 +482,7 @@ export class wasm2lua {
                 // :thonk:
                 let global_init_state: WASMFuncState = {
                     id: "__TABLE_INIT__", 
+                    origID: "__TABLE_INIT__", 
                     locals: [],
                     localTypes: [],
                     regManager: new VirtualRegisterManager(),
@@ -487,6 +496,8 @@ export class wasm2lua {
                     blocks: [],
                     stackData: [],
                     stackLevel: 1,
+                    hasSetjmp: false,
+                    setJmps: [],
                 };
 
                 this.processInstructionsPass1(field.offset,global_init_state)
@@ -591,7 +602,7 @@ export class wasm2lua {
         return false;
     }
 
-    initFunc(node: Func | {signature: Signature,name: {value: string}}, state: WASMModuleState,renameTo?: string) {
+    initFunc(node: Func | {signature: Signature,name: {value: string}}, state: WASMModuleState,renameTo?: string,betterName?: string) {
         let funcType: Signature;
         if(node.signature.type == "Signature") {
             funcType = node.signature;
@@ -610,6 +621,7 @@ export class wasm2lua {
 
         let fstate: WASMFuncState = {
             id: renameTo ? renameTo : sanitizeIdentifier(funcID),
+            origID: betterName || funcID,
             regManager: new VirtualRegisterManager(),
             registersToBeFreed: [],
             insLastAssigned: [],
@@ -625,12 +637,36 @@ export class wasm2lua {
             modState: state,
             stackData: [],
             stackLevel: 1,
+            hasSetjmp: false,
+            setJmps: [],
         };
 
         state.funcStates.push(fstate);
         state.funcByName.set(funcID,fstate);
 
         return fstate;
+    }
+
+    forEachVar(state: WASMFuncState,cb: (string) => void) {
+        let hasVars = false;
+        if(state.regManager.virtualDisabled) {
+            let seen = {};
+            for(let i=(state.funcType ? state.funcType.params.length : 0);i < state.regManager.registerCache.length;i++) {
+                let reg = state.regManager.registerCache[i];
+                let name = state.regManager.getPhysicalRegisterName(reg);
+                if(seen[name]) {continue;}
+                seen[name] = true;
+                hasVars = true;
+                cb(name);
+            }
+        }
+        else if((state.regManager.totalRegisters - (state.funcType ? state.funcType.params.length : 0)) > 0) {
+            for(let i=(state.funcType ? state.funcType.params.length : 0);i < state.regManager.totalRegisters;i++) {
+                hasVars = true;
+                cb(`reg${i}`)
+            }
+        }
+        return hasVars;
     }
 
     processFunc(node: Func,modState: WASMModuleState) {
@@ -650,9 +686,12 @@ export class wasm2lua {
         if(!state) {state = this.initFunc(node,modState);}
 
         state.stackLevel = 1;
+        this.getAllFuncCallsTo(node.body,state,"setjmp",state.setJmps);
+        state.hasSetjmp = state.setJmps.length > 0;
 
         this.write(buf,"function ");
         this.write(buf,state.id);
+        if(state.hasSetjmp) {this.write(buf,"__setjmp_internal");}
         this.write(buf,"(");
 
         // don't generate code for non-whitelisted functions
@@ -666,6 +705,16 @@ export class wasm2lua {
             }
             this.newLine(buf);
             return buf.join("");
+        }
+
+        if(state.hasSetjmp) {
+            this.write(buf,"__setjmp_data__");
+
+            if(node.signature.type == "Signature") {
+                if(node.signature.params.length > 0) {
+                    this.write(buf,",");
+                }
+            }
         }
 
         if(node.signature.type == "Signature") {
@@ -696,6 +745,50 @@ export class wasm2lua {
         this.write(buf,this.processInstructionsPass2(node.body,state));
         this.writeEx(buf,this.processInstructionsPass3(node.body,state),-1);
 
+        if(state.hasSetjmp) {
+            // setjmp xpcall barrier
+            let buf2 = [];
+
+            this.write(buf2,"if __setjmp_data__ then");
+            this.indent();
+            this.newLine(buf2);
+
+            let hasVars = this.forEachVar(state,(varName) => {
+                this.write(buf2,`${varName}`);
+                this.write(buf2,",");
+            })
+            if(hasVars) {
+                buf2.pop(); // get rid of trailing comma
+                this.write(buf2," = ");
+                this.forEachVar(state,(varName) => {
+                    this.write(buf2,`__setjmp_data__.data.${varName}`);
+                    this.write(buf2,",");
+                });
+                buf2.pop(); // get rid of trailing comma again
+                this.write(buf2,";");
+            }
+
+            this.newLine(buf2);
+            this.write(buf2,"if ")
+            let i = 0;
+            for(let jmpCall of state.setJmps) {
+                this.write(buf2,`__setjmp_data__.target == "jmp_${sanitizeIdentifier(jmpCall.loc.start.line)}_${sanitizeIdentifier(jmpCall.loc.start.column)}" then `);
+                this.write(buf2,`goto jmp_${sanitizeIdentifier(jmpCall.loc.start.line)}_${sanitizeIdentifier(jmpCall.loc.start.column)}`);
+                if((i + 1) !== state.setJmps.length) {
+                    this.newLine(buf2);
+                    this.write(buf2,"elseif");
+                }
+                i++;
+            }
+            this.write(buf2," end");
+            this.outdent();
+            this.newLine(buf2);
+            this.write(buf2,"end");
+            this.newLine(buf2);
+
+            this.writeEx(buf,buf2.join(""),-1); // write before all opcodes but not register header
+        }
+
         this.endAllBlocks(buf,state);
         
         if(state.stackLevel > 1) {
@@ -717,6 +810,72 @@ export class wasm2lua {
 
         this.write(buf,"end");
         this.newLine(buf);
+
+        if(state.hasSetjmp) {
+            this.newLine(buf);
+            this.write(buf,"function ");
+            this.write(buf,state.id);
+            this.write(buf,"(");
+
+            let argBuf = [];
+            if(node.signature.type == "Signature") {
+                let i = 0;
+                for(let param of node.signature.params) {
+                    let reg = this.fn_createNamedRegister(argBuf,state,`arg${i}`);
+                    state.locals[i] = reg;
+                    this.write(argBuf,state.regManager.getPhysicalRegisterName(reg));
+    
+                    if((i+1) !== node.signature.params.length) {
+                        this.write(argBuf,", ");
+                    }
+                    i++;
+                }
+            }
+            this.write(buf,argBuf.join(""));
+            this.write(buf,")");
+
+            this.indent();
+            this.newLine(buf);
+            
+            this.write(buf,"::start::");
+            this.newLine(buf);
+            this.write(buf,"local setjmpState;");
+            this.newLine(buf);
+
+            this.write(buf,"local suc,");
+            let nRets = state.funcType ? state.funcType.results.length : 0;
+            for(let i=0;i < (nRets + 1);i++) {
+                this.write(buf,`ret${i}`);
+            }
+            this.write(buf," = ");
+
+            this.write(buf,"pcall(")
+            this.write(buf,state.id);
+            this.write(buf,"__setjmp_internal,setjmpState")
+            if(argBuf.length > 0) {
+                this.write(buf,",");
+                this.write(buf,argBuf.join(""));
+            }
+            this.writeLn(buf,");");
+
+            this.write(buf,`if not suc and (type(ret0) == "table") then`);
+            this.indent()
+            this.newLine(buf);
+            this.writeLn(buf,"setjmpState = ret0;");
+            this.write(buf,"goto start;");
+            this.outdent();
+            this.newLine(buf)
+            this.writeLn(buf,"end");
+            
+            this.write(buf,"return ")
+            for(let i=0;i < nRets;i++) {
+                this.write(buf,`ret${i}`);
+            }
+
+            this.outdent();
+            this.newLine(buf);
+            this.writeLn(buf,"end");
+        }
 
         return buf.join("");
     }
@@ -941,6 +1100,35 @@ export class wasm2lua {
         }
 
         return false;
+    }
+
+    getAllFuncCallsTo(insArr: Instruction[],state: WASMFuncState,funcName: string,out: CallInstruction[]) {
+        for(let ins of insArr) {
+            switch(ins.type) {
+                case "CallInstruction": {
+                    let fstate = this.getFuncByIndex(state.modState,ins.index);
+                    if((fstate && fstate.origID == funcName) || (ins.index.value == funcName)) {
+                        out.push(ins)
+                    }
+                    break;
+                }
+                case "BlockInstruction":
+                case "LoopInstruction": {
+                    this.getAllFuncCallsTo(ins.instr,state,funcName,out)
+
+                    break;
+                }
+                case "IfInstruction": {
+                    this.getAllFuncCallsTo(ins.consequent,state,funcName,out)
+                    
+                    if(ins.alternate.length > 0) {
+                        this.getAllFuncCallsTo(ins.alternate,state,funcName,out)
+                    }
+
+                    break;
+                }
+            }
+        }
     }
 
     processInstructionsPass1(insArr: Instruction[],state: WASMFuncState) {
@@ -1615,14 +1803,66 @@ export class wasm2lua {
                 }
                 case "CallInstruction": {
                     let fstate = this.getFuncByIndex(state.modState,ins.index);
-                    if(fstate && fstate.funcType) {
-                        this.writeFunctionCall(state,buf,fstate.id,fstate.funcType);
+
+                    if((fstate && fstate.origID == "setjmp") || (ins.index.value == "setjmp")) {
+                        let jmpBufLoc = this.getPop(state);
+
+                        let resultVar = this.fn_createTempRegister(buf,state);
+                        let resVarName = state.regManager.getPhysicalRegisterName(resultVar);
+
+                        this.write(buf,`${resVarName} = {data = {},target = "jmp_${sanitizeIdentifier(ins.loc.start.line)}_${sanitizeIdentifier(ins.loc.start.column)}",result = 0};`);
                         this.newLine(buf);
+                        let hasVars = this.forEachVar(state,(varName) => {
+                            this.write(buf,`${resVarName}.data.${varName}`);
+                            this.write(buf,",");
+                        })
+                        if(hasVars) {
+                            buf.pop(); // get rid of trailing comma
+                            this.write(buf," = ");
+                            this.forEachVar(state,(varName) => {
+                                this.write(buf,`${varName}`);
+                                this.write(buf,",");
+                            });
+                            buf.pop(); // get rid of trailing comma again
+                            this.write(buf,";");
+                        }
+                        this.writeLn(buf,`__SETJMP_STATES__[${state.modState.memoryAllocations.get(0)}][${jmpBufLoc}] = ${resVarName}`);
+
+                        this.write(buf,`::jmp_${sanitizeIdentifier(ins.loc.start.line)}_${sanitizeIdentifier(ins.loc.start.column)}::`);
+                        this.newLine(buf);
+
+                        let resultVar2 = this.fn_createTempRegister(buf,state);
+                        this.writeLn(buf,`${state.regManager.getPhysicalRegisterName(resultVar2)} = (__setjmp_data__ == ${resVarName}) and __setjmp_data__.result or 0;`);
+
+                        this.fn_freeRegister(buf,state,resultVar);
+
+                        this.writeLn(buf,this.getPushStack(state,resultVar2));
+                    }
+                    else if((fstate && fstate.origID == "longjmp") || (ins.index.value == "longjmp")) {
+                        let resultVal = this.getPop(state);
+                        let jmpBufLoc = this.getPop(state);
+
+                        this.write(buf,`if ${resultVal} == 0 then `);
+                        this.write(buf,`__SETJMP_STATES__[${state.modState.memoryAllocations.get(0)}][${jmpBufLoc}].result = 1 `);
+                        this.write(buf,`else `);
+                        this.write(buf,`__SETJMP_STATES__[${state.modState.memoryAllocations.get(0)}][${jmpBufLoc}].result = ${resultVal} `);
+                        this.writeLn(buf,`end`);
+                        this.write(buf,`error(`);
+                        this.write(buf,`__SETJMP_STATES__[${state.modState.memoryAllocations.get(0)}][${jmpBufLoc}]`);
+                        this.writeLn(buf,`) -- longjmp`);
+                        // TODO: should I do `__SETJMP_STATES__[mem][loc] = nil`
+                        // somewhere here???
                     }
                     else {
-                        //this.write(buf,"-- WARNING: UNABLE TO RESOLVE CALL " + ins.index.value + " (TODO ARG/RET)");
-                        this.write(buf,`error("UNRESOLVED CALL: ${ins.index.value}")`);
-                        this.newLine(buf);
+                        if(fstate && fstate.funcType) {
+                            this.writeFunctionCall(state,buf,fstate.id,fstate.funcType);
+                            this.newLine(buf);
+                        }
+                        else {
+                            //this.write(buf,"-- WARNING: UNABLE TO RESOLVE CALL " + ins.index.value + " (TODO ARG/RET)");
+                            this.write(buf,`error("UNRESOLVED CALL: ${ins.index.value}")`);
+                            this.newLine(buf);
+                        }
                     }
                     break;
                 }
@@ -1889,7 +2129,7 @@ export class wasm2lua {
                 this.initFunc({
                     signature: node.descr.signature,
                     name: {value: node.descr.id.value},
-                },modState,`__MODULES__.${node.module}.${node.name}`);
+                },modState,`__MODULES__.${node.module}.${node.name}`,node.name);
 
                 break;
             }
@@ -1913,7 +2153,8 @@ export class wasm2lua {
 // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/test2.wasm");
-let infile  = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
+let infile  = process.argv[2] || (__dirname + "/../test/longjmp.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/mandelbrot.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testx.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testorder.wasm");
