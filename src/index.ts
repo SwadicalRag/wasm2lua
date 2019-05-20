@@ -1157,7 +1157,7 @@ export class wasm2lua {
                             state.insLastRefs[locID] = state.insCountPass1;
 
                             let data = state.insLastAssigned[locID];
-                            if(data == null && (locID > (state.funcType ? state.funcType.params.length : 0)) ) {
+                            if(data == null && (locID >= (state.funcType ? state.funcType.params.length : 0)) ) {
                                 // force initialization
 
                                 let forceInitIns = state.insCountPass1;
