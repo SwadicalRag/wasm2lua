@@ -319,8 +319,23 @@ __LONG_INT_CLASS__ = {
         _div_s = function(a,b)
             error("divide nyi")
         end,
-        _div_u = function(a,b)
-            error("divide nyi")
+        _div_u = function(n,d)
+            assert(d[1] ~= 0 or d[2] ~= 0,"divide by zero")
+
+            local q = __LONG_INT__(0,0)
+            local r = __LONG_INT__(0,0)
+
+            for i = 63,0,-1 do
+                r = r:_shl(__LONG_INT__(1,0)) -- left-shift r by 1 bit
+                local x = bit.band(n:_shr_u( __LONG_INT__(i,0) )[1] ,1) -- bit i of n
+                r[1] = bit.bor(r[1],x) -- set lsb of r to n[i]
+                if r:_ge_u(d) then
+                    r = r - d
+                    q = q:_or( __LONG_INT__(1,0):_shl( __LONG_INT__(i,0) ) ) -- set q[i] = 1
+                end
+            end
+
+            return q
         end,
         _rem_s = function(a,b)
             error("divide nyi")
