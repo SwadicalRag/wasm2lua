@@ -681,12 +681,9 @@ class wasm2lua {
     beginBlock(buf, state, block, customStart) {
         state.blocks.push(block);
         this.write(buf, `::${sanitizeIdentifier(block.id)}_start::`);
-        this.newLine(buf);
         if (typeof customStart === "string") {
+            this.newLine(buf);
             this.write(buf, customStart);
-        }
-        else {
-            this.write(buf, "do");
         }
         this.indent();
         this.newLine(buf);
@@ -745,8 +742,6 @@ class wasm2lua {
             this.writeLn(buf, this.getPushStack(state, block.resultRegister));
         }
         this.outdent(buf);
-        this.write(buf, "end");
-        this.newLine(buf);
         this.write(buf, `::${sanitizeIdentifier(block.id)}_fin::`);
         this.newLine(buf);
     }
@@ -760,7 +755,9 @@ class wasm2lua {
             this.getPop(state);
         }
         this.outdent(buf);
-        this.write(buf, "else");
+        this.write(buf, `goto ${sanitizeIdentifier(block.id)}_fin`);
+        this.newLine(buf);
+        this.write(buf, `::${sanitizeIdentifier(block.id)}_else::`);
         this.indent();
         this.newLine(buf);
     }
@@ -1495,13 +1492,23 @@ class wasm2lua {
                         this.write(buf, "error('if test nyi')");
                         this.newLine(buf);
                     }
+                    let labelBase = `if_${ins.loc.start.line}_${ins.loc.start.column}`;
+                    let labelBaseSan = sanitizeIdentifier(`if_${ins.loc.start.line}_${ins.loc.start.column}`);
+                    this.write(buf, "if ");
+                    this.write(buf, this.getPop(state));
+                    if (ins.alternate.length > 0) {
+                        this.write(buf, `==0 then goto ${labelBaseSan}_else end`);
+                    }
+                    else {
+                        this.write(buf, `==0 then goto ${labelBaseSan}_fin end`);
+                    }
                     let block = this.beginBlock(buf, state, {
-                        id: `if_${ins.loc.start.line}_${ins.loc.start.column}`,
+                        id: labelBase,
                         blockType: "if",
                         resultType: ins.result,
                         enterStackLevel: state.stackLevel,
                         insCountStart: state.insCountPass2
-                    }, `if ${this.getPop(state)} ~= 0 then`);
+                    });
                     if (block.resultType !== null) {
                         block.resultRegister = this.fn_createTempRegister(buf, state);
                     }
