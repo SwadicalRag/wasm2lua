@@ -5,6 +5,7 @@ end
 
 __MODULES__ = __MODULES__ or {}
 __GLOBALS__ = __GLOBALS__ or {}
+__SETJMP_STATES__ = __SETJMP_STATES__ or setmetatable({},{__mode="k"})
 
 local function __STACK_POP__(__STACK__)
     local v = __STACK__[#__STACK__]
@@ -92,6 +93,8 @@ local function __MEMORY_ALLOC__(pages)
     mem.read8 = __MEMORY_READ_8__
     mem.read16 = __MEMORY_READ_16__
     mem.read32 = __MEMORY_READ_32__
+
+    __SETJMP_STATES__[mem] = {}
 
     return mem
 end
