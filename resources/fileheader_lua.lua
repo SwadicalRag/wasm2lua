@@ -94,7 +94,7 @@ end
 -- Adapted from https://github.com/notcake/glib/blob/master/lua/glib/bitconverter.lua
 -- with permission from notcake
 local function UInt32ToFloat(int)
-    local negative = int >= 0x80000000 -- check if first bit is 0
+    local negative = int < 0 -- check if first bit is 0
     if negative then int = int - 0x80000000 end
 
     local exponent = bit.rshift(bit.band(int, 0x7F800000), 23) -- and capture lowest 9 bits
@@ -161,7 +161,7 @@ end
 local function UInt32sToDouble(uint_low,uint_high)
     local negative = false
     -- check if first bit is 0
-    if uint_high >= 0x80000000 then
+    if uint_high < 0 then
         uint_high = uint_high - 0x80000000
         -- set first bit to  0 ^
         negative = true
