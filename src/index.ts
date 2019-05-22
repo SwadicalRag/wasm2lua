@@ -1580,6 +1580,20 @@ export class wasm2lua {
                         case "demote/f64":
                             // These are no-ops.
                             break;
+                        case "trunc_s/f32":
+                        case "trunc_s/f64": {
+                            let resultVar = this.fn_createTempRegister(buf,state);
+                            let tmp = this.getPop(state);
+                            if(ins.object == "i64") {
+                                this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT_N__(__TRUNC__(${tmp}));`);
+                            }
+                            else {
+                                this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = __TRUNC__(${tmp});`);
+                            }
+                            this.write(buf,this.getPushStack(state,resultVar));
+                            this.newLine(buf);
+                            break;
+                        }
                         case "extend_u/i32": {
                             // Easy (signed extension will be slightly more of a pain)
                             let resultVar = this.fn_createTempRegister(buf,state);
@@ -2194,7 +2208,8 @@ export class wasm2lua {
 // let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/test2.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
-let infile  = process.argv[2] || (__dirname + "/../test/nbody.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/nbody.wasm");
+let infile  = process.argv[2] || (__dirname + "/../test/matrix.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/longjmp.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/mandelbrot.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testx.wasm");
