@@ -5,6 +5,7 @@ const fs = require("fs");
 const util_1 = require("util");
 const arraymap_1 = require("./arraymap");
 const virtualregistermanager_1 = require("./virtualregistermanager");
+const PURE_LUA_MODE = false;
 function makeBinaryStringLiteral(array) {
     let literal = ["'"];
     for (let i = 0; i < array.length; i++) {
@@ -1720,7 +1721,7 @@ class wasm2lua {
         return buf.join("");
     }
 }
-wasm2lua.fileHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
+wasm2lua.fileHeader = fs.readFileSync(PURE_LUA_MODE ? (__dirname + "/../resources/fileheader_lua.lua") : (__dirname + "/../resources/fileheader.lua")).toString();
 wasm2lua.instructionBinOpRemap = {
     add: { op: "+" },
     sub: { op: "-" },
@@ -1766,7 +1767,7 @@ wasm2lua.instructionBinOpFuncRemap = {
     max: "__FLOAT__.max"
 };
 exports.wasm2lua = wasm2lua;
-let infile = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
+let infile = process.argv[2] || (__dirname + "/../test/nbody.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
 let compileFlags = process.argv[4] ? process.argv[4].split(",") : null;
 let whitelist = null;

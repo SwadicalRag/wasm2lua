@@ -5,6 +5,8 @@ import { isArray } from "util";
 import {ArrayMap} from "./arraymap"
 import { VirtualRegisterManager, VirtualRegister } from "./virtualregistermanager";
 
+const PURE_LUA_MODE = false;
+
 /* SUPPORTED COMPILE FLAGS
     correct-multiply: Compiles integer multiplications using a specialized algorithm which prevents them from breaking due to loss of precision.
 */
@@ -126,7 +128,7 @@ export class wasm2lua {
     stackDebugOutput = false;
     insDebugOutput = false;
 
-    static fileHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
+    static fileHeader = fs.readFileSync(PURE_LUA_MODE ? (__dirname + "/../resources/fileheader_lua.lua") : (__dirname + "/../resources/fileheader.lua")).toString();
 
     private program_ast: Program;
 
@@ -2191,8 +2193,8 @@ export class wasm2lua {
 // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/test2.wasm");
-let infile  = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
-// let infile  = process.argv[2] || (__dirname + "/../test/nbody.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
+let infile  = process.argv[2] || (__dirname + "/../test/nbody.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/longjmp.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/mandelbrot.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testx.wasm");
