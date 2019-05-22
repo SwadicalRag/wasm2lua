@@ -395,10 +395,13 @@ export class wasm2lua {
                 this.write(buf,this.processFunc(field,state));
             }
             else if(field.type == "ModuleExport") {
-                this.write(buf,this.processModuleExport(field,state));
+                // Done in 3rd pass
             }
             else if(field.type == "ModuleImport") {
                 // Already done in 1st pass
+            }
+            else if(field.type == "Start") {
+                // Done in 4th pass
             }
             else if (field.type == "Table") {
                 // TODO
@@ -562,6 +565,28 @@ export class wasm2lua {
             this.write(buf,"};");
             this.newLine(buf);
         });
+        
+        for(let field of node.fields) {
+            if(field.type == "ModuleExport") {
+                this.write(buf,this.processModuleExport(field,state));
+            }
+        }
+        
+        for(let field of node.fields) {
+            if(field.type == "Start") {
+                let fstate = this.getFuncByIndex(state,field.index);
+                if(fstate) {
+                    this.write(buf,`${fstate.id}()`);
+                    if(fstate.funcType && (fstate.funcType.params.length > 0)) {
+                        this.write(buf," -- WARNING: COULDN'T FIGURE OUT WHAT ARGUMENT TO PASS IN");
+                    }
+                }
+                else {
+                    this.write(buf,"error('could not find start function')")
+                }
+                this.newLine(buf);
+            }
+        }
 
         return buf.join("");
     }
@@ -2108,6 +2133,10 @@ export class wasm2lua {
                 this.write(buf,"nil -- TODO global export");
                 break;
             }
+            case "Table": {
+                this.write(buf,`__TABLE_FUNCS_${node.descr.id.value}__`);
+                break;
+            }
             default: {
                 throw new Error("TODO - Export - " + node.descr.exportType);
                 break;
@@ -2162,8 +2191,9 @@ export class wasm2lua {
 // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/test2.wasm");
-// let infile  = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
-let infile  = process.argv[2] || (__dirname + "/../test/longjmp.wasm");
+let infile  = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/nbody.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/longjmp.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/mandelbrot.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testx.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testorder.wasm");

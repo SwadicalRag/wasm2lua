@@ -271,9 +271,10 @@ class wasm2lua {
                 this.write(buf, this.processFunc(field, state));
             }
             else if (field.type == "ModuleExport") {
-                this.write(buf, this.processModuleExport(field, state));
             }
             else if (field.type == "ModuleImport") {
+            }
+            else if (field.type == "Start") {
             }
             else if (field.type == "Table") {
             }
@@ -409,6 +410,26 @@ class wasm2lua {
             this.write(buf, "};");
             this.newLine(buf);
         });
+        for (let field of node.fields) {
+            if (field.type == "ModuleExport") {
+                this.write(buf, this.processModuleExport(field, state));
+            }
+        }
+        for (let field of node.fields) {
+            if (field.type == "Start") {
+                let fstate = this.getFuncByIndex(state, field.index);
+                if (fstate) {
+                    this.write(buf, `${fstate.id}()`);
+                    if (fstate.funcType && (fstate.funcType.params.length > 0)) {
+                        this.write(buf, " -- WARNING: COULDN'T FIGURE OUT WHAT ARGUMENT TO PASS IN");
+                    }
+                }
+                else {
+                    this.write(buf, "error('could not find start function')");
+                }
+                this.newLine(buf);
+            }
+        }
         return buf.join("");
     }
     processModuleMetadataSection(node) {
@@ -1657,6 +1678,10 @@ class wasm2lua {
                 this.write(buf, "nil -- TODO global export");
                 break;
             }
+            case "Table": {
+                this.write(buf, `__TABLE_FUNCS_${node.descr.id.value}__`);
+                break;
+            }
             default: {
                 throw new Error("TODO - Export - " + node.descr.exportType);
                 break;
@@ -1741,7 +1766,7 @@ wasm2lua.instructionBinOpFuncRemap = {
     max: "__FLOAT__.max"
 };
 exports.wasm2lua = wasm2lua;
-let infile = process.argv[2] || (__dirname + "/../test/longjmp.wasm");
+let infile = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
 let compileFlags = process.argv[4] ? process.argv[4].split(",") : null;
 let whitelist = null;
