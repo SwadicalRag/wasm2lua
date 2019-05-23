@@ -80,6 +80,7 @@ end
 
 local function __MEMORY_READ_16__(mem,loc)
     assert((loc >= 0) and (loc < (mem._len - 1)),"out of memory access")
+    -- 16 bit reads/writes are less common, they can be optimized later
     return bit.bor(
         __MEMORY_READ_8__(mem,loc),
         bit.lshift(__MEMORY_READ_8__(mem,loc + 1),8)
@@ -88,14 +89,26 @@ end
 
 local function __MEMORY_READ_32__(mem,loc)
     assert((loc >= 0) and (loc < (mem._len - 3)),"out of memory access")
-    return bit.bor(
-        __MEMORY_READ_8__(mem,loc),
-        bit.lshift(__MEMORY_READ_8__(mem,loc + 1),8),
-        bit.lshift(__MEMORY_READ_8__(mem,loc + 2),16),
-        bit.lshift(__MEMORY_READ_8__(mem,loc + 3),24)
-    )
+
+    if bit.band(loc,3) == 0 then
+        -- aligned read, fast path
+        local cell_loc = bit.rshift(loc,2)
+        local val = mem.data[cell_loc]
+        -- It breaks in some way I don't understand if you don't normalize the value.
+        return bit.tobit(val)
+    else
+        print("bad alignment (read 32)",alignment)
+        return bit.bor(
+            __MEMORY_READ_8__(mem,loc),
+            bit.lshift(__MEMORY_READ_8__(mem,loc + 1),8),
+            bit.lshift(__MEMORY_READ_8__(mem,loc + 2),16),
+            bit.lshift(__MEMORY_READ_8__(mem,loc + 3),24)
+        )
+    end
 end
 
+-- I also tried some weird shift/xor logic,
+-- both had similar performance but I kept this becuase it was simpler.
 local mask_table = {0xFFFF00FF,0xFF00FFFF,0x00FFFFFF}
 mask_table[0] = 0xFFFFFF00
 local function __MEMORY_WRITE_8__(mem,loc,val)
@@ -113,16 +126,25 @@ end
 
 local function __MEMORY_WRITE_16__(mem,loc,val)
     assert((loc >= 0) and (loc < (mem._len - 1)),"out of memory access")
+    -- 16 bit reads/writes are less common, they can be optimized later
     __MEMORY_WRITE_8__(mem,loc,     val)
     __MEMORY_WRITE_8__(mem,loc + 1, bit.rshift(val,8))
 end
 
 local function __MEMORY_WRITE_32__(mem,loc,val)
     assert((loc >= 0) and (loc < (mem._len - 3)),"out of memory access")
-    __MEMORY_WRITE_8__(mem,loc,     val)
-    __MEMORY_WRITE_8__(mem,loc + 1, bit.rshift(val,8))
-    __MEMORY_WRITE_8__(mem,loc + 2, bit.rshift(val,16))
-    __MEMORY_WRITE_8__(mem,loc + 3, bit.rshift(val,24))
+
+    if bit.band(loc,3) == 0 then
+        -- aligned write, fast path
+        local cell_loc = bit.rshift(loc,2)
+        mem.data[cell_loc] = val
+    else
+        print("bad alignment (write 32)",alignment)
+        __MEMORY_WRITE_8__(mem,loc,     val)
+        __MEMORY_WRITE_8__(mem,loc + 1, bit.rshift(val,8))
+        __MEMORY_WRITE_8__(mem,loc + 2, bit.rshift(val,16))
+        __MEMORY_WRITE_8__(mem,loc + 3, bit.rshift(val,24))
+    end
 end
 
 -- Adapted from https://github.com/notcake/glib/blob/master/lua/glib/bitconverter.lua
