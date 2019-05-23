@@ -13,7 +13,15 @@ local function __LONG_INT__(low,high)
     return (setmetatable({low,high},__LONG_INT_CLASS__))
 end
 
+local function __LONG_INT_N__(n)
+    -- convert a double value to i64 directly
+    local high = n / (2^32) -- manually rshift by 32
+    local low = bit.band(n,2^32 - 1) -- get lowest 32 bits
+    return (setmetatable({low,high},__LONG_INT_CLASS__))
+end
+
 _G.__LONG_INT__ = __LONG_INT__
+_G.__LONG_INT_N__ = __LONG_INT_N__
 
 __MODULES__ = __MODULES__ or {}
 __GLOBALS__ = __GLOBALS__ or {}
@@ -36,6 +44,11 @@ if jit and jit.version_num < 20100 then
     
         return dbl,0
     end
+end
+
+local function __TRUNC__(n)
+    if n >= 0 then return math.floor(n) end
+    return math.ceil(n)
 end
 
 local function __STACK_POP__(__STACK__)

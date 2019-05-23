@@ -1206,6 +1206,20 @@ class wasm2lua {
                         case "promote/f32":
                         case "demote/f64":
                             break;
+                        case "trunc_s/f32":
+                        case "trunc_s/f64": {
+                            let resultVar = this.fn_createTempRegister(buf, state);
+                            let tmp = this.getPop(state);
+                            if (ins.object == "i64") {
+                                this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT_N__(__TRUNC__(${tmp}));`);
+                            }
+                            else {
+                                this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __TRUNC__(${tmp});`);
+                            }
+                            this.write(buf, this.getPushStack(state, resultVar));
+                            this.newLine(buf);
+                            break;
+                        }
                         case "extend_u/i32": {
                             let resultVar = this.fn_createTempRegister(buf, state);
                             let tmp = this.getPop(state);
@@ -1767,7 +1781,7 @@ wasm2lua.instructionBinOpFuncRemap = {
     max: "__FLOAT__.max"
 };
 exports.wasm2lua = wasm2lua;
-let infile = process.argv[2] || (__dirname + "/../test/nbody.wasm");
+let infile = process.argv[2] || (__dirname + "/../test/matrix.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
 let compileFlags = process.argv[4] ? process.argv[4].split(",") : null;
 let whitelist = null;
