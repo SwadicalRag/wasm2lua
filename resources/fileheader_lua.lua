@@ -62,7 +62,7 @@ local function __MEMORY_GROW__(mem,pages)
     mem._len = (mem._page_count + pages) * 64 * 1024
 
     -- TODO: check if this exceeds the maximum memory size
-    for i = 1,pages * 64 * 1024 do
+    for i = 1,pages * 16 * 1024 do -- 16k cells = 64kb = 1 page
         mem.data[#mem.data + 1] = 0
     end
 
@@ -72,36 +72,57 @@ end
 
 local function __MEMORY_READ_8__(mem,loc)
     assert((loc >= 0) and (loc < mem._len),"out of memory access")
-    return mem.data[loc]
+    local cell_loc = bit.rshift(loc,2)
+    local byte_loc = bit.band(loc,3)
+
+    return bit.band(bit.rshift(mem.data[cell_loc],byte_loc * 8),255)
 end
 
 local function __MEMORY_READ_16__(mem,loc)
     assert((loc >= 0) and (loc < (mem._len - 1)),"out of memory access")
-    return bit.bor(mem.data[loc], bit.lshift(mem.data[loc + 1],8))
+    return bit.bor(
+        __MEMORY_READ_8__(mem,loc),
+        bit.lshift(__MEMORY_READ_8__(mem,loc + 1),8)
+    )
 end
 
 local function __MEMORY_READ_32__(mem,loc)
     assert((loc >= 0) and (loc < (mem._len - 3)),"out of memory access")
-    return bit.bor(mem.data[loc], bit.lshift(mem.data[loc + 1],8), bit.lshift(mem.data[loc + 2],16), bit.lshift(mem.data[loc + 3],24))
+    return bit.bor(
+        __MEMORY_READ_8__(mem,loc),
+        bit.lshift(__MEMORY_READ_8__(mem,loc + 1),8),
+        bit.lshift(__MEMORY_READ_8__(mem,loc + 2),16),
+        bit.lshift(__MEMORY_READ_8__(mem,loc + 3),24)
+    )
 end
 
+local mask_table = {0xFFFF00FF,0xFF00FFFF,0x00FFFFFF}
+mask_table[0] = 0xFFFFFF00
 local function __MEMORY_WRITE_8__(mem,loc,val)
     assert((loc >= 0) and (loc < mem._len),"out of memory access")
-    mem.data[loc] = bit.band(val,0xFF)
+    val = bit.band(val,255)
+
+    local cell_loc = bit.rshift(loc,2)
+    local byte_loc = bit.band(loc,3)
+
+    local old_cell = bit.band(mem.data[cell_loc], mask_table[byte_loc])
+    local new_cell = bit.bor(old_cell, bit.lshift(val,byte_loc * 8))
+
+    mem.data[cell_loc] = new_cell
 end
 
 local function __MEMORY_WRITE_16__(mem,loc,val)
     assert((loc >= 0) and (loc < (mem._len - 1)),"out of memory access")
-    mem.data[loc]     = bit.band(val,0xFF)
-    mem.data[loc + 1] = bit.band(bit.rshift(val,8),0xFF)
+    __MEMORY_WRITE_8__(mem,loc,     val)
+    __MEMORY_WRITE_8__(mem,loc + 1, bit.rshift(val,8))
 end
 
 local function __MEMORY_WRITE_32__(mem,loc,val)
     assert((loc >= 0) and (loc < (mem._len - 3)),"out of memory access")
-    mem.data[loc]     = bit.band(val,0xFF)
-    mem.data[loc + 1] = bit.band(bit.rshift(val,8),0xFF)
-    mem.data[loc + 2] = bit.band(bit.rshift(val,16),0xFF)
-    mem.data[loc + 3] = bit.band(bit.rshift(val,24),0xFF)
+    __MEMORY_WRITE_8__(mem,loc,     val)
+    __MEMORY_WRITE_8__(mem,loc + 1, bit.rshift(val,8))
+    __MEMORY_WRITE_8__(mem,loc + 2, bit.rshift(val,16))
+    __MEMORY_WRITE_8__(mem,loc + 3, bit.rshift(val,24))
 end
 
 -- Adapted from https://github.com/notcake/glib/blob/master/lua/glib/bitconverter.lua
@@ -263,8 +284,8 @@ local function __MEMORY_WRITE_64F__(mem,loc,val)
 end
 
 local function __MEMORY_INIT__(mem,loc,data)
-    for i = 1, #data do
-        mem.data[loc + i-1] = data:byte(i)
+    for i = 1, #data do -- TODO RE-OPTIMIZE
+        __MEMORY_WRITE_8__(mem, loc + i-1, data:byte(i))
     end
 end
 
@@ -274,7 +295,8 @@ local function __MEMORY_ALLOC__(pages)
     mem._page_count = pages
     mem._len = pages * 64 * 1024
 
-    for i=0,mem._len - 1 do mem.data[i] = 0 end
+    local cellLength = pages * 64 * 1024 -- 16k cells = 64kb = 1 page
+    for i=0,cellLength - 1 do mem.data[i] = 0 end
 
     mem.write8 = __MEMORY_WRITE_8__
     mem.write16 = __MEMORY_WRITE_16__

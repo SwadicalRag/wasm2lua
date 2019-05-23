@@ -5,7 +5,7 @@ import { isArray } from "util";
 import {ArrayMap} from "./arraymap"
 import { VirtualRegisterManager, VirtualRegister } from "./virtualregistermanager";
 
-const PURE_LUA_MODE = false;
+const PURE_LUA_MODE = true;
 
 /* SUPPORTED COMPILE FLAGS
     correct-multiply: Compiles integer multiplications using a specialized algorithm which prevents them from breaking due to loss of precision.

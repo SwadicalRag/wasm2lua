@@ -5,7 +5,7 @@ const fs = require("fs");
 const util_1 = require("util");
 const arraymap_1 = require("./arraymap");
 const virtualregistermanager_1 = require("./virtualregistermanager");
-const PURE_LUA_MODE = false;
+const PURE_LUA_MODE = true;
 function makeBinaryStringLiteral(array) {
     let literal = ["'"];
     for (let i = 0; i < array.length; i++) {
