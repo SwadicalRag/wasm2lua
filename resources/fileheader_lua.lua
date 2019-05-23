@@ -228,7 +228,7 @@ local function __MEMORY_READ_8__(mem,loc)
     local byte_loc = bit.band(loc,3)
 
     if mem._fp_map[cell_loc] ~= nil then
-        error("float->int8 read fallbak nyi")
+        error("???->int8 read fallback nyi")
     end
 
     return bit.band(bit.rshift(mem.data[cell_loc],byte_loc * 8),255)
@@ -250,8 +250,18 @@ local function __MEMORY_READ_32__(mem,loc)
         -- aligned read, fast path
         local cell_loc = bit.rshift(loc,2)
 
-        if mem._fp_map[cell_loc] ~= nil then
-            error("float->int32 read fallbak nyi")
+        local mem_t = mem._fp_map[cell_loc]
+        if mem_t ~= nil then
+            if mem_t == 1 then
+                return FloatToUInt32(mem.data[cell_loc])
+            else
+                local low, high = DoubleToUInt32s(mem.data[cell_loc])
+                if mem_t == 2 then
+                    return low
+                else
+                    return high
+                end
+            end
         end
 
         local val = mem.data[cell_loc]
