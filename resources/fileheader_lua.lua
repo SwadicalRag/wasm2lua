@@ -70,83 +70,6 @@ local function __MEMORY_GROW__(mem,pages)
     return old_pages
 end
 
-local function __MEMORY_READ_8__(mem,loc)
-    assert((loc >= 0) and (loc < mem._len),"out of memory access")
-    local cell_loc = bit.rshift(loc,2)
-    local byte_loc = bit.band(loc,3)
-
-    return bit.band(bit.rshift(mem.data[cell_loc],byte_loc * 8),255)
-end
-
-local function __MEMORY_READ_16__(mem,loc)
-    assert((loc >= 0) and (loc < (mem._len - 1)),"out of memory access")
-    -- 16 bit reads/writes are less common, they can be optimized later
-    return bit.bor(
-        __MEMORY_READ_8__(mem,loc),
-        bit.lshift(__MEMORY_READ_8__(mem,loc + 1),8)
-    )
-end
-
-local function __MEMORY_READ_32__(mem,loc)
-    assert((loc >= 0) and (loc < (mem._len - 3)),"out of memory access")
-
-    if bit.band(loc,3) == 0 then
-        -- aligned read, fast path
-        local cell_loc = bit.rshift(loc,2)
-        local val = mem.data[cell_loc]
-        -- It breaks in some way I don't understand if you don't normalize the value.
-        return bit.tobit(val)
-    else
-        print("bad alignment (read 32)",alignment)
-        return bit.bor(
-            __MEMORY_READ_8__(mem,loc),
-            bit.lshift(__MEMORY_READ_8__(mem,loc + 1),8),
-            bit.lshift(__MEMORY_READ_8__(mem,loc + 2),16),
-            bit.lshift(__MEMORY_READ_8__(mem,loc + 3),24)
-        )
-    end
-end
-
--- I also tried some weird shift/xor logic,
--- both had similar performance but I kept this becuase it was simpler.
-local mask_table = {0xFFFF00FF,0xFF00FFFF,0x00FFFFFF}
-mask_table[0] = 0xFFFFFF00
-local function __MEMORY_WRITE_8__(mem,loc,val)
-    assert((loc >= 0) and (loc < mem._len),"out of memory access")
-    val = bit.band(val,255)
-
-    local cell_loc = bit.rshift(loc,2)
-    local byte_loc = bit.band(loc,3)
-
-    local old_cell = bit.band(mem.data[cell_loc], mask_table[byte_loc])
-    local new_cell = bit.bor(old_cell, bit.lshift(val,byte_loc * 8))
-
-    mem.data[cell_loc] = new_cell
-end
-
-local function __MEMORY_WRITE_16__(mem,loc,val)
-    assert((loc >= 0) and (loc < (mem._len - 1)),"out of memory access")
-    -- 16 bit reads/writes are less common, they can be optimized later
-    __MEMORY_WRITE_8__(mem,loc,     val)
-    __MEMORY_WRITE_8__(mem,loc + 1, bit.rshift(val,8))
-end
-
-local function __MEMORY_WRITE_32__(mem,loc,val)
-    assert((loc >= 0) and (loc < (mem._len - 3)),"out of memory access")
-
-    if bit.band(loc,3) == 0 then
-        -- aligned write, fast path
-        local cell_loc = bit.rshift(loc,2)
-        mem.data[cell_loc] = val
-    else
-        print("bad alignment (write 32)",alignment)
-        __MEMORY_WRITE_8__(mem,loc,     val)
-        __MEMORY_WRITE_8__(mem,loc + 1, bit.rshift(val,8))
-        __MEMORY_WRITE_8__(mem,loc + 2, bit.rshift(val,16))
-        __MEMORY_WRITE_8__(mem,loc + 3, bit.rshift(val,24))
-    end
-end
-
 -- Adapted from https://github.com/notcake/glib/blob/master/lua/glib/bitconverter.lua
 -- with permission from notcake
 local function UInt32ToFloat(int)
@@ -287,22 +210,193 @@ local function DoubleToUInt32s(double)
     return uint_low,uint_high
 end
 
+--[[
+    Float mapping overview:
+    - mem._fp_map is a sparse map that indicates where floats and doubles are stored in memory.
+    - The mapping system only works when floats are cell-aligned (the float or double's address is a multiple of 4).
+    - Any memory write can update the map: writing a byte in a cell occupied by a float will force the entire cell to revert to an integer value.
+    - In the interest of speed and local slot conservation, all constants have been inlined. Their values:
+        - nil: Cell is occupied by integer data.
+        -   1: Cell is occupied by a single-width float.
+        -   2: Cell contains the low half of a double-width float. GUARANTEES that a (3) follows.
+        -   3: Cell contains the high half of a double-width float. GUARANTEES that a (2) precedes.
+]]
+
+local function __MEMORY_READ_8__(mem,loc)
+    assert((loc >= 0) and (loc < mem._len),"out of memory access")
+    local cell_loc = bit.rshift(loc,2)
+    local byte_loc = bit.band(loc,3)
+
+    if mem._fp_map[cell_loc] ~= nil then
+        error("float->int8 read fallbak nyi")
+    end
+
+    return bit.band(bit.rshift(mem.data[cell_loc],byte_loc * 8),255)
+end
+
+local function __MEMORY_READ_16__(mem,loc)
+    assert((loc >= 0) and (loc < (mem._len - 1)),"out of memory access")
+    -- 16 bit reads/writes are less common, they can be optimized later
+    return bit.bor(
+        __MEMORY_READ_8__(mem,loc),
+        bit.lshift(__MEMORY_READ_8__(mem,loc + 1),8)
+    )
+end
+
+local function __MEMORY_READ_32__(mem,loc)
+    assert((loc >= 0) and (loc < (mem._len - 3)),"out of memory access")
+
+    if bit.band(loc,3) == 0 then
+        -- aligned read, fast path
+        local cell_loc = bit.rshift(loc,2)
+
+        if mem._fp_map[cell_loc] ~= nil then
+            error("float->int32 read fallbak nyi")
+        end
+
+        local val = mem.data[cell_loc]
+        -- It breaks in some way I don't understand if you don't normalize the value.
+        return bit.tobit(val)
+    else
+        --print("bad alignment (read 32)",alignment)
+        return bit.bor(
+            __MEMORY_READ_8__(mem,loc),
+            bit.lshift(__MEMORY_READ_8__(mem,loc + 1),8),
+            bit.lshift(__MEMORY_READ_8__(mem,loc + 2),16),
+            bit.lshift(__MEMORY_READ_8__(mem,loc + 3),24)
+        )
+    end
+end
+
+-- I also tried some weird shift/xor logic,
+-- both had similar performance but I kept this becuase it was simpler.
+local mask_table = {0xFFFF00FF,0xFF00FFFF,0x00FFFFFF}
+mask_table[0] = 0xFFFFFF00
+local function __MEMORY_WRITE_8__(mem,loc,val)
+    assert((loc >= 0) and (loc < mem._len),"out of memory access")
+    val = bit.band(val,255)
+
+    local cell_loc = bit.rshift(loc,2)
+    local byte_loc = bit.band(loc,3)
+
+    local mem_t = mem._fp_map[cell_loc]
+    local old_cell
+    if mem_t == nil then
+        -- fast path, the cell is already an integer
+        old_cell = bit.band(mem.data[cell_loc], mask_table[byte_loc])
+    else
+        -- bad news, a float is stored here and we have to convert it to an integer
+        mem._fp_map[cell_loc] = nil
+        if mem_t == 1 then
+            -- float
+            old_cell = FloatToUInt32(mem.data[cell_loc])
+        else
+            -- double: we must also update the matching cell
+            local low, high = DoubleToUInt32s(mem.data[cell_loc])
+            if mem_t == 2 then
+                -- this cell is the low half
+                old_cell = low
+
+                mem.data[cell_loc + 1] = high
+                mem._fp_map[cell_loc + 1] = nil
+            else
+                -- this cell is the high half
+                old_cell = high
+
+                mem.data[cell_loc - 1] = low
+                mem._fp_map[cell_loc - 1] = nil
+            end
+        end
+    end
+
+    old_cell = bit.band(mem.data[cell_loc], mask_table[byte_loc])
+    local new_cell = bit.bor(old_cell, bit.lshift(val,byte_loc * 8))
+
+    mem.data[cell_loc] = new_cell
+end
+
+local function __MEMORY_WRITE_16__(mem,loc,val)
+    assert((loc >= 0) and (loc < (mem._len - 1)),"out of memory access")
+    -- 16 bit reads/writes are less common, they can be optimized later
+    __MEMORY_WRITE_8__(mem,loc,     val)
+    __MEMORY_WRITE_8__(mem,loc + 1, bit.rshift(val,8))
+end
+
+local function __MEMORY_WRITE_32__(mem,loc,val)
+    assert((loc >= 0) and (loc < (mem._len - 3)),"out of memory access")
+
+    if bit.band(loc,3) == 0 then
+        -- aligned write, fast path
+        local cell_loc = bit.rshift(loc,2)
+        mem._fp_map[cell_loc] = nil -- mark this cell as an integer
+        mem.data[cell_loc] = val
+    else
+        --print("bad alignment (write 32)",alignment)
+        __MEMORY_WRITE_8__(mem,loc,     val)
+        __MEMORY_WRITE_8__(mem,loc + 1, bit.rshift(val,8))
+        __MEMORY_WRITE_8__(mem,loc + 2, bit.rshift(val,16))
+        __MEMORY_WRITE_8__(mem,loc + 3, bit.rshift(val,24))
+    end
+end
+
 local function __MEMORY_READ_32F__(mem,loc)
-    return UInt32ToFloat(__MEMORY_READ_32__(mem,loc))
+    assert((loc >= 0) and (loc < (mem._len - 3)),"out of memory access")
+
+    local cell_loc = bit.rshift(loc,2)
+    local byte_loc = bit.band(loc,3)
+
+    if byte_loc == 0 and mem._fp_map[cell_loc] == 1 then
+        return mem.data[cell_loc]
+    else
+        -- Let __MEMORY_READ_32__ handle any issues.
+        return UInt32ToFloat(__MEMORY_READ_32__(mem,loc))
+    end
 end
 
 local function __MEMORY_READ_64F__(mem,loc)
-    return UInt32sToDouble(__MEMORY_READ_32__(mem,loc),__MEMORY_READ_32__(mem,loc + 4))
+    assert((loc >= 0) and (loc < (mem._len - 7)),"out of memory access")
+
+    local cell_loc = bit.rshift(loc,2)
+    local byte_loc = bit.band(loc,3)
+
+    local mem_t = mem._fp_map[cell_loc]
+
+    if byte_loc == 0 and mem_t == 2 then
+        return mem.data[cell_loc]
+    else
+        -- Let __MEMORY_READ_32__ handle any issues.
+        return UInt32sToDouble(__MEMORY_READ_32__(mem,loc),__MEMORY_READ_32__(mem,loc + 4))
+    end
 end
 
 local function __MEMORY_WRITE_32F__(mem,loc,val)
-    __MEMORY_WRITE_32__(mem,loc,FloatToUInt32(val))
+    assert((loc >= 0) and (loc < (mem._len - 3)),"out of memory access")
+
+    if bit.band(loc,3) == 0 then
+        local cell_loc = bit.rshift(loc,2)
+        mem._fp_map[cell_loc] = 1
+        mem.data[cell_loc] = val
+    else
+        -- unaligned writes can't use the float map.
+        __MEMORY_WRITE_32__(mem,loc,FloatToUInt32(val))
+    end
 end
 
 local function __MEMORY_WRITE_64F__(mem,loc,val)
-    local low,high = DoubleToUInt32s(val)
-    __MEMORY_WRITE_32__(mem,loc,low)
-    __MEMORY_WRITE_32__(mem,loc + 4,high)
+    assert((loc >= 0) and (loc < (mem._len - 7)),"out of memory access")
+
+    if bit.band(loc,3) == 0 then
+        local cell_loc = bit.rshift(loc,2)
+        mem._fp_map[cell_loc] = 2
+        mem.data[cell_loc] = val
+        mem._fp_map[cell_loc + 1] = 3
+        mem.data[cell_loc + 1] = val
+    else
+        -- unaligned writes can't use the float map.
+        local low,high = DoubleToUInt32s(val)
+        __MEMORY_WRITE_32__(mem,loc,low)
+        __MEMORY_WRITE_32__(mem,loc + 4,high)
+    end
 end
 
 local function __MEMORY_INIT__(mem,loc,data)
@@ -316,6 +410,7 @@ local function __MEMORY_ALLOC__(pages)
     mem.data = {}
     mem._page_count = pages
     mem._len = pages * 64 * 1024
+    mem._fp_map = {}
 
     local cellLength = pages * 64 * 1024 -- 16k cells = 64kb = 1 page
     for i=0,cellLength - 1 do mem.data[i] = 0 end
