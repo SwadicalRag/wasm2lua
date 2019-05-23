@@ -973,6 +973,9 @@ export class wasm2lua {
         if(typeof customStart === "string") {
             this.newLine(buf);
             this.write(buf,customStart);
+        } else if (block.blockType == "loop") {
+            this.newLine(buf);
+            this.write(buf,"while true do");
         }
         this.indent();
         this.newLine(buf);
@@ -1041,7 +1044,15 @@ export class wasm2lua {
             this.writeLn(buf,this.getPushStack(state,block.resultRegister));
         }
         
-        this.outdent(buf);
+        if (block.blockType=="loop") {
+            this.write(buf,"break");
+            this.newLine(buf);
+            this.outdent(buf);
+            this.write(buf,"end");
+            this.newLine(buf);
+        } else {
+            this.outdent(buf);
+        }
         this.write(buf,`::${sanitizeIdentifier(block.id)}_fin::`);
         this.newLine(buf);
     }
