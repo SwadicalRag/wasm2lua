@@ -2225,7 +2225,7 @@ export class wasm2lua {
                 return Infinity;
             }
         };
-        const MIN_LABEL_GAP = 300;
+        const MIN_LABEL_GAP = 1500;
         const LABEL_BLACKLISTS = {["start"]: true};
         
         let labelDefs = new Map<string,InternalLabel>();
@@ -2246,6 +2246,28 @@ export class wasm2lua {
             }
         }
         
+        const addLineAfter = (after: number) => {
+            for(let it of labelDefs) {
+                if(it[1].line > after) {
+                    it[1].line++;
+                }
+
+                for(let i=0;i < it[1].gotos.length;i++) {
+                    if(it[1].gotos[i] > after) {
+                        it[1].gotos[i]++;
+                    }
+                }
+
+                for(let path of it[1].allPaths) {
+                    if(path[0] > after) {
+                        path[0]++;
+                    }
+                }
+            }
+
+            eachLine.splice(after,0,"");
+        }
+
         for(let lineN=0;lineN < eachLine.length;lineN++) {
             let line = eachLine[lineN];
             let matchedGotos = line.match(/goto ([A-Za-z_0-9]+)/);
@@ -2277,14 +2299,11 @@ export class wasm2lua {
                 if((label.line - min) > MIN_LABEL_GAP) {
                     // need to pave backwards
 
-                    let totalStops = Math.ceil((label.line - (Math.ceil(min / MIN_LABEL_GAP) * MIN_LABEL_GAP)) / MIN_LABEL_GAP);
+                    let totalStops = Math.ceil((label.line - (min + MIN_LABEL_GAP)) / MIN_LABEL_GAP);
 
                     let stopID = 0;
-                    for(let targL=Math.ceil(min / MIN_LABEL_GAP) * MIN_LABEL_GAP;targL < label.line;targL += MIN_LABEL_GAP) {
-                        if(!primedLines.get(targL)) {
-                            primedLines.set(targL,true);
-                            eachLine[targL] += ` goto skip_${targL}`;
-                        }
+                    for(let targL=min + MIN_LABEL_GAP;targL < label.line;targL += MIN_LABEL_GAP) {
+                        eachLine[targL] += `\ngoto skip_${targL}`;
 
                         let labelIdent = `${labelID}_b_stop_${++stopID}_of_${totalStops}`;
                         label.allPaths.push([targL,labelIdent]);
@@ -2297,20 +2316,20 @@ export class wasm2lua {
                             let nextLabelIdent = `${labelID}_b_stop_${stopID + 1}_of_${totalStops}`;
                             eachLine[targL] += ` goto ${nextLabelIdent}`;
                         }
+
+                        eachLine[targL] += ` ::skip_${targL}::`;
+                        addLineAfter(targL);
                     }
                 }
 
                 if((max - label.line) > MIN_LABEL_GAP) {
                     // need to pave forwards
 
-                    let totalStops = Math.ceil((max - (Math.ceil(label.line / MIN_LABEL_GAP) * MIN_LABEL_GAP)) / MIN_LABEL_GAP);
+                    let totalStops = Math.ceil((max - (label.line + MIN_LABEL_GAP)) / MIN_LABEL_GAP);
 
                     let stopID = 0;
-                    for(let targL=Math.ceil(label.line / MIN_LABEL_GAP) * MIN_LABEL_GAP;targL < max;targL += MIN_LABEL_GAP) {
-                        if(!primedLines.get(targL)) {
-                            primedLines.set(targL,true);
-                            eachLine[targL] += ` goto skip_${targL}`;
-                        }
+                    for(let targL=label.line + MIN_LABEL_GAP;targL < max;targL += MIN_LABEL_GAP) {
+                        eachLine[targL] += `\ngoto skip_${targL}`;
 
                         let labelIdent = `${labelID}_f_stop_${++stopID}_of_${totalStops}`;
                         label.allPaths.push([targL,labelIdent]);
@@ -2323,6 +2342,9 @@ export class wasm2lua {
                             let nextLabelIdent = `${labelID}_f_stop_${stopID - 1}_of_${totalStops}`;
                             eachLine[targL] += ` goto ${nextLabelIdent}`;
                         }
+
+                        eachLine[targL] += ` ::skip_${targL}::`;
+                        addLineAfter(targL);
                     }
                 }
                 
@@ -2335,10 +2357,6 @@ export class wasm2lua {
                     eachLine[gotoLine] = eachLine[gotoLine].replace(pattern,`goto ${closestLabel[1]}`);
                 }
             }
-        }
-
-        for(let it of primedLines) {
-            eachLine[it[0]] += ` ::skip_${it[0]}::`;
         }
 
         return eachLine.join("\n");
