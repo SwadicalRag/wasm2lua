@@ -1759,7 +1759,7 @@ class wasm2lua {
                 return Infinity;
             }
         };
-        const MIN_LABEL_GAP = 1500;
+        const MIN_LABEL_GAP = 500;
         const LABEL_BLACKLISTS = { ["start"]: true };
         let labelDefs = new Map();
         for (let lineN = 0; lineN < eachLine.length; lineN++) {
@@ -1819,7 +1819,7 @@ class wasm2lua {
                     let totalStops = Math.ceil((label.line - (min + MIN_LABEL_GAP)) / MIN_LABEL_GAP);
                     let stopID = 0;
                     for (let targL = min + MIN_LABEL_GAP; targL < label.line; targL += MIN_LABEL_GAP) {
-                        eachLine[targL] += `\ngoto skip_${targL}`;
+                        eachLine[targL] += `\ngoto skip_${targL}_${labelID}`;
                         let labelIdent = `${labelID}_b_stop_${++stopID}_of_${totalStops}`;
                         label.allPaths.push([targL, labelIdent]);
                         eachLine[targL] += ` ::${labelIdent}::`;
@@ -1830,7 +1830,7 @@ class wasm2lua {
                             let nextLabelIdent = `${labelID}_b_stop_${stopID + 1}_of_${totalStops}`;
                             eachLine[targL] += ` goto ${nextLabelIdent}`;
                         }
-                        eachLine[targL] += ` ::skip_${targL}::`;
+                        eachLine[targL] += ` ::skip_${targL}_${labelID}::`;
                         addLineAfter(targL);
                     }
                 }
@@ -1838,7 +1838,7 @@ class wasm2lua {
                     let totalStops = Math.ceil((max - (label.line + MIN_LABEL_GAP)) / MIN_LABEL_GAP);
                     let stopID = 0;
                     for (let targL = label.line + MIN_LABEL_GAP; targL < max; targL += MIN_LABEL_GAP) {
-                        eachLine[targL] += `\ngoto skip_${targL}`;
+                        eachLine[targL] += `\ngoto skip_${targL}_${labelID}`;
                         let labelIdent = `${labelID}_f_stop_${++stopID}_of_${totalStops}`;
                         label.allPaths.push([targL, labelIdent]);
                         eachLine[targL] += ` ::${labelIdent}::`;
@@ -1849,7 +1849,7 @@ class wasm2lua {
                             let nextLabelIdent = `${labelID}_f_stop_${stopID - 1}_of_${totalStops}`;
                             eachLine[targL] += ` goto ${nextLabelIdent}`;
                         }
-                        eachLine[targL] += ` ::skip_${targL}::`;
+                        eachLine[targL] += ` ::skip_${targL}_${labelID}::`;
                         addLineAfter(targL);
                     }
                 }
