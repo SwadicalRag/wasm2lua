@@ -707,7 +707,7 @@ class wasm2lua {
             this.newLine(buf);
             this.write(buf, customStart);
         }
-        else if (block.blockType == "loop") {
+        else if ((block.blockType == "loop") && (!state.hasSetjmp) && false) {
             this.newLine(buf);
             this.write(buf, "while true do");
         }
@@ -767,7 +767,7 @@ class wasm2lua {
             this.writeLn(buf, "-- BLOCK RET (" + block.blockType + "):");
             this.writeLn(buf, this.getPushStack(state, block.resultRegister));
         }
-        if (block.blockType == "loop") {
+        if ((block.blockType == "loop") && (!state.hasSetjmp) && false) {
             this.write(buf, "break");
             this.newLine(buf);
             this.outdent(buf);
@@ -1747,6 +1747,110 @@ class wasm2lua {
         }
         return buf.join("");
     }
+    runFinalProcessing() {
+        let finStr = this.outBuf.join("");
+        let eachLine = finStr.split("\n");
+        const MIN_LABEL_GAP_CALC = (min, max) => {
+            let span = max - min;
+            if (span >= 2000) {
+                return Math.round(Math.sqrt(997.056002 * span - 924439.6424));
+            }
+            else {
+                return Infinity;
+            }
+        };
+        const MIN_LABEL_GAP = 300;
+        const LABEL_BLACKLISTS = { ["start"]: true };
+        let labelDefs = new Map();
+        for (let lineN = 0; lineN < eachLine.length; lineN++) {
+            let line = eachLine[lineN];
+            let matchedLabels = line.match(/::([A-Za-z_0-9]+)::/);
+            if (matchedLabels) {
+                for (let labelID = 1; labelID < matchedLabels.length; labelID++) {
+                    if (LABEL_BLACKLISTS[matchedLabels[labelID]]) {
+                        continue;
+                    }
+                    labelDefs.set(matchedLabels[labelID], {
+                        line: lineN,
+                        gotos: [],
+                        allPaths: [[lineN, matchedLabels[labelID]]],
+                    });
+                }
+            }
+        }
+        for (let lineN = 0; lineN < eachLine.length; lineN++) {
+            let line = eachLine[lineN];
+            let matchedGotos = line.match(/goto ([A-Za-z_0-9]+)/);
+            if (matchedGotos) {
+                for (let gotoID = 1; gotoID < matchedGotos.length; gotoID++) {
+                    let label = labelDefs.get(matchedGotos[gotoID]);
+                    if (label) {
+                        label.gotos.push(lineN);
+                    }
+                }
+            }
+        }
+        let primedLines = new Map();
+        for (let iter of labelDefs) {
+            let labelID = iter[0];
+            let label = iter[1];
+            if (label.gotos.length > 0) {
+                let min = Math.min(...label.gotos);
+                let max = Math.max(...label.gotos);
+                if ((label.line - min) > MIN_LABEL_GAP) {
+                    let totalStops = Math.ceil((label.line - (Math.ceil(min / MIN_LABEL_GAP) * MIN_LABEL_GAP)) / MIN_LABEL_GAP);
+                    let stopID = 0;
+                    for (let targL = Math.ceil(min / MIN_LABEL_GAP) * MIN_LABEL_GAP; targL < label.line; targL += MIN_LABEL_GAP) {
+                        if (!primedLines.get(targL)) {
+                            primedLines.set(targL, true);
+                            eachLine[targL] += ` goto skip_${targL}`;
+                        }
+                        let labelIdent = `${labelID}_b_stop_${++stopID}_of_${totalStops}`;
+                        label.allPaths.push([targL, labelIdent]);
+                        eachLine[targL] += ` ::${labelIdent}::`;
+                        if (stopID == totalStops) {
+                            eachLine[targL] += ` goto ${labelID}`;
+                        }
+                        else {
+                            let nextLabelIdent = `${labelID}_b_stop_${stopID + 1}_of_${totalStops}`;
+                            eachLine[targL] += ` goto ${nextLabelIdent}`;
+                        }
+                    }
+                }
+                if ((max - label.line) > MIN_LABEL_GAP) {
+                    let totalStops = Math.ceil((max - (Math.ceil(label.line / MIN_LABEL_GAP) * MIN_LABEL_GAP)) / MIN_LABEL_GAP);
+                    let stopID = 0;
+                    for (let targL = Math.ceil(label.line / MIN_LABEL_GAP) * MIN_LABEL_GAP; targL < max; targL += MIN_LABEL_GAP) {
+                        if (!primedLines.get(targL)) {
+                            primedLines.set(targL, true);
+                            eachLine[targL] += ` goto skip_${targL}`;
+                        }
+                        let labelIdent = `${labelID}_f_stop_${++stopID}_of_${totalStops}`;
+                        label.allPaths.push([targL, labelIdent]);
+                        eachLine[targL] += ` ::${labelIdent}::`;
+                        if (stopID == 1) {
+                            eachLine[targL] += ` goto ${labelID}`;
+                        }
+                        else {
+                            let nextLabelIdent = `${labelID}_f_stop_${stopID - 1}_of_${totalStops}`;
+                            eachLine[targL] += ` goto ${nextLabelIdent}`;
+                        }
+                    }
+                }
+                for (let gotoLine of label.gotos) {
+                    let closestLabel = label.allPaths.reduce((prev, curr) => {
+                        return (Math.abs(curr[0] - gotoLine) < Math.abs(prev[0] - gotoLine) ? curr : prev);
+                    });
+                    let pattern = new RegExp(`\\bgoto ${labelID}\\b`);
+                    eachLine[gotoLine] = eachLine[gotoLine].replace(pattern, `goto ${closestLabel[1]}`);
+                }
+            }
+        }
+        for (let it of primedLines) {
+            eachLine[it[0]] += ` ::skip_${it[0]}::`;
+        }
+        return eachLine.join("\n");
+    }
 }
 wasm2lua.fileHeader = fs.readFileSync(PURE_LUA_MODE ? (__dirname + "/../resources/fileheader_lua.lua") : (__dirname + "/../resources/fileheader.lua")).toString();
 wasm2lua.instructionBinOpRemap = {
@@ -1794,11 +1898,11 @@ wasm2lua.instructionBinOpFuncRemap = {
     max: "__FLOAT__.max"
 };
 exports.wasm2lua = wasm2lua;
-let infile = process.argv[2] || (__dirname + "/../test/matrix.wasm");
+let infile = process.argv[2] || (__dirname + "/../test/duktape.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
 let compileFlags = process.argv[4] ? process.argv[4].split(",") : null;
 let whitelist = null;
 let wasm = fs.readFileSync(infile);
 let inst = new wasm2lua(wasm, { whitelist, compileFlags });
-fs.writeFileSync(outfile, inst.outBuf.join(""));
+fs.writeFileSync(outfile, inst.runFinalProcessing());
 //# sourceMappingURL=index.js.map
