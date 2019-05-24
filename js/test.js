@@ -119,6 +119,9 @@ function compileFloatValue(value) {
     if (value != value) {
         return "(0/0)";
     }
+    if (value == 0 && 1 / value == -Number.POSITIVE_INFINITY) {
+        return "(-0)";
+    }
     if (value == Number.POSITIVE_INFINITY) {
         return "(1/0)";
     }

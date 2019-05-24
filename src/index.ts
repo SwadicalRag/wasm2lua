@@ -1633,6 +1633,38 @@ export class wasm2lua {
                             this.newLine(buf);
                             break;
                         }
+                        case "reinterpret/i32": {
+                            let resultVar = this.fn_createTempRegister(buf,state);
+                            let arg = this.getPop(state);
+                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = UInt32ToFloat(${arg});`);
+                            this.write(buf,this.getPushStack(state,resultVar));
+                            this.newLine(buf);
+                            break;
+                        }
+                        case "reinterpret/i64": {
+                            let resultVar = this.fn_createTempRegister(buf,state);
+                            let arg = this.getPop(state);
+                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = UInt32sToDouble((${arg})[1],(${arg})[2]);`);
+                            this.write(buf,this.getPushStack(state,resultVar));
+                            this.newLine(buf);
+                            break;
+                        }
+                        case "reinterpret/f32": {
+                            let resultVar = this.fn_createTempRegister(buf,state);
+                            let arg = this.getPop(state);
+                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = FloatToUInt32(${arg});`);
+                            this.write(buf,this.getPushStack(state,resultVar));
+                            this.newLine(buf);
+                            break;
+                        }
+                        case "reinterpret/f64": {
+                            let resultVar = this.fn_createTempRegister(buf,state);
+                            let arg = this.getPop(state);
+                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(DoubleToUInt32s(${arg}));`);
+                            this.write(buf,this.getPushStack(state,resultVar));
+                            this.newLine(buf);
+                            break;
+                        }
                         // Branching
                         //////////////////////////////////////////////////////////////
                         case "br_if": {

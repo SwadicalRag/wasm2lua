@@ -134,7 +134,7 @@ local function FloatToUInt32(float)
     int = int + bit.lshift(bit.band(exponent, 0xFF), 23) -- stuff high 8 bits with exponent (after first sign bit)
     int = int + bit.band(significand, 0x007FFFFF) -- stuff low 23 bits with significand
 
-    return int
+    return bit.tobit(int)
 end
 
 local function UInt32sToDouble(uint_low,uint_high)
@@ -207,7 +207,7 @@ local function DoubleToUInt32s(double)
     uint_high = uint_high + bit.lshift(bit.band(exponent, 0x07FF), 20)
     uint_high = uint_high + bit.band(math.floor(significand / 0x100000000), 0x000FFFFF)
 
-    return uint_low,uint_high
+    return bit.tobit(uint_low), bit.tobit(uint_high)
 end
 
 --[[
