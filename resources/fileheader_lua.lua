@@ -60,12 +60,6 @@ end
 local function __MEMORY_GROW__(mem,pages)
     local old_pages = mem._page_count
     mem._len = (mem._page_count + pages) * 64 * 1024
-
-    -- TODO: check if this exceeds the maximum memory size
-    for i = 1,pages * 16 * 1024 do -- 16k cells = 64kb = 1 page
-        mem.data[#mem.data + 1] = 0
-    end
-
     mem._page_count = old_pages + pages
     return old_pages
 end
@@ -211,202 +205,690 @@ local function DoubleToUInt32s(double)
 end
 
 --[[
-    Float mapping overview:
-    - mem._fp_map is a sparse map that indicates where floats and doubles are stored in memory.
-    - The mapping system only works when floats are cell-aligned (the float or double's address is a multiple of 4).
-    - Any memory write can update the map: writing a byte in a cell occupied by a float will force the entire cell to revert to an integer value.
-    - In the interest of speed and local slot conservation, all constants have been inlined. Their values:
-        - nil: Cell is occupied by integer data.
-        -   1: Cell is occupied by a single-width float.
-        -   2: Cell contains the low half of a double-width float. GUARANTEES that a (3) follows.
-        -   3: Cell contains the high half of a double-width float. GUARANTEES that a (2) precedes.
+    Type IDs:
+        0: uint8
+        1: uint16
+        2: int32
+        3: float
+        4: double
+
+    Cell: {
+        typeID: TypeID;
+        base: number;
+        value: number;
+    }
 ]]
+
+local function __MEMORY_DESPECIALISE__(mem,cell,loc)
+    if not cell then
+        mem.data[loc] = {
+            typeID = 0,
+            base = loc,
+            value = 0,
+        }
+        return
+    end
+
+    if cell.base ~= loc then
+        loc = cell.base
+        cell = mem.data[loc]
+    end
+    
+    -- if branches weighted by how likely they are
+    if cell.typeID == 2 then
+        local value = cell.value
+        mem.data[loc] = {
+            typeID = 0,
+            base = loc,
+            value = bit.band(value,0x000000FF)
+        }
+        mem.data[loc + 1] = {
+            typeID = 0,
+            base = loc + 1,
+            value = bit.rshift(bit.band(value,0x0000FF00),8)
+        }
+        mem.data[loc + 2] = {
+            typeID = 0,
+            base = loc + 2,
+            value = bit.rshift(bit.band(value,0x00FF0000),16)
+        }
+        mem.data[loc + 3] = {
+            typeID = 0,
+            base = loc + 3,
+            value = bit.rshift(bit.band(value,0xFF000000),24)
+        }
+    elseif cell.typeID == 4 then
+        local low,high = DoubleToUInt32s(cell.value)
+        mem.data[loc] = {
+            typeID = 0,
+            base = loc,
+            value = bit.band(low,0x000000FF)
+        }
+        mem.data[loc + 1] = {
+            typeID = 0,
+            base = loc + 1,
+            value = bit.rshift(bit.band(low,0x0000FF00),8)
+        }
+        mem.data[loc + 2] = {
+            typeID = 0,
+            base = loc + 2,
+            value = bit.rshift(bit.band(low,0x00FF0000),16)
+        }
+        mem.data[loc + 3] = {
+            typeID = 0,
+            base = loc + 3,
+            value = bit.rshift(bit.band(low,0xFF000000),24)
+        }
+        mem.data[loc + 4] = {
+            typeID = 0,
+            base = loc + 4,
+            value = bit.band(high,0x000000FF)
+        }
+        mem.data[loc + 5] = {
+            typeID = 0,
+            base = loc + 5,
+            value = bit.rshift(bit.band(high,0x0000FF00),8)
+        }
+        mem.data[loc + 6] = {
+            typeID = 0,
+            base = loc + 6,
+            value = bit.rshift(bit.band(high,0x00FF0000),16)
+        }
+        mem.data[loc + 7] = {
+            typeID = 0,
+            base = loc + 7,
+            value = bit.rshift(bit.band(high,0xFF000000),24)
+        }
+    elseif cell.typeID == 3 then
+        local value = FloatToUInt32(cell.value)
+        mem.data[loc] = {
+            typeID = 0,
+            base = loc,
+            value = bit.band(value,0x000000FF)
+        }
+        mem.data[loc + 1] = {
+            typeID = 0,
+            base = loc + 1,
+            value = bit.rshift(bit.band(value,0x0000FF00),8)
+        }
+        mem.data[loc + 2] = {
+            typeID = 0,
+            base = loc + 2,
+            value = bit.rshift(bit.band(value,0x00FF0000),16)
+        }
+        mem.data[loc + 3] = {
+            typeID = 0,
+            base = loc + 3,
+            value = bit.rshift(bit.band(value,0xFF000000),24)
+        }
+    elseif cell.typeID == 1 then
+        local value = cell.value
+        mem.data[loc] = {
+            typeID = 0,
+            base = loc,
+            value = bit.band(value,0x000000FF)
+        }
+        mem.data[loc + 1] = {
+            typeID = 0,
+            base = loc + 1,
+            value = bit.rshift(bit.band(value,0x0000FF00),8)
+        }
+    end
+end
 
 local function __MEMORY_READ_8__(mem,loc)
     assert((loc >= 0) and (loc < mem._len),"out of memory access")
-    local cell_loc = bit.rshift(loc,2)
-    local byte_loc = bit.band(loc,3)
 
-    if mem._fp_map[cell_loc] ~= nil then
-        error("???->int8 read fallback nyi")
+    local cell = mem.data[loc]
+    if not cell then return 0 end
+    if cell.typeID == 0 then
+        return cell.value
+    else
+        __MEMORY_DESPECIALISE__(mem,cell,loc)
+        return mem.data[loc].value
     end
-
-    return bit.band(bit.rshift(mem.data[cell_loc],byte_loc * 8),255)
 end
 
 local function __MEMORY_READ_16__(mem,loc)
     assert((loc >= 0) and (loc < (mem._len - 1)),"out of memory access")
-    -- 16 bit reads/writes are less common, they can be optimized later
-    return bit.bor(
-        __MEMORY_READ_8__(mem,loc),
-        bit.lshift(__MEMORY_READ_8__(mem,loc + 1),8)
+
+    local cell = mem.data[loc]
+    if not cell then
+        if not mem.data[loc + 1] then
+            return 0
+        end
+
+        goto despecialise
+    end
+
+    if cell.typeID == 1 then
+        if cell.base == loc then
+            return cell.value
+        end
+    end
+
+    ::despecialise::
+
+    if not cell or cell.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell,loc)
+        cell = mem.data[loc]
+    end
+
+    local cell2 = mem.data[loc + 1]
+    if not cell2 or cell2.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell2,loc + 1)
+        cell2 = mem.data[loc + 1]
+    end
+
+    local val = bit.bor(
+        cell.value,
+        bit.lshift(cell2.value,8)
     )
+    
+    mem.data[loc] = {typeID = 1,value = val,base = loc}
+    mem.data[loc + 1] = cell
+
+    return val
 end
 
 local function __MEMORY_READ_32__(mem,loc)
     assert((loc >= 0) and (loc < (mem._len - 3)),"out of memory access")
 
-    if bit.band(loc,3) == 0 then
-        -- aligned read, fast path
-        local cell_loc = bit.rshift(loc,2)
-
-        local mem_t = mem._fp_map[cell_loc]
-        if mem_t ~= nil then
-            if mem_t == 1 then
-                return FloatToUInt32(mem.data[cell_loc])
-            else
-                local low, high = DoubleToUInt32s(mem.data[cell_loc])
-                if mem_t == 2 then
-                    return low
-                else
-                    return high
+    local cell = mem.data[loc]
+    if not cell then
+        if not mem.data[loc + 1] then
+            if not mem.data[loc + 2] then
+                if not mem.data[loc + 3] then
+                    return 0
                 end
             end
         end
 
-        local val = mem.data[cell_loc]
-        -- It breaks in some way I don't understand if you don't normalize the value.
-        return bit.tobit(val)
-    else
-        --print("bad alignment (read 32)",alignment)
-        return bit.bor(
-            __MEMORY_READ_8__(mem,loc),
-            bit.lshift(__MEMORY_READ_8__(mem,loc + 1),8),
-            bit.lshift(__MEMORY_READ_8__(mem,loc + 2),16),
-            bit.lshift(__MEMORY_READ_8__(mem,loc + 3),24)
-        )
+        goto despecialise
     end
-end
 
--- I also tried some weird shift/xor logic,
--- both had similar performance but I kept this becuase it was simpler.
-local mask_table = {0xFFFF00FF,0xFF00FFFF,0x00FFFFFF}
-mask_table[0] = 0xFFFFFF00
-local function __MEMORY_WRITE_8__(mem,loc,val)
-    assert((loc >= 0) and (loc < mem._len),"out of memory access")
-    val = bit.band(val,255)
-
-    local cell_loc = bit.rshift(loc,2)
-    local byte_loc = bit.band(loc,3)
-
-    local mem_t = mem._fp_map[cell_loc]
-    local old_cell
-    if mem_t == nil then
-        -- fast path, the cell is already an integer
-        old_cell = bit.band(mem.data[cell_loc], mask_table[byte_loc])
-    else
-        -- bad news, a float is stored here and we have to convert it to an integer
-        mem._fp_map[cell_loc] = nil
-        if mem_t == 1 then
-            -- float
-            old_cell = FloatToUInt32(mem.data[cell_loc])
-        else
-            -- double: we must also update the matching cell
-            local low, high = DoubleToUInt32s(mem.data[cell_loc])
-            if mem_t == 2 then
-                -- this cell is the low half
-                old_cell = low
-
-                mem.data[cell_loc + 1] = high
-                mem._fp_map[cell_loc + 1] = nil
-            else
-                -- this cell is the high half
-                old_cell = high
-
-                mem.data[cell_loc - 1] = low
-                mem._fp_map[cell_loc - 1] = nil
-            end
+    if cell.typeID == 2 then
+        if cell.base == loc then
+            return cell.value
         end
     end
+    
+    ::despecialise::
 
-    old_cell = bit.band(mem.data[cell_loc], mask_table[byte_loc])
-    local new_cell = bit.bor(old_cell, bit.lshift(val,byte_loc * 8))
+    if not cell or cell.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell,loc)
+        cell = mem.data[loc]
+    end
 
-    mem.data[cell_loc] = new_cell
+    local cell2 = mem.data[loc + 1]
+    if not cell2 or cell2.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell2,loc + 1)
+        cell2 = mem.data[loc + 1]
+    end
+
+    local cell3 = mem.data[loc + 2]
+    if not cell3 or cell3.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell3,loc + 2)
+        cell3 = mem.data[loc + 2]
+    end
+
+    local cell4 = mem.data[loc + 3]
+    if not cell4 or cell4.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell4,loc + 3)
+        cell4 = mem.data[loc + 3]
+    end
+
+    local val = bit.bor(
+        cell.value,
+        bit.lshift(cell2.value,8),
+        bit.lshift(cell3.value,16),
+        bit.lshift(cell4.value,24)
+    )
+    
+    mem.data[loc] = {typeID = 2,value = val,base = loc}
+    mem.data[loc + 1] = cell
+    mem.data[loc + 2] = cell
+    mem.data[loc + 3] = cell
+
+    return val
+end
+
+local function __MEMORY_WRITE_8__(mem,loc,val)
+    assert((loc >= 0) and (loc < mem._len),"out of memory access")
+
+    local cell = mem.data[loc]
+    if not cell then
+        mem.data[loc] = {typeID = 0,value = bit.band(val,0xFF),base = loc}
+        return
+    end
+    if cell.typeID == 0 then
+        cell.value = bit.band(val,0xFF)
+    else
+        __MEMORY_DESPECIALISE__(mem,cell,loc)
+        mem.data[loc].value = val
+    end
 end
 
 local function __MEMORY_WRITE_16__(mem,loc,val)
     assert((loc >= 0) and (loc < (mem._len - 1)),"out of memory access")
-    -- 16 bit reads/writes are less common, they can be optimized later
-    __MEMORY_WRITE_8__(mem,loc,     val)
-    __MEMORY_WRITE_8__(mem,loc + 1, bit.rshift(val,8))
+
+    local cell = mem.data[loc]
+    if not cell then
+        if not mem.data[loc + 1] then
+            mem.data[loc] = {typeID = 1,value = bit.band(val,0xFFFF),base = loc}
+            mem.data[loc + 1] = cell
+            return
+        end
+
+        goto despecialise
+    end
+    
+    if cell.typeID == 1 then
+        if cell.base == loc then
+            cell.value = bit.band(val,0xFFFF)
+        end
+    end
+
+    ::despecialise::
+
+    if not cell or cell.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell,loc)
+        cell = mem.data[loc]
+    end
+
+    local cell2 = mem.data[loc + 1]
+    if not cell2 or cell2.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell2,loc + 1)
+        cell2 = mem.data[loc + 1]
+    end
+
+    cell.value = bit.band(val,0x000000FF)
+    cell2.value = bit.rshift(bit.band(val,0x0000FF00),8)
 end
 
 local function __MEMORY_WRITE_32__(mem,loc,val)
     assert((loc >= 0) and (loc < (mem._len - 3)),"out of memory access")
 
-    if bit.band(loc,3) == 0 then
-        -- aligned write, fast path
-        local cell_loc = bit.rshift(loc,2)
-        mem._fp_map[cell_loc] = nil -- mark this cell as an integer
-        mem.data[cell_loc] = val
-    else
-        --print("bad alignment (write 32)",alignment)
-        __MEMORY_WRITE_8__(mem,loc,     val)
-        __MEMORY_WRITE_8__(mem,loc + 1, bit.rshift(val,8))
-        __MEMORY_WRITE_8__(mem,loc + 2, bit.rshift(val,16))
-        __MEMORY_WRITE_8__(mem,loc + 3, bit.rshift(val,24))
+    local cell = mem.data[loc]
+    if not cell then
+        if not mem.data[loc + 1] then
+            if not mem.data[loc + 2] then
+                if not mem.data[loc + 3] then
+                    mem.data[loc] = {typeID = 2,value = bit.band(val,0xFFFFFFFF),base = loc}
+                    mem.data[loc + 1] = cell
+                    mem.data[loc + 2] = cell
+                    mem.data[loc + 3] = cell
+                    return
+                end
+            end
+        end
+
+        goto despecialise
     end
+
+    if cell.typeID == 2 then
+        if cell.base == loc then
+            cell.value = bit.band(val,0xFFFFFFFF)
+        end
+    end
+
+    ::despecialise::
+    
+    if not cell or cell.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell,loc)
+        cell = mem.data[loc]
+    end
+
+    local cell2 = mem.data[loc + 1]
+    if not cell2 or cell2.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell2,loc + 1)
+        cell2 = mem.data[loc + 1]
+    end
+
+    local cell3 = mem.data[loc + 2]
+    if not cell3 or cell3.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell3,loc + 2)
+        cell3 = mem.data[loc + 2]
+    end
+
+    local cell4 = mem.data[loc + 3]
+    if not cell4 or cell4.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell4,loc + 3)
+        cell4 = mem.data[loc + 3]
+    end
+
+    cell.value = bit.band(val,0x000000FF)
+    cell2.value = bit.rshift(bit.band(val,0x0000FF00),8)
+    cell3.value = bit.rshift(bit.band(val,0x00FF0000),16)
+    cell4.value = bit.rshift(bit.band(val,0xFF000000),24)
 end
 
 local function __MEMORY_READ_32F__(mem,loc)
     assert((loc >= 0) and (loc < (mem._len - 3)),"out of memory access")
 
-    local cell_loc = bit.rshift(loc,2)
-    local byte_loc = bit.band(loc,3)
+    local cell = mem.data[loc]
+    if not cell then
+        if not mem.data[loc + 1] then
+            if not mem.data[loc + 2] then
+                if not mem.data[loc + 3] then
+                    return 0
+                end
+            end
+        end
 
-    if byte_loc == 0 and mem._fp_map[cell_loc] == 1 then
-        return mem.data[cell_loc]
-    else
-        -- Let __MEMORY_READ_32__ handle any issues.
-        return UInt32ToFloat(__MEMORY_READ_32__(mem,loc))
+        goto despecialise
     end
+
+    if cell.typeID == 3 then
+        if cell.base == loc then
+            return cell.value
+        end
+    end
+
+    ::despecialise::
+
+    if not cell or cell.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell,loc)
+        cell = mem.data[loc]
+    end
+
+    local cell2 = mem.data[loc + 1]
+    if not cell2 or cell2.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell2,loc + 1)
+        cell2 = mem.data[loc + 1]
+    end
+
+    local cell3 = mem.data[loc + 2]
+    if not cell3 or cell3.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell3,loc + 2)
+        cell3 = mem.data[loc + 2]
+    end
+
+    local cell4 = mem.data[loc + 3]
+    if not cell4 or cell4.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell4,loc + 3)
+        cell4 = mem.data[loc + 3]
+    end
+
+    local val = UInt32ToFloat(bit.bor(
+        cell.value,
+        bit.lshift(cell2.value,8),
+        bit.lshift(cell3.value,16),
+        bit.lshift(cell4.value,24)
+    ))
+    
+    mem.data[loc] = {typeID = 3,value = val,base = loc}
+    mem.data[loc + 1] = cell
+    mem.data[loc + 2] = cell
+    mem.data[loc + 3] = cell
+
+    return val
 end
 
 local function __MEMORY_READ_64F__(mem,loc)
     assert((loc >= 0) and (loc < (mem._len - 7)),"out of memory access")
 
-    local cell_loc = bit.rshift(loc,2)
-    local byte_loc = bit.band(loc,3)
+    local cell = mem.data[loc]
+    if not cell then
+        if not mem.data[loc + 1] then
+            if not mem.data[loc + 2] then
+                if not mem.data[loc + 3] then
+                    if not mem.data[loc + 4] then
+                        if not mem.data[loc + 5] then
+                            if not mem.data[loc + 6] then
+                                if not mem.data[loc + 7] then
+                                    return 0
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
 
-    local mem_t = mem._fp_map[cell_loc]
-
-    if byte_loc == 0 and mem_t == 2 then
-        return mem.data[cell_loc]
-    else
-        -- Let __MEMORY_READ_32__ handle any issues.
-        return UInt32sToDouble(__MEMORY_READ_32__(mem,loc),__MEMORY_READ_32__(mem,loc + 4))
+        goto despecialise
     end
+
+    if cell.typeID == 4 then
+        if cell.base == loc then
+            return cell.value
+        end
+    end
+
+    ::despecialise::
+    
+    if not cell or cell.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell,loc)
+        cell = mem.data[loc]
+    end
+
+    local cell2 = mem.data[loc + 1]
+    if not cell2 or cell2.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell2,loc + 1)
+        cell2 = mem.data[loc + 1]
+    end
+
+    local cell3 = mem.data[loc + 2]
+    if not cell3 or cell3.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell3,loc + 2)
+        cell3 = mem.data[loc + 2]
+    end
+
+    local cell4 = mem.data[loc + 3]
+    if not cell4 or cell4.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell4,loc + 3)
+        cell4 = mem.data[loc + 3]
+    end
+
+    local cell5 = mem.data[loc + 4]
+    if not cell5 or cell5.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell5,loc + 4)
+        cell5 = mem.data[loc + 4]
+    end
+
+    local cell6 = mem.data[loc + 5]
+    if not cell6 or cell6.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell6,loc + 5)
+        cell6 = mem.data[loc + 5]
+    end
+
+    local cell7 = mem.data[loc + 6]
+    if not cell7 or cell7.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell7,loc + 6)
+        cell7 = mem.data[loc + 6]
+    end
+
+    local cell8 = mem.data[loc + 7]
+    if not cell8 or cell8.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell8,loc + 7)
+        cell8 = mem.data[loc + 7]
+    end
+
+    local val = UInt32sToDouble(
+        bit.bor(
+            cell.value,
+            bit.lshift(cell2.value,8),
+            bit.lshift(cell3.value,16),
+            bit.lshift(cell4.value,24)
+        ),
+        bit.bor(
+            cell5.value,
+            bit.lshift(cell6.value,8),
+            bit.lshift(cell7.value,16),
+            bit.lshift(cell8.value,24)
+        )
+    )
+    
+    mem.data[loc] = {typeID = 4,value = val,base = loc}
+    mem.data[loc + 1] = cell
+    mem.data[loc + 2] = cell
+    mem.data[loc + 3] = cell
+    mem.data[loc + 4] = cell
+    mem.data[loc + 5] = cell
+    mem.data[loc + 6] = cell
+    mem.data[loc + 7] = cell
+
+    return val
 end
 
 local function __MEMORY_WRITE_32F__(mem,loc,val)
     assert((loc >= 0) and (loc < (mem._len - 3)),"out of memory access")
+    assert((loc >= 0) and (loc < (mem._len - 3)),"out of memory access")
 
-    if bit.band(loc,3) == 0 then
-        local cell_loc = bit.rshift(loc,2)
-        mem._fp_map[cell_loc] = 1
-        mem.data[cell_loc] = val
-    else
-        -- unaligned writes can't use the float map.
-        __MEMORY_WRITE_32__(mem,loc,FloatToUInt32(val))
+    local cell = mem.data[loc]
+    if not cell then
+        if not mem.data[loc + 1] then
+            if not mem.data[loc + 2] then
+                if not mem.data[loc + 3] then
+                    mem.data[loc] = {typeID = 3,value = val,base = loc}
+                    mem.data[loc + 1] = cell
+                    mem.data[loc + 2] = cell
+                    mem.data[loc + 3] = cell
+                    return
+                end
+            end
+        end
+
+        goto despecialise
     end
+    
+    if cell.typeID == 3 then
+        if cell.base == loc then
+            cell.value = bit.band(val,0xFFFFFFFF)
+        end
+    end
+
+    ::despecialise::
+    
+    if not cell or cell.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell,loc)
+        cell = mem.data[loc]
+    end
+
+    local cell2 = mem.data[loc + 1]
+    if not cell2 or cell2.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell2,loc + 1)
+        cell2 = mem.data[loc + 1]
+    end
+
+    local cell3 = mem.data[loc + 2]
+    if not cell3 or cell3.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell3,loc + 2)
+        cell3 = mem.data[loc + 2]
+    end
+
+    local cell4 = mem.data[loc + 3]
+    if not cell4 or cell4.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell4,loc + 3)
+        cell4 = mem.data[loc + 3]
+    end
+
+    val = FloatToUInt32(val)
+
+    cell.value = bit.band(val,0x000000FF)
+    cell2.value = bit.rshift(bit.band(val,0x0000FF00),8)
+    cell3.value = bit.rshift(bit.band(val,0x00FF0000),16)
+    cell4.value = bit.rshift(bit.band(val,0xFF000000),24)
 end
 
 local function __MEMORY_WRITE_64F__(mem,loc,val)
     assert((loc >= 0) and (loc < (mem._len - 7)),"out of memory access")
 
-    if bit.band(loc,3) == 0 then
-        local cell_loc = bit.rshift(loc,2)
-        mem._fp_map[cell_loc] = 2
-        mem.data[cell_loc] = val
-        mem._fp_map[cell_loc + 1] = 3
-        mem.data[cell_loc + 1] = val
-    else
-        -- unaligned writes can't use the float map.
-        local low,high = DoubleToUInt32s(val)
-        __MEMORY_WRITE_32__(mem,loc,low)
-        __MEMORY_WRITE_32__(mem,loc + 4,high)
+    local cell = mem.data[loc]
+    if not cell then
+        if not mem.data[loc + 1] then
+            if not mem.data[loc + 2] then
+                if not mem.data[loc + 3] then
+                    if not mem.data[loc + 4] then
+                        if not mem.data[loc + 5] then
+                            if not mem.data[loc + 6] then
+                                if not mem.data[loc + 7] then
+                                    mem.data[loc] = {typeID = 4,value = val,base = loc}
+                                    mem.data[loc + 1] = cell
+                                    mem.data[loc + 2] = cell
+                                    mem.data[loc + 3] = cell
+                                    mem.data[loc + 4] = cell
+                                    mem.data[loc + 5] = cell
+                                    mem.data[loc + 6] = cell
+                                    mem.data[loc + 7] = cell
+                                    return
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        goto despecialise
     end
+
+    if cell.typeID == 4 then
+        if cell.base == loc then
+            cell.value = val
+        end
+    end
+
+    ::despecialise::
+    
+    if not cell or cell.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell,loc)
+        cell = mem.data[loc]
+    end
+
+    local cell2 = mem.data[loc + 1]
+    if not cell2 or cell2.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell2,loc + 1)
+        cell2 = mem.data[loc + 1]
+    end
+
+    local cell3 = mem.data[loc + 2]
+    if not cell3 or cell3.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell3,loc + 2)
+        cell3 = mem.data[loc + 2]
+    end
+
+    local cell4 = mem.data[loc + 3]
+    if not cell4 or cell4.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell4,loc + 3)
+        cell4 = mem.data[loc + 3]
+    end
+
+    local cell5 = mem.data[loc + 4]
+    if not cell5 or cell5.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell5,loc + 4)
+        cell5 = mem.data[loc + 4]
+    end
+
+    local cell6 = mem.data[loc + 5]
+    if not cell6 or cell6.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell6,loc + 5)
+        cell6 = mem.data[loc + 5]
+    end
+
+    local cell7 = mem.data[loc + 6]
+    if not cell7 or cell7.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell7,loc + 6)
+        cell7 = mem.data[loc + 6]
+    end
+
+    local cell8 = mem.data[loc + 7]
+    if not cell8 or cell8.typeID ~= 0 then
+        __MEMORY_DESPECIALISE__(mem,cell8,loc + 7)
+        cell8 = mem.data[loc + 7]
+    end
+
+    local low,high = DoubleToUInt32s(val)
+
+    cell.value = bit.band(low,0x000000FF)
+    cell2.value = bit.rshift(bit.band(low,0x0000FF00),8)
+    cell3.value = bit.rshift(bit.band(low,0x00FF0000),16)
+    cell4.value = bit.rshift(bit.band(low,0xFF000000),24)
+
+    cell5.value = bit.band(high,0x000000FF)
+    cell6.value = bit.rshift(bit.band(high,0x0000FF00),8)
+    cell7.value = bit.rshift(bit.band(high,0x00FF0000),16)
+    cell8.value = bit.rshift(bit.band(high,0xFF000000),24)
 end
 
 local function __MEMORY_INIT__(mem,loc,data)
@@ -420,10 +902,6 @@ local function __MEMORY_ALLOC__(pages)
     mem.data = {}
     mem._page_count = pages
     mem._len = pages * 64 * 1024
-    mem._fp_map = {}
-
-    local cellLength = pages * 64 * 1024 -- 16k cells = 64kb = 1 page
-    for i=0,cellLength - 1 do mem.data[i] = 0 end
 
     mem.write8 = __MEMORY_WRITE_8__
     mem.write16 = __MEMORY_WRITE_16__
