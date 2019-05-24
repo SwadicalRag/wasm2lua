@@ -293,7 +293,7 @@ local function __MEMORY_WRITE_8__(mem,loc,val)
     local old_cell
     if mem_t == nil then
         -- fast path, the cell is already an integer
-        old_cell = bit.band(mem.data[cell_loc], mask_table[byte_loc])
+        old_cell = mem.data[cell_loc]
     else
         -- bad news, a float is stored here and we have to convert it to an integer
         mem._fp_map[cell_loc] = nil
@@ -319,7 +319,7 @@ local function __MEMORY_WRITE_8__(mem,loc,val)
         end
     end
 
-    old_cell = bit.band(mem.data[cell_loc], mask_table[byte_loc])
+    old_cell = bit.band(old_cell, mask_table[byte_loc])
     local new_cell = bit.bor(old_cell, bit.lshift(val,byte_loc * 8))
 
     mem.data[cell_loc] = new_cell
