@@ -3,34 +3,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const wasm_parser_1 = require("@webassemblyjs/wasm-parser");
 const fs = require("fs");
 const util_1 = require("util");
-class ArrayMap extends Map {
-    constructor() {
-        super(...arguments);
-        this.numSize = 0;
-    }
-    set(k, v) {
-        super.set(k, v);
-        if (typeof k === "number") {
-            if (k === this.numSize) {
-                if ((typeof v !== "undefined") && (v !== null)) {
-                    this.numSize++;
-                }
-            }
-            else if (k === (this.numSize - 1)) {
-                if ((typeof v === "undefined") || (v === null)) {
-                    this.numSize--;
-                }
-            }
-        }
-        return this;
-    }
-    push(v) {
-        this.set(this.numSize, v);
-    }
-    pop() {
-        super.set(this.numSize - 1, undefined);
-    }
-}
+const arraymap_1 = require("./arraymap");
+const virtualregistermanager_1 = require("./virtualregistermanager");
+const PURE_LUA_MODE = true;
 function makeBinaryStringLiteral(array) {
     let literal = ["'"];
     for (let i = 0; i < array.length; i++) {
@@ -53,10 +28,19 @@ function makeBinaryStringLiteral(array) {
     return literal.join("");
 }
 function sanitizeIdentifier(ident) {
+    ident = ident.toString();
     return ident
-        .replace(/\./g, "__IDENT_CHAR_DOT__");
+        .replace(/\$/g, "__IDENT_CHAR_DOLLAR__")
+        .replace(/\./g, "__IDENT_CHAR_DOT__")
+        .replace(/\:/g, "__IDENT_CHAR_COLON__")
+        .replace(/\~/g, "__IDENT_CHAR_TILDE__")
+        .replace(/\//g, "__IDENT_CHAR_FSLASH__")
+        .replace(/\#/g, "__IDENT_CHAR_HASH__")
+        .replace(/\</g, "__IDENT_CHAR_LT__")
+        .replace(/\>/g, "__IDENT_CHAR_GT__")
+        .replace(/\-/g, "__IDENT_CHAR_MINUS__");
 }
-const FUNC_VAR_HEADER = "local __TMP__,__TMP2__,__STACK__ = nil,nil,{};";
+const FUNC_VAR_HEADER = "";
 class wasm2lua {
     constructor(program_binary, options = {}) {
         this.program_binary = program_binary;
@@ -65,6 +49,12 @@ class wasm2lua {
         this.indentLevel = 0;
         this.moduleStates = [];
         this.globalTypes = [];
+        this.registerDebugOutput = false;
+        this.stackDebugOutput = false;
+        this.insDebugOutput = false;
+        if (options.compileFlags == null) {
+            options.compileFlags = [];
+        }
         this.program_ast = wasm_parser_1.decode(wasm, {});
         this.process();
     }
@@ -80,9 +70,11 @@ class wasm2lua {
             while (buf[buf.length - 1] === "") {
                 buf.pop();
             }
-            let mat = buf[buf.length - 1].match(/^([\s\S]*?)\n(?:    )*$/);
-            if (mat) {
-                buf[buf.length - 1] = mat[1] + "\n" + (("    ").repeat(this.indentLevel));
+            if (buf.length > 0) {
+                let mat = buf[buf.length - 1].match(/^([\s\S]*?)\n(?:    )*$/);
+                if (mat) {
+                    buf[buf.length - 1] = mat[1] + "\n" + (("    ").repeat(this.indentLevel));
+                }
             }
         }
     }
@@ -90,33 +82,136 @@ class wasm2lua {
         buf.push("\n" + (("    ").repeat(this.indentLevel)));
     }
     write(buf, str) { buf.push(str); }
+    writeLn(buf, str) {
+        if (str !== "") {
+            buf.push(str);
+            this.newLine(buf);
+        }
+    }
+    writeEx(buf, str, offset) {
+        if (offset < 0) {
+            offset += buf.length;
+        }
+        buf.splice(offset, 0, str);
+    }
     writeHeader(buf) {
         this.write(buf, wasm2lua.fileHeader);
         this.newLine(buf);
     }
-    getPushStack(func, stackExpr) {
+    fn_freeRegisterEx(buf, func, reg) {
+        func.regManager.freeRegister(reg);
+        if (this.registerDebugOutput) {
+            this.write(buf, `--[[register ${func.regManager.getPhysicalRegisterName(reg)} (${reg.name}) freed]]`);
+        }
+    }
+    fn_freeRegisterAddQueue(buf, func, reg) {
+        func.registersToBeFreed.push(reg);
+        if (this.registerDebugOutput) {
+            this.write(buf, `--[[register ${func.regManager.getPhysicalRegisterName(reg)} (${reg.name}) added to free-queue]]`);
+        }
+    }
+    fn_freeRegister(buf, func, reg) {
+        return this.fn_freeRegisterEx(buf, func, reg);
+    }
+    fn_createTempRegister(buf, func) {
+        let reg = func.regManager.createTempRegister();
+        if (this.registerDebugOutput) {
+            this.write(buf, `--[[register ${func.regManager.getPhysicalRegisterName(reg)} (temp) allocated]]`);
+        }
+        return reg;
+    }
+    fn_createNamedRegister(buf, func, name) {
+        let reg = func.regManager.createRegister(name);
+        if (this.registerDebugOutput) {
+            this.write(buf, `--[[register ${func.regManager.getPhysicalRegisterName(reg)} (${reg.name}) allocated]]`);
+        }
+        return reg;
+    }
+    getPushStack(func, stackExpr, resolveRegister) {
         func.stackLevel++;
-        if (typeof stackExpr !== "undefined") {
+        if (typeof stackExpr === "string") {
             func.stackData.push(stackExpr);
-            return `__STACK__[${func.stackLevel - 1}] = ${stackExpr}`;
+        }
+        else if (typeof stackExpr === "object") {
+            if (resolveRegister) {
+                func.stackData.push(func.regManager.getPhysicalRegisterName(stackExpr));
+            }
+            else {
+                stackExpr.stackEntryCount++;
+                func.stackData.push(stackExpr);
+            }
         }
         else {
-            func.stackData.push(false);
-            return `__STACK__[${func.stackLevel - 1}] = `;
+            throw new Error("`stackExpr` must be a string or VirtualRegister");
+        }
+        if (this.stackDebugOutput) {
+            return `--[[PUSH TO ${func.stackLevel - 1}]]`;
+        }
+        else {
+            return "";
         }
     }
     getPop(func) {
+        if (func.stackLevel == 1) {
+            console.log("attempt to pop below zero");
+            return "--[[WARNING: NEGATIVE POP]] (nil)";
+        }
         let lastData = func.stackData.pop();
         func.stackLevel--;
-        if (lastData !== false) {
-            return `__STACK__[${func.stackLevel}]`;
+        if (typeof lastData === "string") {
+            if (this.stackDebugOutput) {
+                return `--[[POP FROM ${func.stackLevel}]]${lastData}`;
+            }
+            else {
+                return lastData;
+            }
+        }
+        else if (typeof lastData === "object") {
+            let buf = [];
+            lastData.stackEntryCount--;
+            if (lastData.stackEntryCount == 0) {
+                if (typeof lastData.lastRef === "number") {
+                    if (func.insCountPass2 >= lastData.lastRef) {
+                        this.fn_freeRegister(buf, func, lastData);
+                    }
+                }
+                else {
+                    this.fn_freeRegister(buf, func, lastData);
+                }
+            }
+            else if (lastData.stackEntryCount < 0) {
+                throw new Error("just wHat");
+            }
+            this.write(buf, func.regManager.getPhysicalRegisterName(lastData));
+            if (this.stackDebugOutput) {
+                return `--[[POP FROM ${func.stackLevel}]]${buf.join("")}`;
+            }
+            else {
+                return buf.join("");
+            }
         }
         else {
-            return `__STACK__[${func.stackLevel}]`;
+            throw new Error("Could not resolve pop value");
+        }
+    }
+    getPeek(func, n = 0) {
+        if (func.stackLevel - n <= 1) {
+            console.log("attempt to peek below zero");
+            return "--[[WARNING: NEGATIVE PEEK]] nil";
+        }
+        let lastData = func.stackData[func.stackData.length - n - 1];
+        if (typeof lastData === "string") {
+            return lastData;
+        }
+        else if (typeof lastData === "object") {
+            return func.regManager.getPhysicalRegisterName(lastData);
+        }
+        else {
+            return `__STACK__[${func.stackLevel - n - 1}]`;
         }
     }
     stackDrop(func) {
-        func.stackLevel--;
+        this.getPop(func);
     }
     process() {
         this.writeHeader(this.outBuf);
@@ -140,7 +235,7 @@ class wasm2lua {
         let state = {
             funcStates: [],
             funcByName: new Map(),
-            memoryAllocations: new ArrayMap(),
+            memoryAllocations: new arraymap_1.ArrayMap(),
             func_tables: [],
             nextGlobalIndex: 0
         };
@@ -177,9 +272,10 @@ class wasm2lua {
                 this.write(buf, this.processFunc(field, state));
             }
             else if (field.type == "ModuleExport") {
-                this.write(buf, this.processModuleExport(field, state));
             }
             else if (field.type == "ModuleImport") {
+            }
+            else if (field.type == "Start") {
             }
             else if (field.type == "Table") {
             }
@@ -205,17 +301,29 @@ class wasm2lua {
                 this.write(buf, "do");
                 this.indent();
                 this.newLine(buf);
-                this.write(buf, FUNC_VAR_HEADER);
-                this.newLine(buf);
+                this.writeLn(buf, FUNC_VAR_HEADER);
                 let global_init_state = {
                     id: "__GLOBAL_INIT__",
+                    origID: "__GLOBAL_INIT__",
                     locals: [],
+                    localTypes: [],
                     blocks: [],
-                    varRemaps: new Map(),
+                    regManager: new virtualregistermanager_1.VirtualRegisterManager(),
+                    insLastRefs: [],
+                    insLastAssigned: [],
+                    registersToBeFreed: [],
+                    insCountPass1: 0,
+                    insCountPass2: 0,
+                    insCountPass1LoopLifespanAdjs: new Map(),
+                    forceVarInit: new Map(),
                     stackData: [],
                     stackLevel: 1,
+                    hasSetjmp: false,
+                    setJmps: [],
                 };
-                this.write(buf, this.processInstructions(field.init, global_init_state));
+                this.processInstructionsPass1(field.init, global_init_state);
+                this.write(buf, this.processInstructionsPass2(field.init, global_init_state));
+                this.writeEx(buf, this.processInstructionsPass3(field.init, global_init_state), -1);
                 this.write(buf, "__GLOBALS__[" + state.nextGlobalIndex + "] = " + this.getPop(global_init_state) + ";");
                 this.outdent(buf);
                 this.newLine(buf);
@@ -230,18 +338,30 @@ class wasm2lua {
                 this.write(buf, "do");
                 this.indent();
                 this.newLine(buf);
-                this.write(buf, FUNC_VAR_HEADER);
-                this.newLine(buf);
+                this.writeLn(buf, FUNC_VAR_HEADER);
                 let global_init_state = {
                     id: "__TABLE_INIT__",
+                    origID: "__TABLE_INIT__",
                     locals: [],
+                    localTypes: [],
+                    regManager: new virtualregistermanager_1.VirtualRegisterManager(),
+                    registersToBeFreed: [],
+                    insCountPass1: 0,
+                    insCountPass2: 0,
+                    insCountPass1LoopLifespanAdjs: new Map(),
+                    forceVarInit: new Map(),
+                    insLastAssigned: [],
+                    insLastRefs: [],
                     blocks: [],
-                    varRemaps: new Map(),
                     stackData: [],
                     stackLevel: 1,
+                    hasSetjmp: false,
+                    setJmps: [],
                 };
-                this.write(buf, this.processInstructions(field.offset, global_init_state));
-                this.write(buf, `__TABLE_OFFSET_${table_index}__ = ` + this.getPop(global_init_state) + " - 1;");
+                this.processInstructionsPass1(field.offset, global_init_state);
+                this.write(buf, this.processInstructionsPass2(field.offset, global_init_state));
+                this.writeEx(buf, this.processInstructionsPass3(field.offset, global_init_state), -1);
+                this.write(buf, `__TABLE_OFFSET_${table_index}__ = 1 - ` + this.getPop(global_init_state) + ";");
                 this.newLine(buf);
                 this.outdent(buf);
                 this.newLine(buf);
@@ -291,6 +411,26 @@ class wasm2lua {
             this.write(buf, "};");
             this.newLine(buf);
         });
+        for (let field of node.fields) {
+            if (field.type == "ModuleExport") {
+                this.write(buf, this.processModuleExport(field, state));
+            }
+        }
+        for (let field of node.fields) {
+            if (field.type == "Start") {
+                let fstate = this.getFuncByIndex(state, field.index);
+                if (fstate) {
+                    this.write(buf, `${fstate.id}()`);
+                    if (fstate.funcType && (fstate.funcType.params.length > 0)) {
+                        this.write(buf, " -- WARNING: COULDN'T FIGURE OUT WHAT ARGUMENT TO PASS IN");
+                    }
+                }
+                else {
+                    this.write(buf, "error('could not find start function')");
+                }
+                this.newLine(buf);
+            }
+        }
         return buf.join("");
     }
     processModuleMetadataSection(node) {
@@ -317,7 +457,7 @@ class wasm2lua {
         }
         return false;
     }
-    initFunc(node, state, renameTo) {
+    initFunc(node, state, renameTo, betterName) {
         let funcType;
         if (node.signature.type == "Signature") {
             funcType = node.signature;
@@ -334,17 +474,51 @@ class wasm2lua {
         }
         let fstate = {
             id: renameTo ? renameTo : sanitizeIdentifier(funcID),
+            origID: betterName || funcID,
+            regManager: new virtualregistermanager_1.VirtualRegisterManager(),
+            registersToBeFreed: [],
+            insLastAssigned: [],
+            insLastRefs: [],
+            insCountPass1: 0,
+            insCountPass2: 0,
+            insCountPass1LoopLifespanAdjs: new Map(),
+            forceVarInit: new Map(),
             locals: [],
+            localTypes: [],
             blocks: [],
-            varRemaps: new Map(),
             funcType,
             modState: state,
             stackData: [],
             stackLevel: 1,
+            hasSetjmp: false,
+            setJmps: [],
         };
         state.funcStates.push(fstate);
         state.funcByName.set(funcID, fstate);
         return fstate;
+    }
+    forEachVar(state, cb) {
+        let hasVars = false;
+        if (state.regManager.virtualDisabled) {
+            let seen = {};
+            for (let i = (state.funcType ? state.funcType.params.length : 0); i < state.regManager.registerCache.length; i++) {
+                let reg = state.regManager.registerCache[i];
+                let name = state.regManager.getPhysicalRegisterName(reg);
+                if (seen[name]) {
+                    continue;
+                }
+                seen[name] = true;
+                hasVars = true;
+                cb(name);
+            }
+        }
+        else if ((state.regManager.totalRegisters - (state.funcType ? state.funcType.params.length : 0)) > 0) {
+            for (let i = (state.funcType ? state.funcType.params.length : 0); i < state.regManager.totalRegisters; i++) {
+                hasVars = true;
+                cb(`reg${i}`);
+            }
+        }
+        return hasVars;
     }
     processFunc(node, modState) {
         let buf = [];
@@ -363,8 +537,13 @@ class wasm2lua {
             state = this.initFunc(node, modState);
         }
         state.stackLevel = 1;
+        this.getAllFuncCallsTo(node.body, state, "setjmp", state.setJmps);
+        state.hasSetjmp = state.setJmps.length > 0;
         this.write(buf, "function ");
         this.write(buf, state.id);
+        if (state.hasSetjmp) {
+            this.write(buf, "__setjmp_internal");
+        }
         this.write(buf, "(");
         if (this.options.whitelist != null && this.options.whitelist.indexOf(node.name.value + "") == -1) {
             if (state.id == "__W2L__WRITE_NUM") {
@@ -379,11 +558,20 @@ class wasm2lua {
             this.newLine(buf);
             return buf.join("");
         }
+        if (state.hasSetjmp) {
+            this.write(buf, "__setjmp_data__");
+            if (node.signature.type == "Signature") {
+                if (node.signature.params.length > 0) {
+                    this.write(buf, ",");
+                }
+            }
+        }
         if (node.signature.type == "Signature") {
             let i = 0;
             for (let param of node.signature.params) {
-                this.write(buf, `arg${i}`);
-                state.locals[i] = `arg${i}`;
+                let reg = this.fn_createNamedRegister(buf, state, `arg${i}`);
+                state.locals[i] = reg;
+                this.write(buf, state.regManager.getPhysicalRegisterName(reg));
                 if ((i + 1) !== node.signature.params.length) {
                     this.write(buf, ", ");
                 }
@@ -396,128 +584,491 @@ class wasm2lua {
         this.write(buf, ")");
         this.indent();
         this.newLine(buf);
-        this.write(buf, FUNC_VAR_HEADER);
-        this.newLine(buf);
-        this.write(buf, this.processInstructions(node.body, state));
-        this.endAllBlocks(buf, state);
-        this.write(buf, "do return ");
-        let nRets = state.funcType ? state.funcType.results.length : 0;
-        for (let i = 0; i < nRets; i++) {
-            this.write(buf, this.getPop(state));
-            if (nRets !== (i + 1)) {
-                this.write(buf, ",");
+        this.writeLn(buf, FUNC_VAR_HEADER);
+        this.processInstructionsPass1(node.body, state);
+        this.write(buf, this.processInstructionsPass2(node.body, state));
+        this.writeEx(buf, this.processInstructionsPass3(node.body, state), -1);
+        if (state.hasSetjmp) {
+            let buf2 = [];
+            this.write(buf2, "if __setjmp_data__ then");
+            this.indent();
+            this.newLine(buf2);
+            let hasVars = this.forEachVar(state, (varName) => {
+                this.write(buf2, `${varName}`);
+                this.write(buf2, ",");
+            });
+            if (hasVars) {
+                buf2.pop();
+                this.write(buf2, " = ");
+                this.forEachVar(state, (varName) => {
+                    this.write(buf2, `__setjmp_data__.data.${varName}`);
+                    this.write(buf2, ",");
+                });
+                buf2.pop();
+                this.write(buf2, ";");
             }
+            this.newLine(buf2);
+            this.write(buf2, "if ");
+            let i = 0;
+            for (let jmpCall of state.setJmps) {
+                this.write(buf2, `__setjmp_data__.target == "jmp_${sanitizeIdentifier(jmpCall.loc.start.line)}_${sanitizeIdentifier(jmpCall.loc.start.column)}" then `);
+                this.write(buf2, `goto jmp_${sanitizeIdentifier(jmpCall.loc.start.line)}_${sanitizeIdentifier(jmpCall.loc.start.column)}`);
+                if ((i + 1) !== state.setJmps.length) {
+                    this.newLine(buf2);
+                    this.write(buf2, "elseif");
+                }
+                i++;
+            }
+            this.write(buf2, " end");
+            this.outdent();
+            this.newLine(buf2);
+            this.write(buf2, "end");
+            this.newLine(buf2);
+            this.writeEx(buf, buf2.join(""), -1);
         }
-        this.write(buf, "; end;");
-        this.newLine(buf);
+        this.endAllBlocks(buf, state);
+        if (state.stackLevel > 1) {
+            this.write(buf, "do return ");
+            let nRets = state.funcType ? state.funcType.results.length : 0;
+            for (let i = 0; i < nRets; i++) {
+                this.write(buf, this.getPop(state));
+                if (nRets !== (i + 1)) {
+                    this.write(buf, ",");
+                }
+            }
+            this.write(buf, "; end;");
+            this.newLine(buf);
+        }
         this.outdent(buf);
         this.write(buf, "end");
         this.newLine(buf);
+        if (state.hasSetjmp) {
+            this.newLine(buf);
+            this.write(buf, "function ");
+            this.write(buf, state.id);
+            this.write(buf, "(");
+            let argBuf = [];
+            if (node.signature.type == "Signature") {
+                let i = 0;
+                for (let param of node.signature.params) {
+                    let reg = this.fn_createNamedRegister(argBuf, state, `arg${i}`);
+                    state.locals[i] = reg;
+                    this.write(argBuf, state.regManager.getPhysicalRegisterName(reg));
+                    if ((i + 1) !== node.signature.params.length) {
+                        this.write(argBuf, ", ");
+                    }
+                    i++;
+                }
+            }
+            this.write(buf, argBuf.join(""));
+            this.write(buf, ")");
+            this.indent();
+            this.newLine(buf);
+            this.write(buf, "local setjmpState;");
+            this.newLine(buf);
+            this.write(buf, "::start::");
+            this.newLine(buf);
+            this.write(buf, "local suc,");
+            let nRets = state.funcType ? state.funcType.results.length : 0;
+            for (let i = 0; i < (nRets + 1); i++) {
+                this.write(buf, `ret${i}`);
+            }
+            this.write(buf, " = ");
+            this.write(buf, "pcall(");
+            this.write(buf, state.id);
+            this.write(buf, "__setjmp_internal,setjmpState");
+            if (argBuf.length > 0) {
+                this.write(buf, ",");
+                this.write(buf, argBuf.join(""));
+            }
+            this.writeLn(buf, ");");
+            this.write(buf, `if not suc and (type(ret0) == "table") then`);
+            this.indent();
+            this.newLine(buf);
+            this.writeLn(buf, "setjmpState = ret0;");
+            this.write(buf, "goto start;");
+            this.outdent();
+            this.newLine(buf);
+            this.writeLn(buf, "elseif not suc then return error(ret0) end");
+            this.write(buf, "return ");
+            for (let i = 0; i < nRets; i++) {
+                this.write(buf, `ret${i}`);
+            }
+            this.outdent();
+            this.newLine(buf);
+            this.writeLn(buf, "end");
+        }
         return buf.join("");
     }
-    beginBlock(buf, state, block) {
-        this.write(buf, `::${block.id}_start::`);
+    beginBlock(buf, state, block, customStart) {
         state.blocks.push(block);
-        this.newLine(buf);
-        this.write(buf, "do");
+        this.write(buf, `::${sanitizeIdentifier(block.id)}_start::`);
+        if (typeof customStart === "string") {
+            this.newLine(buf);
+            this.write(buf, customStart);
+        }
+        else if (block.blockType == "loop") {
+            this.newLine(buf);
+            this.write(buf, "while true do");
+        }
         this.indent();
         this.newLine(buf);
+        return block;
     }
     endAllBlocks(buf, state) {
         while (state.blocks.length > 0) {
             this.endBlock(buf, state);
         }
     }
+    endBlocksUntil(buf, state, tgtBlock) {
+        if (tgtBlock.hasClosed) {
+            return;
+        }
+        while (state.blocks.length > 0) {
+            if (state.blocks[state.blocks.length - 1] == tgtBlock) {
+                break;
+            }
+            this.endBlock(buf, state);
+        }
+    }
+    endBlocksUntilEx(buf, state, tgtBlock) {
+        if (tgtBlock.hasClosed) {
+            return;
+        }
+        while (state.blocks.length > 0) {
+            this.endBlock(buf, state);
+            if (state.blocks[state.blocks.length - 1] == tgtBlock) {
+                break;
+            }
+        }
+    }
     endBlock(buf, state) {
         let block = state.blocks.pop();
         if (block) {
-            this.endBlockInternal(buf, block);
+            this.endBlockInternal(buf, block, state);
+            if (state.stackLevel > (block.resultType === null ? block.enterStackLevel : block.enterStackLevel + 1)) {
+                this.writeLn(buf, "-- WARNING: a block as popped extra information into the stack.");
+            }
             return true;
         }
         return false;
     }
-    endBlockInternal(buf, block) {
-        this.outdent(buf);
-        this.write(buf, "end");
-        this.newLine(buf);
-        this.write(buf, `::${block.id}_fin::`);
+    endBlockInternal(buf, block, state) {
+        block.hasClosed = true;
+        if (block.resultType !== null) {
+            this.write(buf, state.regManager.getPhysicalRegisterName(block.resultRegister) + " = " + this.getPop(state));
+            this.newLine(buf);
+        }
+        let popCnt = state.stackLevel - block.enterStackLevel;
+        for (let i = 0; i < popCnt; i++) {
+            this.getPop(state);
+        }
+        if (block.resultType !== null) {
+            this.writeLn(buf, "-- BLOCK RET (" + block.blockType + "):");
+            this.writeLn(buf, this.getPushStack(state, block.resultRegister));
+        }
+        if (block.blockType == "loop") {
+            this.write(buf, "break");
+            this.newLine(buf);
+            this.outdent(buf);
+            this.write(buf, "end");
+            this.newLine(buf);
+        }
+        else {
+            this.outdent(buf);
+        }
+        this.write(buf, `::${sanitizeIdentifier(block.id)}_fin::`);
         this.newLine(buf);
     }
-    processInstructions(insArr, state) {
-        let buf = [];
+    startElseSubBlock(buf, block, state) {
+        if (block.resultType !== null) {
+            this.write(buf, state.regManager.getPhysicalRegisterName(block.resultRegister) + " = " + this.getPop(state));
+            this.newLine(buf);
+        }
+        let popCnt = state.stackLevel - block.enterStackLevel;
+        for (let i = 0; i < popCnt; i++) {
+            this.getPop(state);
+        }
+        this.outdent(buf);
+        this.write(buf, `goto ${sanitizeIdentifier(block.id)}_fin`);
+        this.newLine(buf);
+        this.write(buf, `::${sanitizeIdentifier(block.id)}_else::`);
+        this.indent();
+        this.newLine(buf);
+    }
+    writeBranch(buf, state, blocksToExit) {
+        let targetBlock = state.blocks[state.blocks.length - blocksToExit - 1];
+        let currentBlock = state.blocks[state.blocks.length - 1];
+        if (targetBlock) {
+            if (targetBlock.resultType !== null) {
+                this.write(buf, state.regManager.getPhysicalRegisterName(targetBlock.resultRegister) + " = " + this.getPeek(state) + "; ");
+            }
+            this.write(buf, "goto ");
+            if (targetBlock.blockType == "loop") {
+                this.write(buf, sanitizeIdentifier(`${targetBlock.id}_start`));
+            }
+            else {
+                this.write(buf, sanitizeIdentifier(`${targetBlock.id}_fin`));
+            }
+        }
+        else if (blocksToExit == state.blocks.length) {
+            this.writeReturn(buf, state);
+        }
+        else {
+            this.write(buf, "goto ____UNRESOLVED_DEST____");
+        }
+        this.write(buf, ";");
+    }
+    writeReturn(buf, state) {
+        this.write(buf, "do return ");
+        let nRets = state.funcType ? state.funcType.results.length : 0;
+        for (let i = 0; i < nRets; i++) {
+            this.write(buf, this.getPeek(state, i));
+            if (nRets !== (i + 1)) {
+                this.write(buf, ",");
+            }
+        }
+        this.write(buf, " end");
+    }
+    getLastLoop(state) {
+        for (let i = state.blocks.length - 1; i >= 0; i--) {
+            if (state.blocks[i].blockType == "loop") {
+                return state.blocks[i];
+            }
+        }
+        return false;
+    }
+    getAllFuncCallsTo(insArr, state, funcName, out) {
         for (let ins of insArr) {
+            switch (ins.type) {
+                case "CallInstruction": {
+                    let fstate = this.getFuncByIndex(state.modState, ins.index);
+                    if ((fstate && fstate.origID == funcName) || (ins.index.value == funcName)) {
+                        out.push(ins);
+                    }
+                    break;
+                }
+                case "BlockInstruction":
+                case "LoopInstruction": {
+                    this.getAllFuncCallsTo(ins.instr, state, funcName, out);
+                    break;
+                }
+                case "IfInstruction": {
+                    this.getAllFuncCallsTo(ins.consequent, state, funcName, out);
+                    if (ins.alternate.length > 0) {
+                        this.getAllFuncCallsTo(ins.alternate, state, funcName, out);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    processInstructionsPass1(insArr, state) {
+        for (let ins of insArr) {
+            state.insCountPass1++;
             switch (ins.type) {
                 case "Instr": {
                     switch (ins.id) {
                         case "local": {
-                            if (ins.args.length > 0) {
-                                this.write(buf, "local ");
-                                let i = 0;
-                                for (let loc of ins.args) {
-                                    i++;
-                                    this.write(buf, `loc${state.locals.length}`);
-                                    state.locals.push(`loc${state.locals.length}`);
-                                    if (i !== ins.args.length) {
-                                        this.write(buf, ",");
+                            state.localTypes = ins.args.map((arg) => {
+                                if (arg.type == "ValtypeLiteral") {
+                                    return arg.name;
+                                }
+                                else {
+                                    throw new Error("Bad type???");
+                                }
+                            });
+                            break;
+                        }
+                        case "get_local": {
+                            let locID = ins.args[0].value;
+                            state.insLastRefs[locID] = state.insCountPass1;
+                            let data = state.insLastAssigned[locID];
+                            if (data == null && (locID >= (state.funcType ? state.funcType.params.length : 0))) {
+                                let forceInitIns = state.insCountPass1;
+                                for (let i = 0; i < state.blocks.length; i++) {
+                                    if (state.blocks[i].blockType == "loop") {
+                                        forceInitIns = state.blocks[i].insCountStart;
+                                        break;
                                     }
                                 }
-                                this.write(buf, ";");
+                                if (state.forceVarInit.get(forceInitIns) == null) {
+                                    state.forceVarInit.set(forceInitIns, []);
+                                }
+                                state.forceVarInit.get(forceInitIns).push(locID);
                             }
-                            this.newLine(buf);
+                            let lastLoop = this.getLastLoop(state);
+                            if (lastLoop && (data == null || lastLoop !== data[1])) {
+                                if (!state.insCountPass1LoopLifespanAdjs.get(locID)) {
+                                    state.insCountPass1LoopLifespanAdjs.set(locID, lastLoop);
+                                }
+                            }
+                            break;
+                        }
+                        case "set_local": {
+                            let locID = ins.args[0].value;
+                            state.insLastRefs[locID] = state.insCountPass1;
+                            state.insLastAssigned[locID] = [state.insCountPass1, this.getLastLoop(state)];
+                            break;
+                        }
+                        case "tee_local": {
+                            let locID = ins.args[0].value;
+                            state.insLastRefs[locID] = state.insCountPass1;
+                            state.insLastAssigned[locID] = [state.insCountPass1, this.getLastLoop(state)];
+                            break;
+                        }
+                        case "end": {
+                            this.endBlock([], state);
+                            break;
+                        }
+                    }
+                    break;
+                }
+                case "BlockInstruction":
+                case "LoopInstruction": {
+                    let blockType = (ins.type == "LoopInstruction") ? "loop" : "block";
+                    let block = this.beginBlock([], state, {
+                        id: ins.label.value,
+                        resultType: null,
+                        blockType,
+                        enterStackLevel: state.stackLevel,
+                        insCountStart: state.insCountPass1
+                    });
+                    this.processInstructionsPass1(ins.instr, state);
+                    if (block.blockType === "loop") {
+                        for (let deferredVals of state.insCountPass1LoopLifespanAdjs) {
+                            if (deferredVals[1] == block) {
+                                state.insLastRefs[deferredVals[0]] = state.insCountPass1;
+                                state.insCountPass1LoopLifespanAdjs.delete(deferredVals[0]);
+                            }
+                        }
+                    }
+                    break;
+                }
+                case "IfInstruction": {
+                    let block = this.beginBlock([], state, {
+                        id: `if_${ins.loc.start.line}_${ins.loc.start.column}`,
+                        blockType: "if",
+                        resultType: null,
+                        enterStackLevel: state.stackLevel,
+                        insCountStart: state.insCountPass1
+                    });
+                    this.processInstructionsPass1(ins.consequent, state);
+                    if (ins.alternate.length > 0) {
+                        this.startElseSubBlock([], block, state);
+                        this.processInstructionsPass1(ins.alternate, state);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    processInstructionsPass2(insArr, state) {
+        let buf = [];
+        for (let ins of insArr) {
+            state.insCountPass2++;
+            let forceInitVars = state.forceVarInit.get(state.insCountPass2);
+            if (forceInitVars != null) {
+                forceInitVars.forEach((locID) => {
+                    if (this.insDebugOutput) {
+                        this.write(buf, "-- FORCE INIT VAR");
+                        this.newLine(buf);
+                    }
+                    if (!state.locals[locID]) {
+                        state.locals[locID] = this.fn_createNamedRegister(buf, state, `loc${locID}`);
+                    }
+                    if (typeof state.locals[locID].firstRef === "undefined") {
+                        state.locals[locID].firstRef = state.insCountPass2;
+                        state.locals[locID].lastRef = state.insLastRefs[locID];
+                    }
+                    this.write(buf, state.regManager.getPhysicalRegisterName(state.locals[locID]));
+                    if (state.localTypes[locID] == "i64") {
+                        this.write(buf, " = __LONG_INT__(0,0);");
+                    }
+                    else {
+                        this.write(buf, " = 0;");
+                    }
+                    this.newLine(buf);
+                });
+            }
+            if (this.insDebugOutput) {
+                if (ins.type == "Instr") {
+                    this.write(buf, "-- LOOK " + ins.id + " " + JSON.stringify(ins));
+                }
+                else {
+                    this.write(buf, "-- LOOK (!) " + ins.type + " " + JSON.stringify(ins));
+                }
+                this.newLine(buf);
+            }
+            switch (ins.type) {
+                case "Instr": {
+                    switch (ins.id) {
+                        case "local": {
                             break;
                         }
                         case "const": {
                             if (ins.args[0].type == "LongNumberLiteral") {
                                 let _const = ins.args[0].value;
-                                this.write(buf, this.getPushStack(state, `__LONG_INT__(${_const.low},${_const.high})`));
-                                this.newLine(buf);
+                                this.writeLn(buf, this.getPushStack(state, `__LONG_INT__(${_const.low},${_const.high})`));
                             }
                             else {
                                 let _const = ins.args[0].value;
-                                this.write(buf, this.getPushStack(state, _const.toString()));
-                                this.newLine(buf);
+                                this.writeLn(buf, this.getPushStack(state, _const.toString()));
                             }
                             break;
                         }
                         case "get_global": {
                             let globID = ins.args[0].value;
-                            this.write(buf, this.getPushStack(state, "__GLOBALS__[" + globID + "]"));
-                            this.newLine(buf);
+                            this.writeLn(buf, this.getPushStack(state, "__GLOBALS__[" + globID + "]"));
                             break;
                         }
                         case "set_global": {
                             let globID = ins.args[0].value;
-                            this.write(buf, "__GLOBALS__[" + globID + "] = " + this.getPop(state) + ";");
-                            this.newLine(buf);
+                            this.writeLn(buf, "__GLOBALS__[" + globID + "] = " + this.getPop(state) + ";");
                             break;
                         }
                         case "get_local": {
                             let locID = ins.args[0].value;
-                            this.write(buf, this.getPushStack(state, state.locals[locID] || `loc${locID}`));
-                            this.newLine(buf);
+                            if (!state.locals[locID]) {
+                                state.locals[locID] = this.fn_createNamedRegister(buf, state, `loc${locID}`);
+                            }
+                            if (typeof state.locals[locID].firstRef === "undefined") {
+                                state.locals[locID].firstRef = state.insCountPass2;
+                                state.locals[locID].lastRef = state.insLastRefs[locID];
+                            }
+                            this.writeLn(buf, this.getPushStack(state, state.locals[locID]));
                             break;
                         }
                         case "set_local": {
                             let locID = ins.args[0].value;
-                            this.write(buf, state.locals[locID] || `loc${locID}`);
+                            if (!state.locals[locID]) {
+                                state.locals[locID] = this.fn_createNamedRegister(buf, state, `loc${locID}`);
+                            }
+                            if (typeof state.locals[locID].firstRef === "undefined") {
+                                state.locals[locID].firstRef = state.insCountPass2;
+                                state.locals[locID].lastRef = state.insLastRefs[locID];
+                            }
+                            this.write(buf, state.regManager.getPhysicalRegisterName(state.locals[locID]));
                             this.write(buf, " = " + this.getPop(state) + ";");
                             this.newLine(buf);
                             break;
                         }
                         case "tee_local": {
                             let locID = ins.args[0].value;
-                            this.write(buf, state.locals[locID] || `loc${locID}`);
+                            if (!state.locals[locID]) {
+                                state.locals[locID] = this.fn_createNamedRegister(buf, state, `loc${locID}`);
+                            }
+                            if (typeof state.locals[locID].firstRef === "undefined") {
+                                state.locals[locID].firstRef = state.insCountPass2;
+                                state.locals[locID].lastRef = state.insLastRefs[locID];
+                            }
+                            this.write(buf, state.regManager.getPhysicalRegisterName(state.locals[locID]));
                             this.write(buf, " = " + this.getPop(state) + " ; ");
-                            this.write(buf, this.getPushStack(state, state.locals[locID] || `loc${locID}`));
-                            this.newLine(buf);
-                            break;
-                        }
-                        case "sqrt": {
-                            this.write(buf, this.getPushStack(state, `math.sqrt(${this.getPop(state)})`));
+                            this.writeLn(buf, this.getPushStack(state, state.locals[locID]));
                             break;
                         }
                         case "neg": {
-                            this.write(buf, this.getPushStack(state, `-(${this.getPop(state)})`));
+                            this.writeLn(buf, this.getPushStack(state, `-(${this.getPop(state)})`));
                             break;
                         }
                         case "add":
@@ -526,6 +1077,10 @@ class wasm2lua {
                         case "div":
                         case "eq":
                         case "ne":
+                        case "lt":
+                        case "le":
+                        case "ge":
+                        case "gt":
                         case "lt_s":
                         case "le_s":
                         case "ge_s":
@@ -538,28 +1093,36 @@ class wasm2lua {
                                 let op = wasm2lua.instructionBinOpRemap[ins.id].op;
                                 let convert_bool = wasm2lua.instructionBinOpRemap[ins.id].bool_result;
                                 let unsigned = wasm2lua.instructionBinOpRemap[ins.id].unsigned;
-                                this.write(buf, "__TMP__ = ");
-                                this.write(buf, this.getPop(state));
-                                this.write(buf, "; ");
-                                this.write(buf, "__TMP2__ = ");
-                                this.write(buf, this.getPop(state));
-                                this.write(buf, "; ");
-                                this.write(buf, this.getPushStack(state));
+                                let resultVar = this.fn_createTempRegister(buf, state);
+                                let tmp = this.getPop(state);
+                                let tmp2 = this.getPop(state);
+                                this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = `);
                                 if (convert_bool) {
                                     if (unsigned) {
-                                        this.write(buf, "(__UNSIGNED__(__TMP2__) " + op + " __UNSIGNED__(__TMP__)) and 1 or 0");
+                                        if (ins.object == "i64") {
+                                            this.write(buf, `(${tmp2}):_${ins.id}(${tmp}) and 1 or 0`);
+                                        }
+                                        else {
+                                            this.write(buf, `(__UNSIGNED__(${tmp2}) ${op} __UNSIGNED__(${tmp})) and 1 or 0`);
+                                        }
                                     }
                                     else {
-                                        this.write(buf, "(__TMP2__ " + op + " __TMP__) and 1 or 0");
+                                        this.write(buf, `(${tmp2} ${op} ${tmp}) and 1 or 0`);
                                     }
                                 }
                                 else if (ins.object == "i32") {
-                                    this.write(buf, "bit.tobit(__TMP2__ " + op + " __TMP__)");
+                                    if (ins.id == "mul" && this.options.compileFlags.includes("correct-multiply")) {
+                                        this.write(buf, `__MULTIPLY_CORRECT__(${tmp2},${tmp})`);
+                                    }
+                                    else {
+                                        this.write(buf, `bit.tobit(${tmp2} ${op} ${tmp})`);
+                                    }
                                 }
                                 else {
-                                    this.write(buf, "__TMP2__ " + op + " __TMP__");
+                                    this.write(buf, `${tmp2} ${op} ${tmp}`);
                                 }
-                                this.write(buf, ";");
+                                this.write(buf, "; ");
+                                this.write(buf, this.getPushStack(state, resultVar));
                                 this.newLine(buf);
                                 break;
                             }
@@ -571,68 +1134,158 @@ class wasm2lua {
                         case "shr_s":
                         case "rotl":
                         case "rotr":
+                        case "div_s":
+                        case "div_u":
+                        case "rem_s":
+                        case "rem_u":
+                        case "min":
+                        case "max":
                             {
-                                if (ins.object == "i32") {
+                                let resultVar = this.fn_createTempRegister(buf, state);
+                                let tmp = this.getPop(state);
+                                let tmp2 = this.getPop(state);
+                                this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = `);
+                                if (ins.object == "i32" || ins.object == "f32" || ins.object == "f64") {
                                     let op_func = wasm2lua.instructionBinOpFuncRemap[ins.id];
-                                    this.write(buf, "__TMP__ = ");
-                                    this.write(buf, this.getPop(state));
-                                    this.write(buf, "; ");
-                                    this.write(buf, "__TMP2__ = ");
-                                    this.write(buf, this.getPop(state));
-                                    this.write(buf, "; ");
-                                    this.write(buf, this.getPushStack(state));
                                     this.write(buf, op_func);
-                                    this.write(buf, "(__TMP2__,__TMP__);");
+                                    this.write(buf, `(${tmp2},${tmp});`);
                                 }
                                 else if (ins.object == "i64") {
-                                    this.write(buf, "__TMP__ = ");
-                                    this.write(buf, this.getPop(state));
-                                    this.write(buf, "; ");
-                                    this.write(buf, "__TMP2__ = ");
-                                    this.write(buf, this.getPop(state));
-                                    this.write(buf, "; ");
-                                    this.write(buf, this.getPushStack(state));
-                                    this.write(buf, `__TMP2__:_${ins.id}(__TMP__);`);
+                                    this.write(buf, `(${tmp2}):_${ins.id}(${tmp});`);
                                 }
                                 else {
                                     this.write(buf, "error('BIT OP ON UNSUPPORTED TYPE: " + ins.object + "," + ins.id + "');");
                                 }
+                                this.write(buf, this.getPushStack(state, resultVar));
                                 this.newLine(buf);
                                 break;
                             }
+                        case "clz":
+                        case "ctz":
+                        case "popcnt":
+                        case "sqrt":
+                        case "nearest":
+                        case "trunc":
+                        case "floor":
+                        case "ceil":
+                            {
+                                var arg = this.getPop(state);
+                                if (ins.object == "i64") {
+                                    this.write(buf, this.getPushStack(state, arg + ":_" + ins.id + "()"));
+                                }
+                                else {
+                                    let op_func = wasm2lua.instructionBinOpFuncRemap[ins.id];
+                                    this.write(buf, this.getPushStack(state, op_func + "(" + arg + ")"));
+                                }
+                                break;
+                            }
                         case "eqz": {
-                            this.write(buf, "__TMP__ = ");
-                            this.write(buf, this.getPop(state));
-                            this.write(buf, "; ");
-                            this.write(buf, this.getPushStack(state));
-                            this.write(buf, "(__TMP__==0) and 1 or 0;");
+                            let resultVar = this.fn_createTempRegister(buf, state);
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = `);
+                            let value = this.getPop(state);
+                            if (ins.object == "i64") {
+                                this.write(buf, ` ((${value})[1] == 0) and ((${value})[2] == 0) and 1 or 0;`);
+                            }
+                            else {
+                                this.write(buf, `(${value} ==0) and 1 or 0;`);
+                            }
+                            this.write(buf, this.getPushStack(state, resultVar));
                             this.newLine(buf);
                             break;
                         }
                         case "select": {
-                            this.write(buf, "__TMP__ = ");
-                            this.write(buf, this.getPop(state));
-                            this.write(buf, "; ");
-                            this.write(buf, "if __TMP__==0 then ");
-                            this.write(buf, "__TMP2__=" + this.getPop(state) + "; ");
-                            this.stackDrop(state);
-                            this.write(buf, this.getPushStack(state) + "__TMP2__ ");
+                            let resultVar = this.fn_createTempRegister(buf, state);
+                            let popCond = this.getPop(state);
+                            let ret1 = this.getPop(state);
+                            let ret2 = this.getPop(state);
+                            this.write(buf, `if ${popCond} == 0 then `);
+                            this.write(buf, ` ${state.regManager.getPhysicalRegisterName(resultVar)} = ${ret1} `);
+                            this.write(buf, `else ${state.regManager.getPhysicalRegisterName(resultVar)} = ${ret2} `);
                             this.write(buf, "end;");
+                            this.write(buf, this.getPushStack(state, resultVar));
                             this.newLine(buf);
                             break;
                         }
                         case "drop": {
                             this.stackDrop(state);
-                            this.write(buf, "-- stack drop");
-                            this.newLine(buf);
+                            if (this.stackDebugOutput) {
+                                this.write(buf, "-- stack drop");
+                                this.newLine(buf);
+                            }
                             break;
                         }
+                        case "convert_s/i32":
+                        case "convert_s/i64":
                         case "promote/f32":
                         case "demote/f64":
                             break;
+                        case "trunc_s/f32":
+                        case "trunc_s/f64": {
+                            let resultVar = this.fn_createTempRegister(buf, state);
+                            let tmp = this.getPop(state);
+                            if (ins.object == "i64") {
+                                this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT_N__(__TRUNC__(${tmp}));`);
+                            }
+                            else {
+                                this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __TRUNC__(${tmp});`);
+                            }
+                            this.write(buf, this.getPushStack(state, resultVar));
+                            this.newLine(buf);
+                            break;
+                        }
                         case "extend_u/i32": {
-                            this.write(buf, `__TMP__=${this.getPop(state)}; `);
-                            this.write(buf, `${this.getPushStack(state)}__LONG_INT__(__TMP__,0);`);
+                            let resultVar = this.fn_createTempRegister(buf, state);
+                            let tmp = this.getPop(state);
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(${tmp},0);`);
+                            this.write(buf, this.getPushStack(state, resultVar));
+                            this.newLine(buf);
+                            break;
+                        }
+                        case "extend_s/i32": {
+                            let resultVar = this.fn_createTempRegister(buf, state);
+                            let tmp = this.getPop(state);
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(bit.band(${tmp},0x7FFFFFFF),bit.band(${tmp},0x80000000));`);
+                            this.write(buf, this.getPushStack(state, resultVar));
+                            this.newLine(buf);
+                            break;
+                        }
+                        case "wrap/i64": {
+                            let resultVar = this.fn_createTempRegister(buf, state);
+                            let tmp = this.getPop(state);
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = (${tmp})[1];`);
+                            this.write(buf, this.getPushStack(state, resultVar));
+                            this.newLine(buf);
+                            break;
+                        }
+                        case "reinterpret/i32": {
+                            let resultVar = this.fn_createTempRegister(buf, state);
+                            let arg = this.getPop(state);
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = UInt32ToFloat(${arg});`);
+                            this.write(buf, this.getPushStack(state, resultVar));
+                            this.newLine(buf);
+                            break;
+                        }
+                        case "reinterpret/i64": {
+                            let resultVar = this.fn_createTempRegister(buf, state);
+                            let arg = this.getPop(state);
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = UInt32sToDouble((${arg})[1],(${arg})[2]);`);
+                            this.write(buf, this.getPushStack(state, resultVar));
+                            this.newLine(buf);
+                            break;
+                        }
+                        case "reinterpret/f32": {
+                            let resultVar = this.fn_createTempRegister(buf, state);
+                            let arg = this.getPop(state);
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = FloatToUInt32(${arg});`);
+                            this.write(buf, this.getPushStack(state, resultVar));
+                            this.newLine(buf);
+                            break;
+                        }
+                        case "reinterpret/f64": {
+                            let resultVar = this.fn_createTempRegister(buf, state);
+                            let arg = this.getPop(state);
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(DoubleToUInt32s(${arg}));`);
+                            this.write(buf, this.getPushStack(state, resultVar));
                             this.newLine(buf);
                             break;
                         }
@@ -640,41 +1293,42 @@ class wasm2lua {
                             this.write(buf, "if ");
                             this.write(buf, this.getPop(state));
                             this.write(buf, "~=0 then ");
-                            let blocksToExit = ins.args[0].value;
-                            let targetBlock = state.blocks[state.blocks.length - blocksToExit - 1];
-                            if (targetBlock) {
-                                this.write(buf, "goto ");
-                                if (targetBlock.blockType == "loop") {
-                                    this.write(buf, `${targetBlock.id}_start`);
-                                }
-                                else {
-                                    this.write(buf, `${targetBlock.id}_fin`);
-                                }
-                            }
-                            else {
-                                this.write(buf, "goto ____UNRESOLVED_DEST____");
-                            }
+                            this.writeBranch(buf, state, ins.args[0].value);
                             this.write(buf, " end;");
                             this.newLine(buf);
                             break;
                         }
                         case "br": {
-                            let blocksToExit = ins.args[0].value;
-                            let targetBlock = state.blocks[state.blocks.length - blocksToExit - 1];
-                            if (targetBlock) {
-                                this.write(buf, "goto ");
-                                if (targetBlock.blockType == "loop") {
-                                    this.write(buf, `${targetBlock.id}_start`);
+                            this.writeBranch(buf, state, ins.args[0].value);
+                            this.newLine(buf);
+                            break;
+                        }
+                        case "br_table": {
+                            let tmp = this.getPop(state);
+                            this.newLine(buf);
+                            let arg_count = ins.args.length;
+                            if (arg_count > 1000) {
+                                this.write(buf, "error('jump table too big')");
+                                this.newLine(buf);
+                                break;
+                            }
+                            ins.args.forEach((target, i) => {
+                                if (i != 0) {
+                                    this.write(buf, "else");
+                                }
+                                if (i < arg_count - 1) {
+                                    this.write(buf, `if ${tmp} == ${i} then `);
                                 }
                                 else {
-                                    this.write(buf, `${targetBlock.id}_fin`);
+                                    this.write(buf, " ");
                                 }
+                                this.writeBranch(buf, state, target.value);
+                                this.newLine(buf);
+                            });
+                            if (ins.args.length > 1) {
+                                this.write(buf, "end");
+                                this.newLine(buf);
                             }
-                            else {
-                                this.write(buf, "goto ____UNRESOLVED_DEST____");
-                            }
-                            this.write(buf, ";");
-                            this.newLine(buf);
                             break;
                         }
                         case "store":
@@ -683,12 +1337,8 @@ class wasm2lua {
                         case "store32": {
                             let targ = state.modState.memoryAllocations.get(0);
                             if (targ) {
-                                this.write(buf, "__TMP__ = ");
-                                this.write(buf, this.getPop(state));
-                                this.write(buf, "; ");
-                                this.write(buf, "__TMP2__ = ");
-                                this.write(buf, this.getPop(state));
-                                this.write(buf, "; ");
+                                let tmp = this.getPop(state);
+                                let tmp2 = this.getPop(state);
                                 if (ins.object == "u32") {
                                     if (ins.id == "store16") {
                                         this.write(buf, "__MEMORY_WRITE_16__");
@@ -699,18 +1349,18 @@ class wasm2lua {
                                     else {
                                         this.write(buf, "__MEMORY_WRITE_32__");
                                     }
-                                    this.write(buf, `(${targ},__TMP2__+${ins.args[0].value},__TMP__);`);
+                                    this.write(buf, `(${targ},${tmp2}+${ins.args[0].value},${tmp});`);
                                 }
                                 else if (ins.object == "u64") {
-                                    this.write(buf, `__TMP__:${ins.id}(${targ},__TMP2__+${ins.args[0].value});`);
+                                    this.write(buf, `(${tmp}):${ins.id}(${targ},${tmp2}+${ins.args[0].value});`);
                                 }
                                 else if (ins.object == "f32") {
                                     this.write(buf, "__MEMORY_WRITE_32F__");
-                                    this.write(buf, `(${targ},__TMP2__+${ins.args[0].value},__TMP__);`);
+                                    this.write(buf, `(${targ},${tmp2}+${ins.args[0].value},${tmp});`);
                                 }
                                 else if (ins.object == "f64") {
                                     this.write(buf, "__MEMORY_WRITE_64F__");
-                                    this.write(buf, `(${targ},__TMP2__+${ins.args[0].value},__TMP__);`);
+                                    this.write(buf, `(${targ},${tmp2}+${ins.args[0].value},${tmp});`);
                                 }
                                 else {
                                     this.write(buf, "-- WARNING: UNSUPPORTED MEMORY OP ON TYPE: " + ins.object);
@@ -732,7 +1382,9 @@ class wasm2lua {
                         case "load32_u": {
                             let targ = state.modState.memoryAllocations.get(0);
                             if (targ) {
-                                this.write(buf, "__TMP__ = ");
+                                let tempVar = this.fn_createTempRegister(buf, state);
+                                let vname = state.regManager.getPhysicalRegisterName(tempVar);
+                                this.write(buf, `${vname} = `);
                                 let is_narrow_u64_load = (ins.object == "u64" && ins.id != "load");
                                 if (ins.object == "u32" || is_narrow_u64_load) {
                                     if (ins.id.startsWith("load16")) {
@@ -756,12 +1408,12 @@ class wasm2lua {
                                         else {
                                             throw new Error("signed load " + ins.id);
                                         }
-                                        this.write(buf, `__TMP__=bit.arshift(bit.lshift(__TMP__,${shift}),${shift});`);
+                                        this.write(buf, `${vname}=bit.arshift(bit.lshift(${vname},${shift}),${shift});`);
                                     }
                                 }
                                 else if (ins.object == "u64") {
                                     if (ins.id == "load") {
-                                        this.write(buf, `__LONG_INT__(0,0); __TMP__:${ins.id}(${targ},${this.getPop(state)}+${ins.args[0].value});`);
+                                        this.write(buf, `__LONG_INT__(0,0); ${vname}:${ins.id}(${targ},${this.getPop(state)}+${ins.args[0].value});`);
                                     }
                                     else {
                                         throw new Error("narrow u64 loads NYI " + ins.id);
@@ -782,38 +1434,35 @@ class wasm2lua {
                                 }
                                 if (is_narrow_u64_load) {
                                     if (ins.id.endsWith("_s")) {
-                                        this.write(buf, "__TMP__=__LONG_INT__(__TMP__,-1);");
+                                        this.write(buf, `${vname}=__LONG_INT__(${vname},bit.arshift(${vname},31));`);
                                     }
                                     else {
-                                        this.write(buf, "__TMP__=__LONG_INT__(__TMP__,0);");
+                                        this.write(buf, `${vname}=__LONG_INT__(${vname},0);`);
                                     }
                                 }
-                                this.write(buf, this.getPushStack(state) + "__TMP__;");
-                                this.newLine(buf);
+                                this.writeLn(buf, this.getPushStack(state, tempVar));
                             }
                             else {
                                 this.write(buf, "-- WARNING: COULD NOT FIND MEMORY TO READ");
-                                this.newLine(buf);
                             }
+                            this.newLine(buf);
                             break;
                         }
                         case "grow_memory": {
                             let targ = state.modState.memoryAllocations.get(0);
-                            this.write(buf, `__TMP__ = __MEMORY_GROW__(${targ},__UNSIGNED__(${this.getPop(state)})); `);
-                            this.write(buf, `${this.getPushStack(state)}__TMP__;`);
+                            let tempVar = this.fn_createTempRegister(buf, state);
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(tempVar)} = __MEMORY_GROW__(${targ},__UNSIGNED__(${this.getPop(state)})); `);
+                            this.write(buf, this.getPushStack(state, tempVar));
                             this.newLine(buf);
                             break;
                         }
+                        case "current_memory": {
+                            let targ = state.modState.memoryAllocations.get(0);
+                            this.writeLn(buf, this.getPushStack(state, `${targ}._page_count`));
+                            break;
+                        }
                         case "return": {
-                            this.write(buf, "do return ");
-                            let nRets = state.funcType ? state.funcType.results.length : 0;
-                            for (let i = 0; i < nRets; i++) {
-                                this.write(buf, this.getPop(state));
-                                if (nRets !== (i + 1)) {
-                                    this.write(buf, ",");
-                                }
-                            }
-                            this.write(buf, "; end;");
+                            this.writeReturn(buf, state);
                             this.newLine(buf);
                             break;
                         }
@@ -826,6 +1475,8 @@ class wasm2lua {
                             this.newLine(buf);
                             break;
                         }
+                        case "nop":
+                            break;
                         default: {
                             this.write(buf, "error('TODO " + ins.id + "');");
                             this.newLine(buf);
@@ -836,13 +1487,55 @@ class wasm2lua {
                 }
                 case "CallInstruction": {
                     let fstate = this.getFuncByIndex(state.modState, ins.index);
-                    if (fstate && fstate.funcType) {
-                        this.writeFunctionCall(state, buf, fstate.id, fstate.funcType);
+                    if ((fstate && fstate.origID == "setjmp") || (ins.index.value == "setjmp")) {
+                        let resultVar = this.fn_createTempRegister(buf, state);
+                        let jmpBufLoc = this.getPop(state);
+                        let resVarName = state.regManager.getPhysicalRegisterName(resultVar);
+                        this.write(buf, `${resVarName} = {data = {},target = "jmp_${sanitizeIdentifier(ins.loc.start.line)}_${sanitizeIdentifier(ins.loc.start.column)}",result = 0};`);
                         this.newLine(buf);
+                        let hasVars = this.forEachVar(state, (varName) => {
+                            this.write(buf, `${resVarName}.data.${varName}`);
+                            this.write(buf, ",");
+                        });
+                        if (hasVars) {
+                            buf.pop();
+                            this.write(buf, " = ");
+                            this.forEachVar(state, (varName) => {
+                                this.write(buf, `${varName}`);
+                                this.write(buf, ",");
+                            });
+                            buf.pop();
+                            this.write(buf, ";");
+                        }
+                        this.writeLn(buf, `__SETJMP_STATES__[${state.modState.memoryAllocations.get(0)}][${jmpBufLoc}] = ${resVarName}`);
+                        this.write(buf, `::jmp_${sanitizeIdentifier(ins.loc.start.line)}_${sanitizeIdentifier(ins.loc.start.column)}::`);
+                        this.newLine(buf);
+                        let resultVar2 = this.fn_createTempRegister(buf, state);
+                        this.writeLn(buf, `${state.regManager.getPhysicalRegisterName(resultVar2)} = (__setjmp_data__ == ${resVarName}) and __setjmp_data__.result or 0;`);
+                        this.fn_freeRegister(buf, state, resultVar);
+                        this.writeLn(buf, this.getPushStack(state, resultVar2));
+                    }
+                    else if ((fstate && fstate.origID == "longjmp") || (ins.index.value == "longjmp")) {
+                        let resultVal = this.getPop(state);
+                        let jmpBufLoc = this.getPop(state);
+                        this.write(buf, `if ${resultVal} == 0 then `);
+                        this.write(buf, `__SETJMP_STATES__[${state.modState.memoryAllocations.get(0)}][${jmpBufLoc}].result = 1 `);
+                        this.write(buf, `else `);
+                        this.write(buf, `__SETJMP_STATES__[${state.modState.memoryAllocations.get(0)}][${jmpBufLoc}].result = ${resultVal} `);
+                        this.writeLn(buf, `end`);
+                        this.write(buf, `error(`);
+                        this.write(buf, `__SETJMP_STATES__[${state.modState.memoryAllocations.get(0)}][${jmpBufLoc}]`);
+                        this.writeLn(buf, `) -- longjmp`);
                     }
                     else {
-                        this.write(buf, `error("UNRESOLVED CALL: ${ins.index.value}")`);
-                        this.newLine(buf);
+                        if (fstate && fstate.funcType) {
+                            this.writeFunctionCall(state, buf, fstate.id, fstate.funcType);
+                            this.newLine(buf);
+                        }
+                        else {
+                            this.write(buf, `error("UNRESOLVED CALL: ${ins.index.value}")`);
+                            this.newLine(buf);
+                        }
                     }
                     break;
                 }
@@ -862,44 +1555,49 @@ class wasm2lua {
                 case "BlockInstruction":
                 case "LoopInstruction": {
                     let blockType = (ins.type == "LoopInstruction") ? "loop" : "block";
-                    this.beginBlock(buf, state, {
+                    let block = this.beginBlock(buf, state, {
                         id: ins.label.value,
+                        resultType: (ins.type == "LoopInstruction") ? ins.resulttype : ins.result,
                         blockType,
+                        enterStackLevel: state.stackLevel,
+                        insCountStart: state.insCountPass2
                     });
-                    this.write(buf, this.processInstructions(ins.instr, state));
+                    if (block.resultType !== null) {
+                        block.resultRegister = this.fn_createTempRegister(buf, state);
+                    }
+                    this.write(buf, this.processInstructionsPass2(ins.instr, state));
                     break;
                 }
                 case "IfInstruction": {
-                    this.write(buf, "-- <IF>");
-                    this.newLine(buf);
                     if (ins.test.length > 0) {
-                        this.write(buf, "-- WARNING: 'if test' present, and was not handled");
+                        this.write(buf, "error('if test nyi')");
                         this.newLine(buf);
                     }
+                    let labelBase = `if_${ins.loc.start.line}_${ins.loc.start.column}`;
+                    let labelBaseSan = sanitizeIdentifier(`if_${ins.loc.start.line}_${ins.loc.start.column}`);
                     this.write(buf, "if ");
                     this.write(buf, this.getPop(state));
-                    this.write(buf, " then");
-                    this.beginBlock(buf, state, {
-                        id: `if_${ins.loc.start.line}_${ins.loc.start.column}`,
-                        blockType: "if",
-                    });
-                    this.indent();
-                    this.newLine(buf);
-                    this.processInstructions(ins.consequent, state);
-                    this.outdent(buf);
                     if (ins.alternate.length > 0) {
-                        this.write(buf, "else");
-                        this.indent();
-                        this.newLine(buf);
-                        this.beginBlock(buf, state, {
-                            id: `else_${ins.loc.start.line}_${ins.loc.start.column}`,
-                            blockType: "if",
-                        });
-                        this.processInstructions(ins.alternate, state);
-                        this.outdent(buf);
+                        this.write(buf, `==0 then goto ${labelBaseSan}_else end`);
                     }
-                    this.write(buf, "end");
-                    this.newLine(buf);
+                    else {
+                        this.write(buf, `==0 then goto ${labelBaseSan}_fin end`);
+                    }
+                    let block = this.beginBlock(buf, state, {
+                        id: labelBase,
+                        blockType: "if",
+                        resultType: ins.result,
+                        enterStackLevel: state.stackLevel,
+                        insCountStart: state.insCountPass2
+                    });
+                    if (block.resultType !== null) {
+                        block.resultRegister = this.fn_createTempRegister(buf, state);
+                    }
+                    this.write(buf, this.processInstructionsPass2(ins.consequent, state));
+                    if (ins.alternate.length > 0) {
+                        this.startElseSubBlock(buf, block, state);
+                        this.write(buf, this.processInstructionsPass2(ins.alternate, state));
+                    }
                     break;
                 }
                 default: {
@@ -908,15 +1606,96 @@ class wasm2lua {
                     break;
                 }
             }
+            if (ins.type === "Instr") {
+                switch (ins.id) {
+                    case "get_local":
+                    case "set_local":
+                    case "tee_local": {
+                        let locID = ins.args[0].value;
+                        if (state.insCountPass2 >= state.insLastRefs[locID]) {
+                            if (state.locals[locID].stackEntryCount == 0) {
+                                this.fn_freeRegister(buf, state, state.locals[locID]);
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+            let regIdx = 0;
+            while (state.registersToBeFreed[regIdx]) {
+                let reg = state.registersToBeFreed[regIdx];
+                if (typeof reg.lastRef === "number") {
+                    if (state.insCountPass2 >= reg.lastRef) {
+                        this.fn_freeRegisterEx(buf, state, reg);
+                        state.registersToBeFreed.splice(regIdx, 1);
+                        continue;
+                    }
+                }
+                else {
+                    this.fn_freeRegisterEx(buf, state, reg);
+                    state.registersToBeFreed.splice(regIdx, 1);
+                    continue;
+                }
+                regIdx++;
+            }
         }
         return buf.join("");
     }
-    writeFunctionCall(state, buf, func, sig) {
-        if (sig.results.length > 1) {
-            this.write(buf, "__TMP__ = {");
+    processInstructionsPass3(insArr, state) {
+        let t_buf = [];
+        if (state.regManager.virtualDisabled) {
+            this.write(t_buf, "local ");
+            let seen = {};
+            for (let i = (state.funcType ? state.funcType.params.length : 0); i < state.regManager.registerCache.length; i++) {
+                let reg = state.regManager.registerCache[i];
+                let name = state.regManager.getPhysicalRegisterName(reg);
+                if (seen[name]) {
+                    continue;
+                }
+                seen[name] = true;
+                this.write(t_buf, name);
+                this.write(t_buf, ",");
+            }
+            if (t_buf.pop() !== ",") {
+                return "";
+            }
+            this.write(t_buf, ";");
+            this.newLine(t_buf);
+            return t_buf.join("");
         }
-        else {
-            this.write(buf, "__TMP__ = ");
+        if ((state.regManager.totalRegisters - (state.funcType ? state.funcType.params.length : 0)) > 0) {
+            this.write(t_buf, "local ");
+            for (let i = (state.funcType ? state.funcType.params.length : 0); i < state.regManager.totalRegisters; i++) {
+                this.write(t_buf, `reg${i}`);
+                if (i !== (state.regManager.totalRegisters - 1)) {
+                    this.write(t_buf, ",");
+                }
+            }
+            if (state.regManager.totalRegisters > 150) {
+                if (state.regManager.totalRegisters >= 200) {
+                    console.error(`ERROR: [${state.id}] ${state.regManager.totalRegisters} REGISTERS USED`);
+                }
+                else {
+                    console.log(`WARNING: [${state.id}] ${state.regManager.totalRegisters} REGISTERS USED`);
+                }
+            }
+            this.write(t_buf, ";");
+            this.newLine(t_buf);
+        }
+        return t_buf.join("");
+    }
+    writeFunctionCall(state, buf, func, sig) {
+        let argsReg = [];
+        for (let i = 0; i < sig.results.length; i++) {
+            let reg = this.fn_createTempRegister(buf, state);
+            argsReg.push(reg);
+            this.write(buf, state.regManager.getPhysicalRegisterName(reg));
+            if ((i + 1) !== sig.results.length) {
+                this.write(buf, ",");
+            }
+        }
+        if (sig.results.length > 0) {
+            this.write(buf, " = ");
         }
         this.write(buf, func + "(");
         let args = [];
@@ -924,23 +1703,16 @@ class wasm2lua {
             args.push(this.getPop(state));
         }
         this.write(buf, args.reverse().join(","));
-        this.write(buf, ")");
-        if (sig.results.length > 1) {
-            this.write(buf, "};");
-            for (let i = 0; i < sig.results.length; i++) {
-                this.write(buf, this.getPushStack(state));
-                this.write(buf, "__TMP__[" + (i + 1) + "];");
-            }
-        }
-        else {
-            this.write(buf, "; " + this.getPushStack(state) + " __TMP__;");
+        this.write(buf, ");");
+        for (let i = 0; i < sig.results.length; i++) {
+            this.getPushStack(state, argsReg[i]);
         }
     }
     processModuleExport(node, modState) {
         let buf = [];
-        this.write(buf, "__EXPORTS__.");
+        this.write(buf, "__EXPORTS__[\"");
         this.write(buf, node.name);
-        this.write(buf, " = ");
+        this.write(buf, "\"] = ");
         switch (node.descr.exportType) {
             case "Func": {
                 let fstate = this.getFuncByIndex(modState, node.descr.id);
@@ -964,6 +1736,10 @@ class wasm2lua {
             }
             case "Global": {
                 this.write(buf, "nil -- TODO global export");
+                break;
+            }
+            case "Table": {
+                this.write(buf, `__TABLE_FUNCS_${node.descr.id.value}__`);
                 break;
             }
             default: {
@@ -992,7 +1768,7 @@ class wasm2lua {
                 this.initFunc({
                     signature: node.descr.signature,
                     name: { value: node.descr.id.value },
-                }, modState, `__MODULES__.${node.module}.${node.name}`);
+                }, modState, `__MODULES__.${node.module}.${node.name}`, node.name);
                 break;
             }
             default: {
@@ -1004,8 +1780,7 @@ class wasm2lua {
         return buf.join("");
     }
 }
-wasm2lua.fileHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
-wasm2lua.funcHeader = fs.readFileSync(__dirname + "/../resources/fileheader.lua").toString();
+wasm2lua.fileHeader = fs.readFileSync(PURE_LUA_MODE ? (__dirname + "/../resources/fileheader_lua.lua") : (__dirname + "/../resources/fileheader.lua")).toString();
 wasm2lua.instructionBinOpRemap = {
     add: { op: "+" },
     sub: { op: "-" },
@@ -1013,6 +1788,10 @@ wasm2lua.instructionBinOpRemap = {
     div: { op: "/" },
     eq: { op: "==", bool_result: true },
     ne: { op: "~=", bool_result: true },
+    lt: { op: "<", bool_result: true },
+    le: { op: "<=", bool_result: true },
+    ge: { op: ">=", bool_result: true },
+    gt: { op: ">", bool_result: true },
     lt_s: { op: "<", bool_result: true },
     le_s: { op: "<=", bool_result: true },
     ge_s: { op: ">=", bool_result: true },
@@ -1030,13 +1809,28 @@ wasm2lua.instructionBinOpFuncRemap = {
     shr_u: "bit.rshift",
     shr_s: "bit.arshift",
     rotl: "bit.rol",
-    rotr: "bot.ror"
+    rotr: "bit.ror",
+    div_s: "__DIVIDE_S__",
+    div_u: "__DIVIDE_U__",
+    rem_s: "__MODULO_S__",
+    rem_u: "__MODULO_U__",
+    clz: "__CLZ__",
+    ctz: "__CTZ__",
+    popcnt: "__POPCNT__",
+    sqrt: "math.sqrt",
+    nearest: "__FLOAT__.nearest",
+    trunc: "__FLOAT__.truncate",
+    floor: "math.floor",
+    ceil: "math.ceil",
+    min: "__FLOAT__.min",
+    max: "__FLOAT__.max"
 };
 exports.wasm2lua = wasm2lua;
-let infile = process.argv[2] || (__dirname + "/../test/test.wasm");
+let infile = process.argv[2] || (__dirname + "/../test/matrix.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
-let whitelist = process.argv[4] ? process.argv[4].split(",") : null;
+let compileFlags = process.argv[4] ? process.argv[4].split(",") : null;
+let whitelist = null;
 let wasm = fs.readFileSync(infile);
-let inst = new wasm2lua(wasm, { whitelist });
+let inst = new wasm2lua(wasm, { whitelist, compileFlags });
 fs.writeFileSync(outfile, inst.outBuf.join(""));
 //# sourceMappingURL=index.js.map

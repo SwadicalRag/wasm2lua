@@ -88,11 +88,42 @@ return function(memory)
         return __WASI_ESUCCESS
     end
 
-    function WASI.args_sizes_get(out_argc, out_argv_buf_size)
+    function WASI.environ_get(addr_argv, addr_argv_buf)
         -- unsupported
-        --print("args_sizes_get",out_argc,out_argv_buf_size)
-        memory:write32(out_argc, 0)
-        memory:write32(out_argv_buf_size, 0)
+        --print("environ_get",addr_argv, addr_argv_buf)
+        memory:write32(addr_argv, 0)
+        memory:write32(addr_argv_buf, 0)
+
+        return __WASI_ESUCCESS
+    end
+
+    function WASI.args_sizes_get(out_argc, out_argv_buf_size)
+        memory:write32(out_argc, #(args or _ARGS))
+        memory:write32(out_argv_buf_size, #table.concat((args or _ARGS),"\0"))
+
+        return __WASI_ESUCCESS
+    end
+
+    function WASI.args_get(addr_argv, addr_argv_buf)
+        local idx = 0
+        for char in table.concat((args or _ARGS),"\0"):gmatch(".") do
+            memory:write8(addr_argv_buf + idx, char:byte())
+            idx = idx + 1
+        end
+
+        local tot = 0
+        for i,arg in ipairs((args or _ARGS)) do
+            memory:write32(addr_argv + (i-1)*4, addr_argv_buf + tot)
+            tot = tot + #arg + 1
+        end
+
+        return __WASI_ESUCCESS
+    end
+
+    function WASI.random_get(buf,len)
+        for i=1,len do
+            memory:write8(buf + i - 1,math.random(0,255))
+        end
 
         return __WASI_ESUCCESS
     end
