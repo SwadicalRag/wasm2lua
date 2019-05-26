@@ -1012,8 +1012,13 @@ class wasm2lua {
                                 this.writeLn(buf, this.getPushStack(state, `__LONG_INT__(${_const.low},${_const.high})`));
                             }
                             else {
-                                let _const = ins.args[0].value;
-                                this.writeLn(buf, this.getPushStack(state, _const.toString()));
+                                let _const = ins.args[0];
+                                if (_const.nan) {
+                                    this.writeLn(buf, this.getPushStack(state, "(0/0)"));
+                                }
+                                else {
+                                    this.writeLn(buf, this.getPushStack(state, _const.value.toString()));
+                                }
                             }
                             break;
                         }

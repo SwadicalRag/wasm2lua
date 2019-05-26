@@ -1350,12 +1350,18 @@ export class wasm2lua {
                         }
                         case "const": {
                             if(ins.args[0].type == "LongNumberLiteral") {
-                                let _const = (ins.args[0] as LongNumberLiteral).value;
-                                this.writeLn(buf,this.getPushStack(state,`__LONG_INT__(${_const.low},${_const.high})`));
+                                let _value = (ins.args[0] as LongNumberLiteral).value;
+                                this.writeLn(buf,this.getPushStack(state,`__LONG_INT__(${_value.low},${_value.high})`));
                             }
                             else {
-                                let _const = (ins.args[0] as NumberLiteral).value;
-                                this.writeLn(buf,this.getPushStack(state,_const.toString()));
+                                let _const = (ins.args[0] as NumberLiteral);
+                                if (_const.nan) {
+                                    this.writeLn(buf,this.getPushStack(state,"(0/0)"));
+                                } else {
+                                    this.writeLn(buf,this.getPushStack(state,_const.value.toString()));
+                                }
+                                //this.writeLn(buf,"-- CONST: "+JSON.stringify(ins.args[0]));
+                                //this.newLine(buf);
                             }
                             break;
                         }
