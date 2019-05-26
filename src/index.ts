@@ -1355,13 +1355,17 @@ export class wasm2lua {
                             }
                             else {
                                 let _const = (ins.args[0] as NumberLiteral);
-                                if (_const.nan) {
+                                if (_const.inf) {
+                                    if (_const.value > 0) {
+                                        this.writeLn(buf,this.getPushStack(state,"(1/0)"));
+                                    } else {
+                                        this.writeLn(buf,this.getPushStack(state,"(-1/0)"));
+                                    }
+                                } else if (_const.nan) {
                                     this.writeLn(buf,this.getPushStack(state,"(0/0)"));
                                 } else {
                                     this.writeLn(buf,this.getPushStack(state,_const.value.toString()));
                                 }
-                                //this.writeLn(buf,"-- CONST: "+JSON.stringify(ins.args[0]));
-                                //this.newLine(buf);
                             }
                             break;
                         }

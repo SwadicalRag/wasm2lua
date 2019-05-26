@@ -1008,12 +1008,20 @@ class wasm2lua {
                         }
                         case "const": {
                             if (ins.args[0].type == "LongNumberLiteral") {
-                                let _const = ins.args[0].value;
-                                this.writeLn(buf, this.getPushStack(state, `__LONG_INT__(${_const.low},${_const.high})`));
+                                let _value = ins.args[0].value;
+                                this.writeLn(buf, this.getPushStack(state, `__LONG_INT__(${_value.low},${_value.high})`));
                             }
                             else {
                                 let _const = ins.args[0];
-                                if (_const.nan) {
+                                if (_const.inf) {
+                                    if (_const.value > 0) {
+                                        this.writeLn(buf, this.getPushStack(state, "(1/0)"));
+                                    }
+                                    else {
+                                        this.writeLn(buf, this.getPushStack(state, "(-1/0)"));
+                                    }
+                                }
+                                else if (_const.nan) {
                                     this.writeLn(buf, this.getPushStack(state, "(0/0)"));
                                 }
                                 else {

@@ -156,6 +156,7 @@ interface NumberLiteral extends BaseNode {
   type: "NumberLiteral",
   value: number,
   raw: string,
+  inf?: boolean,
   nan?: boolean
 }
 
