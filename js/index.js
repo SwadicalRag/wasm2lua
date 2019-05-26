@@ -1169,7 +1169,7 @@ class wasm2lua {
                         case "floor":
                         case "ceil":
                             {
-                                var arg = this.getPop(state);
+                                let arg = this.getPop(state);
                                 if (ins.object == "i64") {
                                     this.write(buf, this.getPushStack(state, arg + ":_" + ins.id + "()"));
                                 }
@@ -1218,21 +1218,41 @@ class wasm2lua {
                         case "promote/f32":
                         case "demote/f64":
                             break;
-                        case "convert_s/i64":
-                            this.write(buf, "error('convert longint to normie num')");
+                        case "convert_u/i32": {
+                            let resultVar = this.fn_createTempRegister(buf, state);
+                            let arg = this.getPop(state);
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __UNSIGNED__(${arg});`);
+                            this.write(buf, this.getPushStack(state, resultVar));
                             this.newLine(buf);
                             break;
+                        }
+                        case "convert_s/i64": {
+                            let resultVar = this.fn_createTempRegister(buf, state);
+                            let arg = this.getPop(state);
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __UNSIGNED__((${arg})[1]) + (${arg})[2]*4294967296;`);
+                            this.write(buf, this.getPushStack(state, resultVar));
+                            this.newLine(buf);
+                            break;
+                        }
+                        case "convert_u/i64": {
+                            let resultVar = this.fn_createTempRegister(buf, state);
+                            let arg = this.getPop(state);
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __UNSIGNED__((${arg})[1]) + __UNSIGNED__((${arg})[2])*4294967296;`);
+                            this.write(buf, this.getPushStack(state, resultVar));
+                            this.newLine(buf);
+                            break;
+                        }
                         case "trunc_s/f32":
                         case "trunc_s/f64":
                         case "trunc_u/f32":
                         case "trunc_u/f64": {
                             let resultVar = this.fn_createTempRegister(buf, state);
-                            let tmp = this.getPop(state);
+                            let arg = this.getPop(state);
                             if (ins.object == "i64") {
-                                this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT_N__(__TRUNC__(${tmp}));`);
+                                this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT_N__(__TRUNC__(${arg}));`);
                             }
                             else {
-                                this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = bit.tobit(__TRUNC__(${tmp}));`);
+                                this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = bit.tobit(__TRUNC__(${arg}));`);
                             }
                             this.write(buf, this.getPushStack(state, resultVar));
                             this.newLine(buf);
@@ -1240,24 +1260,24 @@ class wasm2lua {
                         }
                         case "extend_u/i32": {
                             let resultVar = this.fn_createTempRegister(buf, state);
-                            let tmp = this.getPop(state);
-                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(${tmp},0);`);
+                            let arg = this.getPop(state);
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(${arg},0);`);
                             this.write(buf, this.getPushStack(state, resultVar));
                             this.newLine(buf);
                             break;
                         }
                         case "extend_s/i32": {
                             let resultVar = this.fn_createTempRegister(buf, state);
-                            let tmp = this.getPop(state);
-                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(${tmp},bit.arshift(${tmp},31));`);
+                            let arg = this.getPop(state);
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(${arg},bit.arshift(${arg},31));`);
                             this.write(buf, this.getPushStack(state, resultVar));
                             this.newLine(buf);
                             break;
                         }
                         case "wrap/i64": {
                             let resultVar = this.fn_createTempRegister(buf, state);
-                            let tmp = this.getPop(state);
-                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = (${tmp})[1];`);
+                            let arg = this.getPop(state);
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = (${arg})[1];`);
                             this.write(buf, this.getPushStack(state, resultVar));
                             this.newLine(buf);
                             break;

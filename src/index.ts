@@ -15,6 +15,7 @@ const PURE_LUA_MODE = true;
     - Be extra careful with conversions from floats -> ints. The bit library's rounding behavior is undefined.
     - Imported globals use global IDs that precede other global IDs
     - The same applies to memories. ^
+    - Test i64 bitshifts/rotations.
 */
 
 /* TODO OPTIMIZATION:
@@ -22,7 +23,7 @@ const PURE_LUA_MODE = true;
     - Track bools and only convert them if need be.
     - ^ Some compilers might generate some really dumb code, requiring some further specialization for bitwise ops on bools...
     - Floating point memory should probably write back floats upon read, especially since pre-initialized memory can contain FP data.
-
+    - Implement better long divide/modulo ops.
 */
 
 // this may or may not be the best way to handle memory init but is pretty fast+easy to do for now
@@ -1528,7 +1529,7 @@ export class wasm2lua {
                         case "floor":
                         case "ceil":
                         {
-                            var arg = this.getPop(state);
+                            let arg = this.getPop(state);
                             if (ins.object=="i64") {
                                 this.write(buf, this.getPushStack(state, arg + ":_" + ins.id +"()" ));
                             } else {
@@ -1587,20 +1588,45 @@ export class wasm2lua {
                         case "demote/f64":
                             // These are no-ops.
                             break;
-                        // case "convert_s/i64": // !this is not a no-op!
-
+                        case "convert_u/i32": {
+                            // Convert uint32 to float/double.
+                            let resultVar = this.fn_createTempRegister(buf,state);
+                            let arg = this.getPop(state);
+                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = __UNSIGNED__(${arg});`);
+                            this.write(buf,this.getPushStack(state,resultVar));
+                            this.newLine(buf);
+                            break;
+                        }
+                        case "convert_s/i64": {
+                            // Convert uint64 to float/double.
+                            let resultVar = this.fn_createTempRegister(buf,state);
+                            let arg = this.getPop(state);
+                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = __UNSIGNED__((${arg})[1]) + (${arg})[2]*4294967296;`);
+                            this.write(buf,this.getPushStack(state,resultVar));
+                            this.newLine(buf);
+                            break;
+                        }
+                        case "convert_u/i64": {
+                            // Convert uint64 to float/double.
+                            let resultVar = this.fn_createTempRegister(buf,state);
+                            let arg = this.getPop(state);
+                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = __UNSIGNED__((${arg})[1]) + __UNSIGNED__((${arg})[2])*4294967296;`);
+                            this.write(buf,this.getPushStack(state,resultVar));
+                            this.newLine(buf);
+                            break;
+                        }
                         case "trunc_s/f32":
                         case "trunc_s/f64":
                         case "trunc_u/f32":
                         case "trunc_u/f64": {
                             // These all basically operate the same AFAIK, the only difference is the cases where they trap.
                             let resultVar = this.fn_createTempRegister(buf,state);
-                            let tmp = this.getPop(state);
+                            let arg = this.getPop(state);
                             if(ins.object == "i64") {
-                                this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT_N__(__TRUNC__(${tmp}));`);
+                                this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT_N__(__TRUNC__(${arg}));`);
                             }
                             else {
-                                this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = bit.tobit(__TRUNC__(${tmp}));`);
+                                this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = bit.tobit(__TRUNC__(${arg}));`);
                             }
                             this.write(buf,this.getPushStack(state,resultVar));
                             this.newLine(buf);
@@ -1609,26 +1635,26 @@ export class wasm2lua {
                         case "extend_u/i32": {
                             // Easy (signed extension will be slightly more of a pain)
                             let resultVar = this.fn_createTempRegister(buf,state);
-                            let tmp = this.getPop(state);
-                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(${tmp},0);`);
+                            let arg = this.getPop(state);
+                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(${arg},0);`);
                             this.write(buf,this.getPushStack(state,resultVar));
                             this.newLine(buf);
                             break;
                         }
                         case "extend_s/i32": {
                             let resultVar = this.fn_createTempRegister(buf,state);
-                            let tmp = this.getPop(state);
+                            let arg = this.getPop(state);
                             // Extract the sign bit and arithmetic shift it to obtain the high half.
-                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(${tmp},bit.arshift(${tmp},31));`);
+                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(${arg},bit.arshift(${arg},31));`);
                             this.write(buf,this.getPushStack(state,resultVar));
                             this.newLine(buf);
                             break;
                         }
                         case "wrap/i64": {
                             let resultVar = this.fn_createTempRegister(buf,state);
-                            let tmp = this.getPop(state);
+                            let arg = this.getPop(state);
                             // return low uint32
-                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = (${tmp})[1];`);
+                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = (${arg})[1];`);
                             this.write(buf,this.getPushStack(state,resultVar));
                             this.newLine(buf);
                             break;
