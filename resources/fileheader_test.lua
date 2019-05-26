@@ -20,6 +20,10 @@ local function checkResults(expected,results)
     return true
 end
 
+local function invoke(func,args)
+    return {__MODULES__.UNKNOWN[func](unpack(args))}
+end
+
 local function runTest(num,func,args,expected)
 
     local results
@@ -40,7 +44,7 @@ local function runTest(num,func,args,expected)
 
     local success, error = pcall(function()
 
-        results = {__MODULES__.UNKNOWN[func](unpack(args))}
+        results = invoke(func,args)
 
         if type(expected) == "table" and not checkResults(expected,results) then
             print()

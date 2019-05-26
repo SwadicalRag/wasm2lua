@@ -656,7 +656,7 @@ export class wasm2lua {
             insCountPass1LoopLifespanAdjs: new Map(),
             forceVarInit: new Map(),
             locals: [],
-            localTypes: [],
+            localTypes: funcType.params.map((x)=>x.valtype),
             blocks: [],
             funcType,
             modState: state,
@@ -958,6 +958,8 @@ export class wasm2lua {
         trunc: "__FLOAT__.truncate",
         floor: "math.floor",
         ceil: "math.ceil",
+        abs: "math.abs",
+        copysign: "__FLOAT__.copysign",
 
         min: "__FLOAT__.min",
         max: "__FLOAT__.max"
@@ -1176,9 +1178,9 @@ export class wasm2lua {
                     switch(ins.id) {
                         case "local": {
                             // record local types here
-                            state.localTypes = ins.args.map((arg)=> {
+                            ins.args.forEach((arg)=> {
                                 if (arg.type=="ValtypeLiteral") {
-                                    return arg.name;
+                                    state.localTypes.push(arg.name);
                                 } else {
                                     throw new Error("Bad type???");
                                 }
@@ -1304,8 +1306,8 @@ export class wasm2lua {
 
             if (forceInitVars != null) {
                 forceInitVars.forEach((locID) => {
-                    if(this.insDebugOutput) {
-                        this.write(buf,"-- FORCE INIT VAR");
+                    if(this.insDebugOutput || true) {
+                        this.write(buf,"-- FORCE INIT VAR | "+state.localTypes[locID]);
                         this.newLine(buf);
                     }
     
@@ -1418,7 +1420,11 @@ export class wasm2lua {
                         // Arithmetic
                         //////////////////////////////////////////////////////////////
                         case "neg": {
-                            this.writeLn(buf,this.getPushStack(state,`-(${this.getPop(state)})`));
+                            let resultVar = this.fn_createTempRegister(buf,state);
+                            let arg = this.getPop(state);
+                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = -(${arg});`);
+                            this.write(buf,this.getPushStack(state,resultVar));
+                            this.newLine(buf);
 
                             break;
                         }
@@ -1494,6 +1500,7 @@ export class wasm2lua {
                         case "rem_s":
                         case "rem_u":
 
+                        case "copysign":
                         case "min":
                         case "max":
                         {
@@ -1528,6 +1535,7 @@ export class wasm2lua {
                         case "trunc":
                         case "floor":
                         case "ceil":
+                        case "abs":
                         {
                             let arg = this.getPop(state);
                             if (ins.object=="i64") {

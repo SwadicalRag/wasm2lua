@@ -54,7 +54,12 @@ interface TestCmdAssertInvalid {
     type: "assert_invalid";
 }
 
-type TestCmd = (TestCmdModule | TestCmdAssertReturn | TestCmdAssertTrap | TestCmdAssertMalformed | TestCmdAssertInvalid | TestCmdAssertExhaust) & {line: number};
+interface TestCmdAction {
+    type: "action";
+    action: TestInstr;
+}
+
+type TestCmd = (TestCmdModule | TestCmdAssertReturn | TestCmdAssertTrap | TestCmdAssertMalformed | TestCmdAssertInvalid | TestCmdAssertExhaust | TestCmdAction) & {line: number};
 
 function fixWSLPath(path) {
     path = path.replace(/(.):\\/g,(_,x)=>`/mnt/${x.toLowerCase()}/`);
@@ -101,7 +106,7 @@ function processTestFile(filename: string) {
         }
 
     });
-    
+
     compileAndRunTests(commandQueue);
 }
 
@@ -144,21 +149,24 @@ function compileAndRunTests(commands: TestCmd[]) {
 function compileCommand(cmd: TestCmd, test_num: number) {
     if (
         cmd.type == "assert_return" || cmd.type == "assert_return_canonical_nan" || cmd.type == "assert_return_arithmetic_nan" ||
-        cmd.type == "assert_trap" || cmd.type == "assert_exhaustion"
+        cmd.type == "assert_trap" || cmd.type == "assert_exhaustion" || cmd.type == "action"
     ) {
         let instr = cmd.action;
         if (instr.type != "invoke") {
             throw new Error("Unhandled instr type: "+instr.type);
         }
 
-        let expected =
-            cmd.type == "assert_trap" ? `"${cmd.text}"` :
-            cmd.type == "assert_exhaustion" ? `"exhaustion"` :
-            cmd.type == "assert_return_canonical_nan" || cmd.type == "assert_return_arithmetic_nan" ? "{(0/0)}" :
-            `{${cmd.expected.map(compileValue).join(",")}}`;
-
-        return `runTest(${cmd.line},"${instr.field}",{${instr.args.map(compileValue).join(",")}},${expected})`
-
+        if (cmd.type == "action") {
+            return `invoke("${instr.field}",{${instr.args.map(compileValue).join(",")}})`;
+        } else {
+            let expected =
+                cmd.type == "assert_trap" ? `"${cmd.text}"` :
+                cmd.type == "assert_exhaustion" ? `"exhaustion"` :
+                cmd.type == "assert_return_canonical_nan" || cmd.type == "assert_return_arithmetic_nan" ? "{(0/0)}" :
+                `{${cmd.expected.map(compileValue).join(",")}}`;
+    
+            return `runTest(${cmd.line},"${instr.field}",{${instr.args.map(compileValue).join(",")}},${expected})`;
+        }
     } else {
         console.log(cmd);
         throw new Error("Unhandled command: "+(<any>cmd).type);

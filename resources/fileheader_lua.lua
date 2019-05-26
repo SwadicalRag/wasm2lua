@@ -557,6 +557,11 @@ local __FLOAT__ = {
     truncate = function(x)
         return x > 0 and math.floor(x) or math.ceil(x)
     end,
+    copysign = function(x,y)
+        -- Does not handle signed zero, but who really cares?
+        local sign = y > 0 and 1 or -1
+        return x * sign
+    end,
     min = function(x,y)
         if x ~= x or y ~= y then return 0 / 0 end
         return math.min(x,y)
