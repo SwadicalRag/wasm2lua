@@ -1215,19 +1215,24 @@ class wasm2lua {
                             break;
                         }
                         case "convert_s/i32":
-                        case "convert_s/i64":
                         case "promote/f32":
                         case "demote/f64":
                             break;
+                        case "convert_s/i64":
+                            this.write(buf, "error('convert longint to normie num')");
+                            this.newLine(buf);
+                            break;
                         case "trunc_s/f32":
-                        case "trunc_s/f64": {
+                        case "trunc_s/f64":
+                        case "trunc_u/f32":
+                        case "trunc_u/f64": {
                             let resultVar = this.fn_createTempRegister(buf, state);
                             let tmp = this.getPop(state);
                             if (ins.object == "i64") {
                                 this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT_N__(__TRUNC__(${tmp}));`);
                             }
                             else {
-                                this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __TRUNC__(${tmp});`);
+                                this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = bit.tobit(__TRUNC__(${tmp}));`);
                             }
                             this.write(buf, this.getPushStack(state, resultVar));
                             this.newLine(buf);
@@ -1244,7 +1249,7 @@ class wasm2lua {
                         case "extend_s/i32": {
                             let resultVar = this.fn_createTempRegister(buf, state);
                             let tmp = this.getPop(state);
-                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(bit.band(${tmp},0x7FFFFFFF),bit.band(${tmp},0x80000000));`);
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(${tmp},bit.arshift(${tmp},31));`);
                             this.write(buf, this.getPushStack(state, resultVar));
                             this.newLine(buf);
                             break;

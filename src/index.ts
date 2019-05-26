@@ -11,20 +11,17 @@ const PURE_LUA_MODE = true;
     correct-multiply: Compiles integer multiplications using a specialized algorithm which prevents them from breaking due to loss of precision.
 */
 
-// TODO: Imported globals use global IDs that precede other global IDs
-// TODO: ^ The same applies to memories. ^
-
-/* TODO TYPES:
-
-- i64 will be a pain, but may be necessary due to runtime usage.
-- f32/f64 will be easy to implement, but very hard to read/write to memory in a way friendly to the jit. Soft floats are a potential last resort.
-
+/* TODO CORRECTNESS:
+    - Be extra careful with conversions from floats -> ints. The bit library's rounding behavior is undefined.
+    - Imported globals use global IDs that precede other global IDs
+    - The same applies to memories. ^
 */
 
 /* TODO OPTIMIZATION:
 
-- Memory: Use 32 bits per table cell instead of 8, more is possible but probably a bad idea.
-- Might want to use actual loops, might be more jit friendly.
+    - Track bools and only convert them if need be.
+    - ^ Some compilers might generate some really dumb code, requiring some further specialization for bitwise ops on bools...
+    - Floating point memory should probably write back floats upon read, especially since pre-initialized memory can contain FP data.
 
 */
 
@@ -1586,20 +1583,24 @@ export class wasm2lua {
                         // Type Conversions
                         //////////////////////////////////////////////////////////////
                         case "convert_s/i32":
-                        case "convert_s/i64":
                         case "promote/f32":
                         case "demote/f64":
                             // These are no-ops.
                             break;
+                        // case "convert_s/i64": // !this is not a no-op!
+
                         case "trunc_s/f32":
-                        case "trunc_s/f64": {
+                        case "trunc_s/f64":
+                        case "trunc_u/f32":
+                        case "trunc_u/f64": {
+                            // These all basically operate the same AFAIK, the only difference is the cases where they trap.
                             let resultVar = this.fn_createTempRegister(buf,state);
                             let tmp = this.getPop(state);
                             if(ins.object == "i64") {
                                 this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT_N__(__TRUNC__(${tmp}));`);
                             }
                             else {
-                                this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = __TRUNC__(${tmp});`);
+                                this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = bit.tobit(__TRUNC__(${tmp}));`);
                             }
                             this.write(buf,this.getPushStack(state,resultVar));
                             this.newLine(buf);
@@ -1617,9 +1618,8 @@ export class wasm2lua {
                         case "extend_s/i32": {
                             let resultVar = this.fn_createTempRegister(buf,state);
                             let tmp = this.getPop(state);
-                            // i extract 1st MSB (sign) into high uint32 and last 31 LSBs into low uint32
-                            // i didnt verify this but i think it should work
-                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(bit.band(${tmp},0x7FFFFFFF),bit.band(${tmp},0x80000000));`);
+                            // Extract the sign bit and arithmetic shift it to obtain the high half.
+                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(${tmp},bit.arshift(${tmp},31));`);
                             this.write(buf,this.getPushStack(state,resultVar));
                             this.newLine(buf);
                             break;

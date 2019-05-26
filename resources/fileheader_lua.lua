@@ -7,16 +7,21 @@ end
 
 local __LONG_INT_CLASS__
 
+local function __TRUNC__(n)
+    if n >= 0 then return math.floor(n) end
+    return math.ceil(n)
+end
+
 local function __LONG_INT__(low,high)
     -- Note: Avoid using tail-calls on builtins
     -- This aborts a JIT trace, and can be avoided by wrapping tail calls in parentheses
     return (setmetatable({low,high},__LONG_INT_CLASS__))
 end
 
-local function __LONG_INT_N__(n)
+local function __LONG_INT_N__(n) -- operates on non-normalized integers
     -- convert a double value to i64 directly
-    local high = n / (2^32) -- manually rshift by 32
-    local low = bit.band(n,2^32 - 1) -- get lowest 32 bits
+    local high = bit.tobit(math.floor(n / (2^32))) -- manually rshift by 32
+    local low = bit.tobit(n % (2^32)) -- wtf? normal bit conversions are not sufficent according to tests
     return (setmetatable({low,high},__LONG_INT_CLASS__))
 end
 
@@ -44,11 +49,6 @@ if jit and jit.version_num < 20100 then
     
         return dbl,0
     end
-end
-
-local function __TRUNC__(n)
-    if n >= 0 then return math.floor(n) end
-    return math.ceil(n)
 end
 
 local function __STACK_POP__(__STACK__)
