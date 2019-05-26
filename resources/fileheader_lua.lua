@@ -224,14 +224,28 @@ end
 
 local function __MEMORY_READ_8__(mem,loc)
     assert((loc >= 0) and (loc < mem._len),"out of memory access")
+
     local cell_loc = bit.rshift(loc,2)
     local byte_loc = bit.band(loc,3)
 
-    if mem._fp_map[cell_loc] ~= nil then
-        error("???->int8 read fallback nyi")
+    local cell_value
+    local mem_t = mem._fp_map[cell_loc]
+    if mem_t == nil then
+        cell_value = mem.data[cell_loc]
+    else
+        if mem_t == 1 then
+            cell_value = FloatToUInt32(mem.data[cell_loc])
+        else
+            local low, high = DoubleToUInt32s(mem.data[cell_loc])
+            if mem_t == 2 then
+                cell_value = low
+            else
+                cell_value = high
+            end
+        end
     end
 
-    return bit.band(bit.rshift(mem.data[cell_loc],byte_loc * 8),255)
+    return bit.band(bit.rshift(cell_value, byte_loc * 8),255)
 end
 
 local function __MEMORY_READ_16__(mem,loc)
@@ -568,7 +582,9 @@ __LONG_INT_CLASS__ = {
         return __LONG_INT__( bit.tobit(low), bit.tobit(high) )
     end,
     __mul = function(a,b)
-        -- copied from https://github.com/dcodeIO/long.js
+        -- adapted from https://github.com/dcodeIO/long.js
+        -- I feel like this is excessive but I'm going to
+        -- defer to the better wizard here.
 
         local a48 = bit.rshift(a[2],16)
         local a32 = bit.band(a[2],65535)

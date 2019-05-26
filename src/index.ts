@@ -533,7 +533,7 @@ export class wasm2lua {
                         this.write(buf,value.value+",");
                     }
                 } else {
-                    throw new Error("Bad offset on memory.");
+                    throw new Error("Bad offset on memory: "+JSON.stringify(field.offset));
                 }
 
                 this.write(buf,makeBinaryStringLiteral(field.init.values)+");");
@@ -1598,7 +1598,7 @@ export class wasm2lua {
                             break;
                         }
                         case "convert_s/i64": {
-                            // Convert uint64 to float/double.
+                            // Convert int64 to float/double.
                             let resultVar = this.fn_createTempRegister(buf,state);
                             let arg = this.getPop(state);
                             this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = __UNSIGNED__((${arg})[1]) + (${arg})[2]*4294967296;`);

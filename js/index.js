@@ -383,7 +383,7 @@ class wasm2lua {
                     }
                 }
                 else {
-                    throw new Error("Bad offset on memory.");
+                    throw new Error("Bad offset on memory: " + JSON.stringify(field.offset));
                 }
                 this.write(buf, makeBinaryStringLiteral(field.init.values) + ");");
                 this.newLine(buf);

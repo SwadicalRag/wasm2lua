@@ -101,7 +101,7 @@ function processTestFile(filename: string) {
         }
 
     });
-
+    
     compileAndRunTests(commandQueue);
 }
 
