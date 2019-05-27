@@ -54,12 +54,16 @@ interface TestCmdAssertInvalid {
     type: "assert_invalid";
 }
 
+interface TestCmdAssertUninstantiable {
+    type: "assert_uninstantiable"
+}
+
 interface TestCmdAction {
     type: "action";
     action: TestInstr;
 }
 
-type TestCmd = (TestCmdModule | TestCmdAssertReturn | TestCmdAssertTrap | TestCmdAssertMalformed | TestCmdAssertInvalid | TestCmdAssertExhaust | TestCmdAction) & {line: number};
+type TestCmd = (TestCmdModule | TestCmdAssertReturn | TestCmdAssertTrap | TestCmdAssertMalformed | TestCmdAssertInvalid | TestCmdAssertExhaust | TestCmdAction | TestCmdAssertUninstantiable) & {line: number};
 
 function fixWSLPath(path) {
     path = path.replace(/(.):\\/g,(_,x)=>`/mnt/${x.toLowerCase()}/`);
@@ -99,6 +103,7 @@ function processTestFile(filename: string) {
                 break;
             case "assert_malformed": // should not compile to binary
             case "assert_invalid":   // compiled to binary but should be rejected by compiler / vm 
+            case "assert_uninstantiable": // start function should trap - I really don't care to test this.
                 // Don't care.
                 break;
             default:

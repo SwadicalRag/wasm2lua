@@ -908,13 +908,13 @@ class wasm2lua {
                         case "set_local": {
                             let locID = ins.args[0].value;
                             state.insLastRefs[locID] = state.insCountPass1;
-                            state.insLastAssigned[locID] = [state.insCountPass1, this.getLastLoop(state)];
+                            state.insLastAssigned[locID] = [state.insCountPass1, state.blocks[state.blocks.length - 1]];
                             break;
                         }
                         case "tee_local": {
                             let locID = ins.args[0].value;
                             state.insLastRefs[locID] = state.insCountPass1;
-                            state.insLastAssigned[locID] = [state.insCountPass1, this.getLastLoop(state)];
+                            state.insLastAssigned[locID] = [state.insCountPass1, state.blocks[state.blocks.length - 1]];
                             break;
                         }
                         case "end": {
@@ -1023,6 +1023,9 @@ class wasm2lua {
                                 }
                                 else if (_const.nan) {
                                     this.writeLn(buf, this.getPushStack(state, "(0/0)"));
+                                }
+                                else if (_const.value == 0 && 1 / _const.value == -Number.POSITIVE_INFINITY) {
+                                    this.writeLn(buf, this.getPushStack(state, "(-0)"));
                                 }
                                 else {
                                     this.writeLn(buf, this.getPushStack(state, _const.value.toString()));

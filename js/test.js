@@ -31,6 +31,7 @@ function processTestFile(filename) {
                 break;
             case "assert_malformed":
             case "assert_invalid":
+            case "assert_uninstantiable":
                 break;
             default:
                 commandQueue.push(cmd);

@@ -1214,6 +1214,15 @@ export class wasm2lua {
                             }
 
                             // Extend lifetime of variables that are accessed before assignment in loops.
+
+                            // cogg: In many cases we can't know if a local has been assigned to.
+                            // Lifetime will now only end in a loop if the previous assignment occurred
+                            // directly within the loop. Sub-blocks are bad news because they can be exited
+                            // before they reach the assignment. You could add some analysis for this, but
+                            // it would be complicated and easy to make mistakes that would break lifetimes again.
+                            // This is obviously sub-par but I don't think there are any better options without
+                            // much better dataflow analysis. I myself am a advocate of FULL LUXURY GAY SPACE SSA IR,
+                            // but there are probably better things to spend our time on.
                             let lastLoop = this.getLastLoop(state);
                             if(lastLoop && (data == null || lastLoop !== data[1])) {
                                 if(!state.insCountPass1LoopLifespanAdjs.get(locID)) {
@@ -1226,14 +1235,14 @@ export class wasm2lua {
                         case "set_local": {
                             let locID = (ins.args[0] as NumberLiteral).value;
                             state.insLastRefs[locID] = state.insCountPass1;
-                            state.insLastAssigned[locID] = [state.insCountPass1,this.getLastLoop(state)]
+                            state.insLastAssigned[locID] = [state.insCountPass1, state.blocks[state.blocks.length-1]]
                             
                             break;
                         }
                         case "tee_local": {
                             let locID = (ins.args[0] as NumberLiteral).value;
                             state.insLastRefs[locID] = state.insCountPass1;
-                            state.insLastAssigned[locID] = [state.insCountPass1,this.getLastLoop(state)]
+                            state.insLastAssigned[locID] = [state.insCountPass1, state.blocks[state.blocks.length-1]]
                             
                             break;
                         }
@@ -1363,6 +1372,8 @@ export class wasm2lua {
                                     }
                                 } else if (_const.nan) {
                                     this.writeLn(buf,this.getPushStack(state,"(0/0)"));
+                                } else if (_const.value == 0 && 1/_const.value == -Number.POSITIVE_INFINITY) {
+                                    this.writeLn(buf,this.getPushStack(state,"(-0)"));
                                 } else {
                                     this.writeLn(buf,this.getPushStack(state,_const.value.toString()));
                                 }
