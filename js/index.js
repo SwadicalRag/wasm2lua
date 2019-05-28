@@ -672,9 +672,12 @@ class wasm2lua {
             this.write(buf, "::start::");
             this.newLine(buf);
             this.write(buf, "local suc,");
-            let nRets = state.funcType ? state.funcType.results.length : 0;
-            for (let i = 0; i < (nRets + 1); i++) {
+            let nRets = Math.max(1, state.funcType ? state.funcType.results.length : 0);
+            for (let i = 0; i < nRets; i++) {
                 this.write(buf, `ret${i}`);
+                if (i < nRets - 1) {
+                    this.write(buf, ",");
+                }
             }
             this.write(buf, " = ");
             this.write(buf, "pcall(");
