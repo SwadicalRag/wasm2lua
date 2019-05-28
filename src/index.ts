@@ -532,6 +532,8 @@ export class wasm2lua {
                     if (value.type == "NumberLiteral") {
                         this.write(buf,value.value+",");
                     }
+                } else if(field.offset && field.offset.type == "Instr" && field.offset.id == "get_global") {
+                    this.write(buf,"__GLOBALS__["+(field.offset.args[0] as NumberLiteral).value+"],");
                 } else {
                     throw new Error("Bad offset on memory: "+JSON.stringify(field.offset));
                 }
@@ -2300,14 +2302,14 @@ export class wasm2lua {
 
 // Allow custom in/out file while defaulting to swad's meme :)
 // let infile  = process.argv[2] || (__dirname + "/../test/addTwo.wasm");
-// let infile  = process.argv[2] || (__dirname + "/../test/ammo.wasm");
+let infile  = process.argv[2] || (__dirname + "/../test/ammo-ex.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/test2.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/nbody.wasm");
-let infile  = process.argv[2] || (__dirname + "/../test/matrix.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/matrix.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/longjmp.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/mandelbrot.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/testx.wasm");

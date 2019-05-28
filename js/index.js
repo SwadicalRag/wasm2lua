@@ -382,6 +382,9 @@ class wasm2lua {
                         this.write(buf, value.value + ",");
                     }
                 }
+                else if (field.offset && field.offset.type == "Instr" && field.offset.id == "get_global") {
+                    this.write(buf, "__GLOBALS__[" + field.offset.args[0].value + "],");
+                }
                 else {
                     throw new Error("Bad offset on memory: " + JSON.stringify(field.offset));
                 }
@@ -1875,7 +1878,7 @@ wasm2lua.instructionBinOpFuncRemap = {
     max: "__FLOAT__.max"
 };
 exports.wasm2lua = wasm2lua;
-let infile = process.argv[2] || (__dirname + "/../test/matrix.wasm");
+let infile = process.argv[2] || (__dirname + "/../test/ammo-ex.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
 let compileFlags = process.argv[4] ? process.argv[4].split(",") : null;
 let whitelist = null;
