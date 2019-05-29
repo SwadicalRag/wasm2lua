@@ -1141,7 +1141,7 @@ class wasm2lua {
                                         this.write(buf, `__MULTIPLY_CORRECT__(${tmp2},${tmp})`);
                                     }
                                     else {
-                                        this.write(buf, `bit.tobit(${tmp2} ${op} ${tmp})`);
+                                        this.write(buf, `bit_tobit(${tmp2} ${op} ${tmp})`);
                                     }
                                 }
                                 else {
@@ -1280,7 +1280,7 @@ class wasm2lua {
                                 this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT_N__(__TRUNC__(${arg}));`);
                             }
                             else {
-                                this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = bit.tobit(__TRUNC__(${arg}));`);
+                                this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = bit_tobit(__TRUNC__(${arg}));`);
                             }
                             this.write(buf, this.getPushStack(state, resultVar));
                             this.newLine(buf);
@@ -1297,7 +1297,7 @@ class wasm2lua {
                         case "extend_s/i32": {
                             let resultVar = this.fn_createTempRegister(buf, state);
                             let arg = this.getPop(state);
-                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(${arg},bit.arshift(${arg},31));`);
+                            this.write(buf, `${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(${arg},bit_arshift(${arg},31));`);
                             this.write(buf, this.getPushStack(state, resultVar));
                             this.newLine(buf);
                             break;
@@ -1461,7 +1461,7 @@ class wasm2lua {
                                         else {
                                             throw new Error("signed load " + ins.id);
                                         }
-                                        this.write(buf, `${vname}=bit.arshift(bit.lshift(${vname},${shift}),${shift});`);
+                                        this.write(buf, `${vname}=bit_arshift(bit_lshift(${vname},${shift}),${shift});`);
                                     }
                                 }
                                 else if (ins.object == "u64") {
@@ -1487,7 +1487,7 @@ class wasm2lua {
                                 }
                                 if (is_narrow_u64_load) {
                                     if (ins.id.endsWith("_s")) {
-                                        this.write(buf, `${vname}=__LONG_INT__(${vname},bit.arshift(${vname},31));`);
+                                        this.write(buf, `${vname}=__LONG_INT__(${vname},bit_arshift(${vname},31));`);
                                     }
                                     else {
                                         this.write(buf, `${vname}=__LONG_INT__(${vname},0);`);
@@ -1855,14 +1855,14 @@ wasm2lua.instructionBinOpRemap = {
     gt_u: { op: ">", bool_result: true, unsigned: true },
 };
 wasm2lua.instructionBinOpFuncRemap = {
-    and: "bit.band",
-    or: "bit.bor",
-    xor: "bit.bxor",
-    shl: "bit.lshift",
-    shr_u: "bit.rshift",
-    shr_s: "bit.arshift",
-    rotl: "bit.rol",
-    rotr: "bit.ror",
+    and: "bit_band",
+    or: "bit_bor",
+    xor: "bit_bxor",
+    shl: "bit_lshift",
+    shr_u: "bit_rshift",
+    shr_s: "bit_arshift",
+    rotl: "bit_rol",
+    rotr: "bit_ror",
     div_s: "__DIVIDE_S__",
     div_u: "__DIVIDE_U__",
     rem_s: "__MODULO_S__",
@@ -1870,18 +1870,18 @@ wasm2lua.instructionBinOpFuncRemap = {
     clz: "__CLZ__",
     ctz: "__CTZ__",
     popcnt: "__POPCNT__",
-    sqrt: "math.sqrt",
+    sqrt: "math_sqrt",
     nearest: "__FLOAT__.nearest",
     trunc: "__FLOAT__.truncate",
-    floor: "math.floor",
-    ceil: "math.ceil",
-    abs: "math.abs",
+    floor: "math_floor",
+    ceil: "math_ceil",
+    abs: "math_abs",
     copysign: "__FLOAT__.copysign",
     min: "__FLOAT__.min",
     max: "__FLOAT__.max"
 };
 exports.wasm2lua = wasm2lua;
-let infile = process.argv[2] || (__dirname + "/../test/ammo-ex.wasm");
+let infile = process.argv[2] || (__dirname + "/../test/spectralnorm.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
 let compileFlags = process.argv[4] ? process.argv[4].split(",") : null;
 let whitelist = null;

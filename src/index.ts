@@ -937,14 +937,14 @@ export class wasm2lua {
 
     static instructionBinOpFuncRemap = {
         // binary
-        and: "bit.band",
-        or: "bit.bor",
-        xor: "bit.bxor",
-        shl: "bit.lshift",
-        shr_u: "bit.rshift", // logical shift
-        shr_s: "bit.arshift", // arithmetic shift
-        rotl: "bit.rol",
-        rotr: "bit.ror",
+        and: "bit_band",
+        or: "bit_bor",
+        xor: "bit_bxor",
+        shl: "bit_lshift",
+        shr_u: "bit_rshift", // logical shift
+        shr_s: "bit_arshift", // arithmetic shift
+        rotl: "bit_rol",
+        rotr: "bit_ror",
 
         // division
         div_s: "__DIVIDE_S__",
@@ -958,12 +958,12 @@ export class wasm2lua {
         popcnt: "__POPCNT__",
 
         // floating point
-        sqrt: "math.sqrt",
+        sqrt: "math_sqrt",
         nearest: "__FLOAT__.nearest",
         trunc: "__FLOAT__.truncate",
-        floor: "math.floor",
-        ceil: "math.ceil",
-        abs: "math.abs",
+        floor: "math_floor",
+        ceil: "math_ceil",
+        abs: "math_abs",
         copysign: "__FLOAT__.copysign",
 
         min: "__FLOAT__.min",
@@ -1501,7 +1501,7 @@ export class wasm2lua {
                                 if (ins.id == "mul" && this.options.compileFlags.includes("correct-multiply")) {
                                     this.write(buf,`__MULTIPLY_CORRECT__(${tmp2},${tmp})`);
                                 } else {
-                                    this.write(buf,`bit.tobit(${tmp2} ${op} ${tmp})`);
+                                    this.write(buf,`bit_tobit(${tmp2} ${op} ${tmp})`);
                                 }
                             } else {
                                 this.write(buf,`${tmp2} ${op} ${tmp}`);
@@ -1660,7 +1660,7 @@ export class wasm2lua {
                                 this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT_N__(__TRUNC__(${arg}));`);
                             }
                             else {
-                                this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = bit.tobit(__TRUNC__(${arg}));`);
+                                this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = bit_tobit(__TRUNC__(${arg}));`);
                             }
                             this.write(buf,this.getPushStack(state,resultVar));
                             this.newLine(buf);
@@ -1679,7 +1679,7 @@ export class wasm2lua {
                             let resultVar = this.fn_createTempRegister(buf,state);
                             let arg = this.getPop(state);
                             // Extract the sign bit and arithmetic shift it to obtain the high half.
-                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(${arg},bit.arshift(${arg},31));`);
+                            this.write(buf,`${state.regManager.getPhysicalRegisterName(resultVar)} = __LONG_INT__(${arg},bit_arshift(${arg},31));`);
                             this.write(buf,this.getPushStack(state,resultVar));
                             this.newLine(buf);
                             break;
@@ -1859,7 +1859,7 @@ export class wasm2lua {
                                             throw new Error("signed load "+ins.id);
                                         }
 
-                                        this.write(buf,`${vname}=bit.arshift(bit.lshift(${vname},${shift}),${shift});`);
+                                        this.write(buf,`${vname}=bit_arshift(bit_lshift(${vname},${shift}),${shift});`);
                                     }
                                 } else if (ins.object == "u64") {
                                     // todo rewrite this trash
@@ -1882,7 +1882,7 @@ export class wasm2lua {
 
                                 if (is_narrow_u64_load) {
                                     if (ins.id.endsWith("_s")) {
-                                        this.write(buf,`${vname}=__LONG_INT__(${vname},bit.arshift(${vname},31));`);
+                                        this.write(buf,`${vname}=__LONG_INT__(${vname},bit_arshift(${vname},31));`);
                                     } else {
                                         this.write(buf,`${vname}=__LONG_INT__(${vname},0);`);
                                     }
@@ -2305,7 +2305,7 @@ export class wasm2lua {
 
 // Allow custom in/out file while defaulting to swad's meme :)
 // let infile  = process.argv[2] || (__dirname + "/../test/addTwo.wasm");
-let infile  = process.argv[2] || (__dirname + "/../test/ammo-ex.wasm");
+let infile  = process.argv[2] || (__dirname + "/../test/spectralnorm.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
