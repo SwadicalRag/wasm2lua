@@ -60,6 +60,7 @@ class WebIDLBinder {
             let node = this.ast[i];
             if ((node.type == "interface") || (node.type == "interface mixin")) {
                 this.classLookup[node.name] = true;
+                this.cppC.writeLn(this.outBufCPP, `class ${node.name};`);
             }
         }
         for (let i = 0; i < this.ast.length; i++) {
@@ -82,9 +83,6 @@ class WebIDLBinder {
         this.luaC.write(this.outBufLua, ` end})`);
         this.luaC.indent();
         this.luaC.newLine(this.outBufLua);
-        if (JsImpl) {
-            this.cppC.writeLn(this.outBufCPP, `class ${node.name};`);
-        }
         for (let i = 0; i < node.members.length; i++) {
             let member = node.members[i];
             if (member.type == "operation") {
@@ -96,10 +94,15 @@ class WebIDLBinder {
                 }
                 else {
                     this.cppC.write(this.outBufCPP, `extern "C" ${this.idlTypeToCType(member.idlType, member.extAttrs)} ${this.mangleFunctionName(member, node.name)}(${node.name}* self`);
+                    if (member.arguments.length > 0) {
+                        this.cppC.write(this.outBufCPP, `,`);
+                    }
                 }
                 for (let j = 0; j < member.arguments.length; j++) {
-                    this.cppC.write(this.outBufCPP, ",");
                     this.cppC.write(this.outBufCPP, `${this.idlTypeToCType(member.arguments[j].idlType, member.arguments[j].extAttrs)} ${member.arguments[j].name}`);
+                    if ((j + 1) !== member.arguments.length) {
+                        this.cppC.write(this.outBufCPP, ",");
+                    }
                 }
                 this.cppC.write(this.outBufCPP, `) {return `);
                 if (member.name == node.name) {
@@ -133,13 +136,16 @@ class WebIDLBinder {
                     }
                     if (member.name == node.name) {
                         this.luaC.write(this.outBufLua, `self.__ptr = `);
+                        this.luaC.write(this.outBufLua, `${this.mangleFunctionName(member, node.name)}(`);
                     }
                     else {
                         this.luaC.write(this.outBufLua, `local ret = `);
+                        this.luaC.write(this.outBufLua, `${this.mangleFunctionName(member, node.name)}(self.__ptr`);
+                        if (member.arguments.length > 0) {
+                            this.luaC.write(this.outBufLua, ",");
+                        }
                     }
-                    this.luaC.write(this.outBufLua, `${this.mangleFunctionName(member, node.name)}(self.__ptr`);
                     for (let j = 0; j < member.arguments.length; j++) {
-                        this.luaC.write(this.outBufLua, ",");
                         if (member.arguments[j].idlType.idlType == "DOMString") {
                             this.luaC.write(this.outBufLua, `arg${j}`);
                         }
@@ -151,6 +157,9 @@ class WebIDLBinder {
                         }
                         else if (member.arguments[j].idlType.idlType == "boolean") {
                             this.luaC.write(this.outBufLua, " and 1 or 0");
+                        }
+                        if ((j + 1) !== member.arguments.length) {
+                            this.luaC.write(this.outBufLua, ",");
                         }
                     }
                     this.luaC.write(this.outBufLua, ")");

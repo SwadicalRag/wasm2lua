@@ -2271,7 +2271,7 @@ export class wasm2lua extends StringCompiler {
 
 // Allow custom in/out file while defaulting to swad's meme :)
 // let infile  = process.argv[2] || (__dirname + "/../test/addTwo.wasm");
-let infile  = process.argv[2] || (__dirname + "/../test/ammo-ex.wasm");
+let infile  = process.argv[2] || (__dirname + "/../test/webidl.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
