@@ -51,9 +51,9 @@ class WebIDLBinder {
         }
     }
     walkInterface(node) {
-        this.luaC.writeLn(this.outBufLua, `${node.name} = {} ${node.name}.__index = ${node.name}`);
+        this.luaC.writeLn(this.outBufLua, `${node.name} = {__cache = {}} ${node.name}.__index = ${node.name}`);
         this.luaC.write(this.outBufLua, `setmetatable(${node.name},{__call = function(self)`);
-        this.luaC.write(this.outBufLua, `local ins = setmetatable({_ptr = 0},self)`);
+        this.luaC.write(this.outBufLua, `local ins = setmetatable({__ptr = 0},self)`);
         this.luaC.write(this.outBufLua, `ins:${node.name}()`);
         this.luaC.write(this.outBufLua, `return ins`);
         this.luaC.write(this.outBufLua, ` end})`);
@@ -63,12 +63,29 @@ class WebIDLBinder {
         for (let i = 0; i < node.members.length; i++) {
             let member = node.members[i];
             if (member.type == "operation") {
+                if (member.name == node.name) {
+                    hasConstructor = true;
+                }
                 this.cppC.write(this.outBufCPP, `extern "C" ${this.idlTypeToCType(member.idlType, member.extAttrs)} ${this.mangleFunctionName(member)}(${node.name}* self`);
                 for (let j = 0; j < member.arguments.length; j++) {
                     this.cppC.write(this.outBufCPP, ",");
                     this.cppC.write(this.outBufCPP, `${this.idlTypeToCType(member.arguments[j].idlType, member.arguments[j].extAttrs)} ${member.arguments[j].name}`);
                 }
-                this.cppC.write(this.outBufCPP, ");");
+                this.cppC.write(this.outBufCPP, `) {return `);
+                if (member.name == node.name) {
+                    this.cppC.write(this.outBufCPP, `new ${member.name}`);
+                }
+                else {
+                    this.cppC.write(this.outBufCPP, `self->${member.name}`);
+                }
+                this.cppC.write(this.outBufCPP, `(`);
+                for (let j = 0; j < member.arguments.length; j++) {
+                    this.cppC.write(this.outBufCPP, `${member.arguments[j].name}`);
+                    if ((j + 1) !== member.arguments.length) {
+                        this.cppC.write(this.outBufCPP, ",");
+                    }
+                }
+                this.cppC.write(this.outBufCPP, `); };`);
                 this.cppC.newLine(this.outBufCPP);
                 this.luaC.write(this.outBufLua, `function ${node.name}:${member.name}(`);
                 for (let j = 0; j < member.arguments.length; j++) {
@@ -77,14 +94,25 @@ class WebIDLBinder {
                         this.luaC.write(this.outBufLua, ",");
                     }
                 }
-                this.luaC.write(this.outBufLua, `) return ${this.mangleFunctionName(member)}(self._ptr`);
+                this.luaC.write(this.outBufLua, `)`);
+                if (member.name == node.name) {
+                    this.luaC.write(this.outBufLua, `self.__ptr = `);
+                }
+                else {
+                    this.luaC.write(this.outBufLua, `return `);
+                }
+                this.luaC.write(this.outBufLua, `${this.mangleFunctionName(member)}(self.__ptr`);
                 for (let j = 0; j < member.arguments.length; j++) {
                     this.luaC.write(this.outBufLua, ",");
                     this.luaC.write(this.outBufLua, `${member.arguments[j].name}`);
                 }
-                this.luaC.write(this.outBufLua, ") end");
+                this.luaC.write(this.outBufLua, ")");
+                this.luaC.write(this.outBufLua, " end");
                 this.luaC.newLine(this.outBufLua);
             }
+        }
+        if (!hasConstructor) {
+            this.luaC.writeLn(this.outBufLua, `function ${node.name}:${node.name}() error("Class ${node.name} has no WebIDL constructor and therefore cannot be instantiated via Lua") end`);
         }
         this.luaC.outdent();
         this.luaC.newLine(this.outBufLua);
