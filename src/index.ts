@@ -94,6 +94,11 @@ interface WASMFuncState {
     hasSetjmp: boolean;
     setJmps: CallInstruction[];
 
+    labels: Map<string,{ins: number,id: number}>;
+    gotos: {ins: number,label: string}[];
+    jumpStreamEnabled: boolean;
+    curJmpID: number;
+
     stackLevel: number;
     stackData: (string | VirtualRegister | false)[];
 }
@@ -452,6 +457,10 @@ export class wasm2lua {
                     stackLevel: 1,
                     hasSetjmp: false,
                     setJmps: [],
+                    labels: new Map(),
+                    gotos: [],
+                    jumpStreamEnabled: false,
+                    curJmpID: 0,
                 };
 
                 this.processInstructionsPass1(field.init,global_init_state)
@@ -501,6 +510,10 @@ export class wasm2lua {
                     stackLevel: 1,
                     hasSetjmp: false,
                     setJmps: [],
+                    labels: new Map(),
+                    gotos: [],
+                    jumpStreamEnabled: false,
+                    curJmpID: 0,
                 };
 
                 this.processInstructionsPass1(field.offset,global_init_state)
@@ -666,6 +679,10 @@ export class wasm2lua {
             stackLevel: 1,
             hasSetjmp: false,
             setJmps: [],
+            labels: new Map(),
+            gotos: [],
+            jumpStreamEnabled: false,
+            curJmpID: 0,
         };
 
         state.funcStates.push(fstate);
@@ -769,6 +786,17 @@ export class wasm2lua {
         this.writeLn(buf,FUNC_VAR_HEADER);
 
         this.processInstructionsPass1(node.body,state)
+        for(let jmpData of state.gotos) {
+            let labelSrc = state.labels.get(jmpData.label);
+            if(typeof labelSrc !== "undefined") {
+                if(Math.abs(labelSrc.ins - jmpData.ins) > 1500) {
+                    state.jumpStreamEnabled = true;
+                    state.curJmpID = 0;
+                    this.writeLn(buf,"local __nextjmp");
+                    break;
+                }
+            }
+        }
         this.write(buf,this.processInstructionsPass2(node.body,state));
         this.writeEx(buf,this.processInstructionsPass3(node.body,state),-1);
 
@@ -971,14 +999,63 @@ export class wasm2lua {
 
     };
 
-    beginBlock(buf: string[],state: WASMFuncState,block: WASMBlockState,customStart?: string) {
+    writeLabel(buf: string[],label: string,state: WASMFuncState) {
+        if(state.jumpStreamEnabled) {
+            let jmpID = state.curJmpID++;
+            if(jmpID == 0) {
+                this.write(buf,`goto ${label} ::jmpstream_${jmpID}:: if __nextjmp ~= ${jmpID} then goto jmpstream_${jmpID + 1} end ::${label}::`);
+            }
+            else if((jmpID+1) == state.labels.size) {
+                this.write(buf,`goto ${label} ::jmpstream_${jmpID}:: if __nextjmp ~= ${jmpID} then goto jmpstream_${jmpID - 1} end ::${label}::`);
+            }
+            else {
+                this.write(buf,`goto ${label} ::jmpstream_${jmpID}:: if __nextjmp > ${jmpID} then goto jmpstream_${jmpID + 1} elseif __nextjmp < ${jmpID} then goto jmpstream_${jmpID - 1} end ::${label}::`);
+            }
+        }
+        else {
+            this.write(buf,`::${label}::`);
+        }
+    }
+
+    writeGoto(buf: string[],label: string,state: WASMFuncState) {
+        if(state.jumpStreamEnabled) {
+            let target = state.labels.get(label);
+
+            if(Math.abs(target.ins - state.insCountPass2) > 1500) {
+                let closestTargetID: number;
+                let closestTargetIns = Infinity;
+    
+                for(let key of state.labels.keys()) {
+                    let val = state.labels.get(key);
+                    let insDiff = Math.abs(state.insCountPass2 - val.ins);
+                    if(insDiff < closestTargetIns) {
+                        closestTargetID = val.id;
+                        closestTargetIns = insDiff;
+                    }
+                }
+
+                this.write(buf,`__nextjmp = ${target.id} goto jmpstream_${closestTargetID}`);
+            }
+            else {
+                this.write(buf,`goto ${label}`);
+            }
+        }
+        else {
+            this.write(buf,`goto ${label}`);
+        }
+    }
+
+    beginBlock(buf: string[],state: WASMFuncState,block: WASMBlockState,customStart?: string,pass1LabelStore?: boolean) {
         // BLOCK BEGINS MUST BE CLOSED BY BLOCK ENDS!!!!
         state.blocks.push(block);
-        this.write(buf,`::${sanitizeIdentifier(block.id)}_start::`);
+        this.writeLabel(buf,`${sanitizeIdentifier(block.id)}_start`,state);
+        if(pass1LabelStore) {
+            state.labels.set(`${sanitizeIdentifier(block.id)}_start`,{ins: state.insCountPass1,id: state.labels.size});
+        }
         if(typeof customStart === "string") {
             this.newLine(buf);
             this.write(buf,customStart);
-        } else if (block.blockType == "loop") {
+        } else if ((block.blockType == "loop") && !state.jumpStreamEnabled) {
             this.newLine(buf);
             this.write(buf,"while true do");
         }
@@ -1013,11 +1090,11 @@ export class wasm2lua {
         }
     }
 
-    endBlock(buf: string[],state: WASMFuncState) {
+    endBlock(buf: string[],state: WASMFuncState,pass1LabelStore?: boolean) {
 
         let block = state.blocks.pop();
         if(block) {
-            this.endBlockInternal(buf,block,state);
+            this.endBlockInternal(buf,block,state,pass1LabelStore == true);
 
             if(state.stackLevel > (block.resultType === null ? block.enterStackLevel : block.enterStackLevel + 1)) {
                 this.writeLn(buf,"-- WARNING: a block as popped extra information into the stack.")
@@ -1029,7 +1106,7 @@ export class wasm2lua {
         return false;
     }
 
-    endBlockInternal(buf: string[],block: WASMBlockState,state: WASMFuncState) {
+    endBlockInternal(buf: string[],block: WASMBlockState,state: WASMFuncState,pass1LabelStore: boolean) {
         block.hasClosed = true;
         
         if(block.resultType !== null) {
@@ -1049,7 +1126,7 @@ export class wasm2lua {
             this.writeLn(buf,this.getPushStack(state,block.resultRegister));
         }
         
-        if (block.blockType=="loop") {
+        if ((block.blockType == "loop") && !state.jumpStreamEnabled) {
             this.write(buf,"break");
             this.newLine(buf);
             this.outdent(buf);
@@ -1058,11 +1135,14 @@ export class wasm2lua {
         } else {
             this.outdent(buf);
         }
-        this.write(buf,`::${sanitizeIdentifier(block.id)}_fin::`);
+        if(pass1LabelStore) {
+            state.labels.set(`${sanitizeIdentifier(block.id)}_fin`,{ins: state.insCountPass1,id: state.labels.size});
+        }
+        this.writeLabel(buf,`${sanitizeIdentifier(block.id)}_fin`,state);
         this.newLine(buf);
     }
 
-    startElseSubBlock(buf: string[], block: WASMBlockState, state: WASMFuncState) {
+    startElseSubBlock(buf: string[], block: WASMBlockState, state: WASMFuncState, pass1LabelStore?: boolean) {
         // TODO: is this right?
         // originally this was uncommented, but that doesn't make sense.
         // dont we assign the return to here AFTER the else block ends?
@@ -1082,11 +1162,17 @@ export class wasm2lua {
         }
         
         this.outdent(buf);
-        this.write(buf,`goto ${sanitizeIdentifier(block.id)}_fin`);
+        this.writeGoto(buf,`${sanitizeIdentifier(block.id)}_fin`,state);
         this.newLine(buf);
-        this.write(buf,`::${sanitizeIdentifier(block.id)}_else::`);
+        this.writeLabel(buf,`${sanitizeIdentifier(block.id)}_else`,state);
         this.indent();
         this.newLine(buf);
+        
+        if(pass1LabelStore) {
+            state.labels.set(`${sanitizeIdentifier(block.id)}_else`,{ins: state.insCountPass1,id: state.labels.size});
+
+            state.gotos.push({ins: state.insCountPass1,label: `${sanitizeIdentifier(block.id)}_fin`});
+        }
     }
 
     writeBranch(buf: string[], state: WASMFuncState, blocksToExit: number) {
@@ -1101,12 +1187,11 @@ export class wasm2lua {
                 this.write(buf,state.regManager.getPhysicalRegisterName(targetBlock.resultRegister) + " = " + this.getPeek(state)+ "; ");
             }
 
-            this.write(buf,"goto ")
             if(targetBlock.blockType == "loop") {
-                this.write(buf,sanitizeIdentifier(`${targetBlock.id}_start`));
+                this.writeGoto(buf,sanitizeIdentifier(`${targetBlock.id}_start`),state);
             }
             else {
-                this.write(buf,sanitizeIdentifier(`${targetBlock.id}_fin`));
+                this.writeGoto(buf,sanitizeIdentifier(`${targetBlock.id}_fin`),state);
             }
         }
         else if (blocksToExit == state.blocks.length) {
@@ -1116,6 +1201,25 @@ export class wasm2lua {
         }
 
         this.write(buf,";");
+    }
+
+    simulateBranch(state: WASMFuncState, blocksToExit: number) {
+        let targetBlock = state.blocks[state.blocks.length - blocksToExit - 1];
+
+        if(targetBlock) {
+            if(targetBlock.blockType == "loop") {
+                state.gotos.push({ins: state.insCountPass1,label: `${sanitizeIdentifier(targetBlock.id)}_start`});
+            }
+            else {
+                state.gotos.push({ins: state.insCountPass1,label: `${sanitizeIdentifier(targetBlock.id)}_fin`});
+            }
+        }
+        else if (blocksToExit == state.blocks.length) {
+            // no-op in this context
+        }
+        else {
+            console.log("Warning: unresolved branch jump destination")
+        }
     }
 
     writeReturn(buf: string[], state: WASMFuncState) {
@@ -1251,8 +1355,20 @@ export class wasm2lua {
                             
                             break;
                         }
+                        case "br_if":
+                        case "br": {
+                            this.simulateBranch(state, (ins.args[0] as NumberLiteral).value);
+
+                            break;
+                        }
+                        case "br_table": {
+                            ins.args.forEach((target,i)=>{
+                                this.simulateBranch(state, (target as NumberLiteral).value);
+                            });
+                            break;
+                        }
                         case "end": {
-                            this.endBlock([],state);
+                            this.endBlock([],state,true);
                             break;
                         }
                     }
@@ -1267,8 +1383,8 @@ export class wasm2lua {
                         resultType: null, 
                         blockType,
                         enterStackLevel: state.stackLevel,
-                        insCountStart: state.insCountPass1
-                    });
+                        insCountStart: state.insCountPass1,
+                    },null,true);
 
                     this.processInstructionsPass1(ins.instr,state)
 
@@ -1292,10 +1408,13 @@ export class wasm2lua {
                         insCountStart: state.insCountPass1
                     });
 
+                    state.gotos.push({ins: state.insCountPass1,label: `${sanitizeIdentifier(block.id)}_else`});
+                    state.gotos.push({ins: state.insCountPass1,label: `${sanitizeIdentifier(block.id)}_fin`});
+
                     this.processInstructionsPass1(ins.consequent,state)
                     
                     if(ins.alternate.length > 0) {
-                        this.startElseSubBlock([],block,state);
+                        this.startElseSubBlock([],block,state,true);
 
                         this.processInstructionsPass1(ins.alternate,state);
                     }
@@ -2054,10 +2173,14 @@ export class wasm2lua {
                     this.write(buf,"if ");
                     this.write(buf,this.getPop(state));
                     if(ins.alternate.length > 0) {
-                        this.write(buf,`==0 then goto ${labelBaseSan}_else end`);
+                        this.write(buf,`==0 then`);
+                        this.writeGoto(buf,`${labelBaseSan}_else`,state);
+                        this.write(buf,` end`);
                     }
                     else {
-                        this.write(buf,`==0 then goto ${labelBaseSan}_fin end`);
+                        this.write(buf,`==0 then`);
+                        this.writeGoto(buf,`${labelBaseSan}_fin`,state);
+                        this.write(buf,` end`);
                     }
 
                     let block = this.beginBlock(buf,state,{
