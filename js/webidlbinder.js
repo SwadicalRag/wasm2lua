@@ -10,6 +10,7 @@ class WebIDLBinder {
         this.cppC = new stringcompiler_1.StringCompiler();
         this.outBufLua = [];
         this.outBufCPP = [];
+        this.classLookup = {};
         this.ast = webidl.parse(source);
         this.buildOut();
     }
@@ -56,11 +57,17 @@ class WebIDLBinder {
     buildOut() {
         this.luaC.writeLn(this.outBufLua, "local cfuncs = {}");
         for (let i = 0; i < this.ast.length; i++) {
+            let node = this.ast[i];
+            if ((node.type == "interface") || (node.type == "interface mixin")) {
+                this.classLookup[node.name] = true;
+            }
+        }
+        for (let i = 0; i < this.ast.length; i++) {
             this.walkRootType(this.ast[i]);
         }
     }
     walkRootType(node) {
-        if (node.type == "interface") {
+        if ((node.type == "interface") || (node.type == "interface mixin")) {
             this.walkInterface(node);
         }
     }
@@ -119,18 +126,52 @@ class WebIDLBinder {
                         }
                     }
                     this.luaC.write(this.outBufLua, `)`);
+                    for (let j = 0; j < member.arguments.length; j++) {
+                        if (member.arguments[j].idlType.idlType == "DOMString") {
+                            this.luaC.write(this.outBufLua, `local __arg${j} = vm.stringify(${member.arguments[j].name})`);
+                        }
+                    }
                     if (member.name == node.name) {
                         this.luaC.write(this.outBufLua, `self.__ptr = `);
                     }
                     else {
-                        this.luaC.write(this.outBufLua, `return `);
+                        this.luaC.write(this.outBufLua, `local ret = `);
                     }
                     this.luaC.write(this.outBufLua, `${this.mangleFunctionName(member, node.name)}(self.__ptr`);
                     for (let j = 0; j < member.arguments.length; j++) {
                         this.luaC.write(this.outBufLua, ",");
-                        this.luaC.write(this.outBufLua, `${member.arguments[j].name}`);
+                        if (member.arguments[j].idlType.idlType == "DOMString") {
+                            this.luaC.write(this.outBufLua, `arg${j}`);
+                        }
+                        else {
+                            this.luaC.write(this.outBufLua, `${member.arguments[j].name}`);
+                        }
+                        if (this.classLookup[member.arguments[j].idlType.idlType]) {
+                            this.luaC.write(this.outBufLua, ".__ptr");
+                        }
+                        else if (member.arguments[j].idlType.idlType == "boolean") {
+                            this.luaC.write(this.outBufLua, " and 1 or 0");
+                        }
                     }
                     this.luaC.write(this.outBufLua, ")");
+                    for (let j = 0; j < member.arguments.length; j++) {
+                        if (member.arguments[j].idlType.idlType == "DOMString") {
+                            this.luaC.write(this.outBufLua, `vm.freeString(arg${j})`);
+                        }
+                    }
+                    if (member.name !== node.name) {
+                        if (this.classLookup[member.idlType.idlType]) {
+                            this.luaC.write(this.outBufLua, `local __obj = ${member.idlType.idlType}.__cache[ret] `);
+                            this.luaC.write(this.outBufLua, `if not __obj then __obj = setmetatable({__ptr = ret},${member.idlType.idlType}) ${member.idlType.idlType}.__cache[ret] = __obj end `);
+                            this.luaC.write(this.outBufLua, "return __obj");
+                        }
+                        else if (member.idlType.idlType == "DOMString") {
+                            this.luaC.write(this.outBufLua, "return vm.readString(ret)");
+                        }
+                        else {
+                            this.luaC.write(this.outBufLua, "return ret");
+                        }
+                    }
                     this.luaC.write(this.outBufLua, " end");
                     this.luaC.newLine(this.outBufLua);
                 }
@@ -209,7 +250,9 @@ class WebIDLBinder {
         this.luaC.newLine(this.outBufLua);
     }
 }
-WebIDLBinder.CTypeRenames = {};
+WebIDLBinder.CTypeRenames = {
+    ["DOMString"]: "char*"
+};
 exports.WebIDLBinder = WebIDLBinder;
 let infile = process.argv[2] || (__dirname + "/../test/test.idl");
 let outfile_lua = process.argv[3] || (__dirname + "/../test/test_bind.lua");

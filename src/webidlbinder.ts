@@ -9,9 +9,10 @@ export class WebIDLBinder {
     outBufLua: string[] = [];
     outBufCPP: string[] = [];
     ast: webidl.IDLRootType[];
+    classLookup: {[n: string]: boolean} = {};
 
     static CTypeRenames: {[type: string]: string} = {
-        
+        ["DOMString"]: "char*"
     };
 
     constructor(public source: string) {
@@ -75,17 +76,23 @@ export class WebIDLBinder {
     buildOut() {
         this.luaC.writeLn(this.outBufLua,"local cfuncs = {}")
         for(let i=0;i < this.ast.length;i++) {
+            let node = this.ast[i];
+            if((node.type == "interface") || (node.type == "interface mixin")) {
+                this.classLookup[node.name] = true;
+            }
+        }
+        for(let i=0;i < this.ast.length;i++) {
             this.walkRootType(this.ast[i]);
         }
     }
 
     walkRootType(node: webidl.IDLRootType) {
-        if(node.type == "interface") {
-            this.walkInterface(node)
+        if((node.type == "interface") || (node.type == "interface mixin")) {
+            this.walkInterface(node);
         }
     }
 
-    walkInterface(node: webidl.InterfaceType) {
+    walkInterface(node: webidl.InterfaceType | webidl.InterfaceMixinType) {
         let JsImpl = this.getExtendedAttribute("JSImplementation",node.extAttrs);
 
         let hasConstructor = false;
@@ -148,19 +155,57 @@ export class WebIDLBinder {
                     }
                     this.luaC.write(this.outBufLua,`)`);
 
+                    for(let j=0;j < member.arguments.length;j++) {
+                        if(member.arguments[j].idlType.idlType == "DOMString") {
+                            this.luaC.write(this.outBufLua,`local __arg${j} = vm.stringify(${member.arguments[j].name})`);
+                        }
+                    }
+
                     if(member.name == node.name) {
                         this.luaC.write(this.outBufLua,`self.__ptr = `);
                     }
                     else {
-                        this.luaC.write(this.outBufLua,`return `);
+                        this.luaC.write(this.outBufLua,`local ret = `);
                     }
 
                     this.luaC.write(this.outBufLua,`${this.mangleFunctionName(member,node.name)}(self.__ptr`);
                     for(let j=0;j < member.arguments.length;j++) {
                         this.luaC.write(this.outBufLua,",");
-                        this.luaC.write(this.outBufLua,`${member.arguments[j].name}`);
+                        if(member.arguments[j].idlType.idlType == "DOMString") {
+                            this.luaC.write(this.outBufLua,`arg${j}`);
+                        }
+                        else {
+                            this.luaC.write(this.outBufLua,`${member.arguments[j].name}`);
+                        }
+                        if(this.classLookup[member.arguments[j].idlType.idlType as string]) {
+                            this.luaC.write(this.outBufLua,".__ptr");
+                        }
+                        else if(member.arguments[j].idlType.idlType == "boolean") {
+                            this.luaC.write(this.outBufLua," and 1 or 0");
+                        }
                     }
                     this.luaC.write(this.outBufLua,")");
+
+                    for(let j=0;j < member.arguments.length;j++) {
+                        if(member.arguments[j].idlType.idlType == "DOMString") {
+                            this.luaC.write(this.outBufLua,`vm.freeString(arg${j})`);
+                        }
+                    }
+
+                    if(member.name !== node.name) {
+                        if(this.classLookup[member.idlType.idlType as string]) {
+                            this.luaC.write(this.outBufLua,`local __obj = ${member.idlType.idlType}.__cache[ret] `);
+                            this.luaC.write(this.outBufLua,`if not __obj then __obj = setmetatable({__ptr = ret},${member.idlType.idlType}) ${member.idlType.idlType}.__cache[ret] = __obj end `);
+                            this.luaC.write(this.outBufLua,"return __obj");
+                        }
+                        else if(member.idlType.idlType == "DOMString") {
+                            // null terminated only :(
+                            this.luaC.write(this.outBufLua,"return vm.readString(ret)");
+                        }
+                        else {
+                            this.luaC.write(this.outBufLua,"return ret");
+                        }
+                    }
 
                     this.luaC.write(this.outBufLua," end");
                     this.luaC.newLine(this.outBufLua);
