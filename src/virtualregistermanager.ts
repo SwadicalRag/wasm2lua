@@ -19,6 +19,7 @@ export class VirtualRegisterManager {
     virtualDisabled = false;
 
     totalRegisters: number = 0;
+    static MAX_REG = 195;
 
     getNextFreeRegisterID() {
         // assumes this.registers is sorted by ASC
@@ -42,7 +43,12 @@ export class VirtualRegisterManager {
             }
         }
         else {
-            return `reg${reg.id}`;
+            if(reg.id >= VirtualRegisterManager.MAX_REG) {
+                return `vreg[${reg.id - VirtualRegisterManager.MAX_REG + 1}]`;
+            }
+            else {
+                return `reg${reg.id}`;
+            }
         }
     }
 

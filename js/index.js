@@ -524,13 +524,18 @@ class wasm2lua {
                 }
                 seen[name] = true;
                 hasVars = true;
-                cb(name);
+                cb(name, false);
             }
         }
         else if ((state.regManager.totalRegisters - (state.funcType ? state.funcType.params.length : 0)) > 0) {
             for (let i = (state.funcType ? state.funcType.params.length : 0); i < state.regManager.totalRegisters; i++) {
                 hasVars = true;
-                cb(`reg${i}`);
+                if (i >= virtualregistermanager_1.VirtualRegisterManager.MAX_REG) {
+                    cb(`vreg[${i}]`, true);
+                }
+                else {
+                    cb(`reg${i}`, false);
+                }
             }
         }
         return hasVars;
@@ -626,8 +631,13 @@ class wasm2lua {
             if (hasVars) {
                 buf2.pop();
                 this.write(buf2, " = ");
-                this.forEachVar(state, (varName) => {
-                    this.write(buf2, `__setjmp_data__.data.${varName}`);
+                this.forEachVar(state, (varName, virtual) => {
+                    if (virtual) {
+                        this.write(buf2, `__setjmp_data__.data.${varName.replace(/[\[\]]/g, "")}`);
+                    }
+                    else {
+                        this.write(buf2, `__setjmp_data__.data.${varName}`);
+                    }
                     this.write(buf2, ",");
                 });
                 buf2.pop();
@@ -1648,8 +1658,13 @@ class wasm2lua {
                         let resVarName = state.regManager.getPhysicalRegisterName(resultVar);
                         this.write(buf, `${resVarName} = {data = {},target = "jmp_${sanitizeIdentifier(ins.loc.start.line)}_${sanitizeIdentifier(ins.loc.start.column)}",result = 0};`);
                         this.newLine(buf);
-                        let hasVars = this.forEachVar(state, (varName) => {
-                            this.write(buf, `${resVarName}.data.${varName}`);
+                        let hasVars = this.forEachVar(state, (varName, virtual) => {
+                            if (virtual) {
+                                this.write(buf, `${resVarName}.data.${varName.replace(/[\[\]]/g, "")}`);
+                            }
+                            else {
+                                this.write(buf, `${resVarName}.data.${varName}`);
+                            }
                             this.write(buf, ",");
                         });
                         if (hasVars) {
@@ -1823,16 +1838,31 @@ class wasm2lua {
             return t_buf.join("");
         }
         if ((state.regManager.totalRegisters - (state.funcType ? state.funcType.params.length : 0)) > 0) {
+            if (state.regManager.totalRegisters > virtualregistermanager_1.VirtualRegisterManager.MAX_REG) {
+                this.write(t_buf, "local vreg = {");
+                for (let i = virtualregistermanager_1.VirtualRegisterManager.MAX_REG; i < state.regManager.totalRegisters; i++) {
+                    this.write(t_buf, `nil,`);
+                }
+                this.writeLn(t_buf, "}");
+            }
             this.write(t_buf, "local ");
             for (let i = (state.funcType ? state.funcType.params.length : 0); i < state.regManager.totalRegisters; i++) {
-                this.write(t_buf, `reg${i}`);
-                if (i !== (state.regManager.totalRegisters - 1)) {
-                    this.write(t_buf, ",");
+                if (i >= virtualregistermanager_1.VirtualRegisterManager.MAX_REG) {
+                    if (t_buf[t_buf.length - 1] == ",") {
+                        t_buf.pop();
+                    }
+                    break;
+                }
+                else {
+                    this.write(t_buf, `reg${i}`);
+                    if (i !== (state.regManager.totalRegisters - 1)) {
+                        this.write(t_buf, ",");
+                    }
                 }
             }
-            if (state.regManager.totalRegisters > 150) {
-                if (state.regManager.totalRegisters >= 200) {
-                    console.error(`ERROR: [${state.id}] ${state.regManager.totalRegisters} REGISTERS USED`);
+            if (state.regManager.totalRegisters > (virtualregistermanager_1.VirtualRegisterManager.MAX_REG * 0.75)) {
+                if (state.regManager.totalRegisters > virtualregistermanager_1.VirtualRegisterManager.MAX_REG) {
+                    console.error(`WARNING: [${state.id}] ${state.regManager.totalRegisters} REGISTERS USED (VREGS ENABLED)`);
                 }
                 else {
                     console.log(`WARNING: [${state.id}] ${state.regManager.totalRegisters} REGISTERS USED`);
@@ -1987,7 +2017,7 @@ wasm2lua.instructionBinOpFuncRemap = {
     max: "__FLOAT__.max"
 };
 exports.wasm2lua = wasm2lua;
-let infile = process.argv[2] || (__dirname + "/../test/spectralnorm.wasm");
+let infile = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
 let compileFlags = process.argv[4] ? process.argv[4].split(",") : null;
 let whitelist = null;
