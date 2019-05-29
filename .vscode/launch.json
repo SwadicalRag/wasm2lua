@@ -15,6 +15,15 @@
         },
         {
             "type": "node",
+            "request": "launch",
+            "name": "Launch Binder",
+            "program": "${workspaceRoot}\\js\\webidlbinder.js",
+            "outFiles": [
+                "${workspaceRoot}/{js,node_modules}/**/*.js"
+            ]
+        },
+        {
+            "type": "node",
             "request": "attach",
             "name": "Attach to Process",
             "address": "localhost",

@@ -2,9 +2,9 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const wasm_parser_1 = require("@webassemblyjs/wasm-parser");
 const fs = require("fs");
-const util_1 = require("util");
 const arraymap_1 = require("./arraymap");
 const virtualregistermanager_1 = require("./virtualregistermanager");
+const stringcompiler_1 = require("./stringcompiler");
 const PURE_LUA_MODE = true;
 function makeBinaryStringLiteral(array) {
     let literal = ["'"];
@@ -41,12 +41,12 @@ function sanitizeIdentifier(ident) {
         .replace(/\-/g, "__IDENT_CHAR_MINUS__");
 }
 const FUNC_VAR_HEADER = "";
-class wasm2lua {
+class wasm2lua extends stringcompiler_1.StringCompiler {
     constructor(program_binary, options = {}) {
+        super();
         this.program_binary = program_binary;
         this.options = options;
         this.outBuf = [];
-        this.indentLevel = 0;
         this.moduleStates = [];
         this.globalTypes = [];
         this.registerDebugOutput = false;
@@ -62,37 +62,6 @@ class wasm2lua {
         if (!cond) {
             throw new Error(err);
         }
-    }
-    indent() { this.indentLevel++; }
-    outdent(buf) {
-        this.indentLevel--;
-        if (util_1.isArray(buf)) {
-            while (buf[buf.length - 1] === "") {
-                buf.pop();
-            }
-            if (buf.length > 0) {
-                let mat = buf[buf.length - 1].match(/^([\s\S]*?)\n(?:    )*$/);
-                if (mat) {
-                    buf[buf.length - 1] = mat[1] + "\n" + (("    ").repeat(this.indentLevel));
-                }
-            }
-        }
-    }
-    newLine(buf) {
-        buf.push("\n" + (("    ").repeat(this.indentLevel)));
-    }
-    write(buf, str) { buf.push(str); }
-    writeLn(buf, str) {
-        if (str !== "") {
-            buf.push(str);
-            this.newLine(buf);
-        }
-    }
-    writeEx(buf, str, offset) {
-        if (offset < 0) {
-            offset += buf.length;
-        }
-        buf.splice(offset, 0, str);
     }
     writeHeader(buf) {
         this.write(buf, wasm2lua.fileHeader);

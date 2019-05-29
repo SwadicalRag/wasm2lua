@@ -4,6 +4,7 @@ import { isArray } from "util";
 
 import {ArrayMap} from "./arraymap"
 import { VirtualRegisterManager, VirtualRegister } from "./virtualregistermanager";
+import { StringCompiler } from "./stringcompiler";
 
 const PURE_LUA_MODE = true;
 
@@ -115,9 +116,8 @@ interface WASM2LuaOptions {
 
 const FUNC_VAR_HEADER = "";
 
-export class wasm2lua {
+export class wasm2lua extends StringCompiler {
     outBuf: string[] = [];
-    indentLevel = 0;
     moduleStates: WASMModuleState[] = [];
     globalRemaps: Map<string,string>;
     globalTypes: Signature[] = [];
@@ -131,6 +131,7 @@ export class wasm2lua {
     private program_ast: Program;
 
     constructor(private program_binary: Buffer, private options: WASM2LuaOptions = {}) {
+        super();
 
         if (options.compileFlags == null) {
             options.compileFlags = [];
@@ -147,41 +148,6 @@ export class wasm2lua {
         if(!cond) {
             throw new Error(err);
         }
-    }
-
-    indent() {this.indentLevel++;}
-
-    outdent(buf?: string[]) {
-        this.indentLevel--;
-        if(isArray(buf)) {
-            while(buf[buf.length - 1] === "") {
-                buf.pop();
-            }
-
-            if (buf.length>0) {
-                let mat = buf[buf.length - 1].match(/^([\s\S]*?)\n(?:    )*$/);
-                if(mat) {
-                    // fix up indent
-                    buf[buf.length - 1] = mat[1] + "\n" + (("    ").repeat(this.indentLevel));
-                }
-            }
-        }
-    }
-
-    newLine(buf: string[]) {
-        buf.push("\n" + (("    ").repeat(this.indentLevel)));
-    }
-
-    write(buf: string[],str: string) {buf.push(str);}
-    writeLn(buf: string[],str: string) {
-        if(str !== "") {
-            buf.push(str);
-            this.newLine(buf);
-        }
-    }
-    writeEx(buf: string[],str: string,offset: number) {
-        if(offset < 0) {offset += buf.length;}
-        buf.splice(offset,0,str);
     }
 
     writeHeader(buf: string[]) {
