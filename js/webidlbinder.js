@@ -60,7 +60,6 @@ class WebIDLBinder {
             let node = this.ast[i];
             if ((node.type == "interface") || (node.type == "interface mixin")) {
                 this.classLookup[node.name] = true;
-                this.cppC.writeLn(this.outBufCPP, `class ${node.name};`);
             }
         }
         for (let i = 0; i < this.ast.length; i++) {
