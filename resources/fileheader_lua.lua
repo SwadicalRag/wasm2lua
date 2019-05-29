@@ -7,6 +7,12 @@ end
 
 local __LONG_INT_CLASS__
 
+local bit = bit
+local math = math
+local setmetatable = setmetatable
+local assert = assert
+local error = error
+
 local function __TRUNC__(n)
     if n >= 0 then return math.floor(n) end
     return math.ceil(n)
@@ -505,7 +511,7 @@ end
 
 local function __DIVIDE_S__(a,b)
     local res_1 = a / b
-    res_2 = math.floor(res_1)
+    local res_2 = math.floor(res_1)
     if res_1 ~= res_2 and res_2 < 0 then res_2 = res_2 + 1 end
     local int = bit.tobit(res_2)
     if res_2 ~= int then error("bad division") end
