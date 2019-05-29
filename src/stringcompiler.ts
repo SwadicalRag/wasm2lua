@@ -5,6 +5,7 @@ export class StringCompiler {
 
     indent() {this.indentLevel++;}
 
+
     outdent(buf?: string[]) {
         this.indentLevel--;
         if(isArray(buf)) {
