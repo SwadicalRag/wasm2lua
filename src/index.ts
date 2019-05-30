@@ -1065,7 +1065,7 @@ export class wasm2lua {
         if(typeof customStart === "string") {
             this.newLine(buf);
             this.write(buf,customStart);
-        } else if ((block.blockType == "loop") && !state.jumpStreamEnabled) {
+        } else if ((block.blockType == "loop") && !state.jumpStreamEnabled && !state.hasSetjmp) {
             this.newLine(buf);
             this.write(buf,"while true do");
         }
@@ -1136,7 +1136,7 @@ export class wasm2lua {
             this.writeLn(buf,this.getPushStack(state,block.resultRegister));
         }
         
-        if ((block.blockType == "loop") && !state.jumpStreamEnabled) {
+        if ((block.blockType == "loop") && !state.jumpStreamEnabled && !state.hasSetjmp) {
             this.write(buf,"break");
             this.newLine(buf);
             this.outdent(buf);
