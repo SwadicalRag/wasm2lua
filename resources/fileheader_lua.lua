@@ -38,6 +38,7 @@ local bit_lshift = bit.lshift
 local bit_band = bit.band
 local bit_bor = bit.bor
 local bit_bxor = bit.bxor
+local bit_rol = bit.rol
 local math_huge = math.huge
 local math_floor = math.floor
 local math_ceil = math.ceil
