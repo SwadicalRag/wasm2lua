@@ -1249,7 +1249,7 @@ class wasm2lua {
                                     }
                                 }
                                 else if (ins.object == "i32") {
-                                    if (ins.id == "mul" && this.options.compileFlags.includes("correct-multiply")) {
+                                    if (ins.id == "mul") {
                                         this.write(buf, `__MULTIPLY_CORRECT__(${tmp2},${tmp})`);
                                     }
                                     else {
