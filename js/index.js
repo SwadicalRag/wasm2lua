@@ -1748,12 +1748,12 @@ class wasm2lua {
                     this.write(buf, "if ");
                     this.write(buf, this.getPop(state));
                     if (ins.alternate.length > 0) {
-                        this.write(buf, `==0 then`);
+                        this.write(buf, `==0 then `);
                         this.writeGoto(buf, `${labelBaseSan}_else`, state);
                         this.write(buf, ` end`);
                     }
                     else {
-                        this.write(buf, `==0 then`);
+                        this.write(buf, `==0 then `);
                         this.writeGoto(buf, `${labelBaseSan}_fin`, state);
                         this.write(buf, ` end`);
                     }
