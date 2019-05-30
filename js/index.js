@@ -790,7 +790,7 @@ class wasm2lua {
             this.newLine(buf);
             this.write(buf, customStart);
         }
-        else if ((block.blockType == "loop") && !state.jumpStreamEnabled) {
+        else if ((block.blockType == "loop") && !state.jumpStreamEnabled && !state.hasSetjmp) {
             this.newLine(buf);
             this.write(buf, "while true do");
         }
@@ -850,7 +850,7 @@ class wasm2lua {
             this.writeLn(buf, "-- BLOCK RET (" + block.blockType + "):");
             this.writeLn(buf, this.getPushStack(state, block.resultRegister));
         }
-        if ((block.blockType == "loop") && !state.jumpStreamEnabled) {
+        if ((block.blockType == "loop") && !state.jumpStreamEnabled && !state.hasSetjmp) {
             this.write(buf, "break");
             this.newLine(buf);
             this.outdent(buf);
@@ -1249,7 +1249,7 @@ class wasm2lua {
                                     }
                                 }
                                 else if (ins.object == "i32") {
-                                    if (ins.id == "mul" && this.options.compileFlags.includes("correct-multiply")) {
+                                    if (ins.id == "mul") {
                                         this.write(buf, `__MULTIPLY_CORRECT__(${tmp2},${tmp})`);
                                     }
                                     else {
@@ -1748,12 +1748,12 @@ class wasm2lua {
                     this.write(buf, "if ");
                     this.write(buf, this.getPop(state));
                     if (ins.alternate.length > 0) {
-                        this.write(buf, `==0 then`);
+                        this.write(buf, `==0 then `);
                         this.writeGoto(buf, `${labelBaseSan}_else`, state);
                         this.write(buf, ` end`);
                     }
                     else {
-                        this.write(buf, `==0 then`);
+                        this.write(buf, `==0 then `);
                         this.writeGoto(buf, `${labelBaseSan}_fin`, state);
                         this.write(buf, ` end`);
                     }

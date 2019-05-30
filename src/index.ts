@@ -7,10 +7,6 @@ import { VirtualRegisterManager, VirtualRegister } from "./virtualregistermanage
 
 const PURE_LUA_MODE = true;
 
-/* SUPPORTED COMPILE FLAGS
-    correct-multiply: Compiles integer multiplications using a specialized algorithm which prevents them from breaking due to loss of precision.
-*/
-
 /* TODO CORRECTNESS:
     - Be extra careful with conversions from floats -> ints. The bit library's rounding behavior is undefined.
     - Imported globals use global IDs that precede other global IDs
@@ -1065,7 +1061,7 @@ export class wasm2lua {
         if(typeof customStart === "string") {
             this.newLine(buf);
             this.write(buf,customStart);
-        } else if ((block.blockType == "loop") && !state.jumpStreamEnabled) {
+        } else if ((block.blockType == "loop") && !state.jumpStreamEnabled && !state.hasSetjmp) {
             this.newLine(buf);
             this.write(buf,"while true do");
         }
@@ -1136,7 +1132,7 @@ export class wasm2lua {
             this.writeLn(buf,this.getPushStack(state,block.resultRegister));
         }
         
-        if ((block.blockType == "loop") && !state.jumpStreamEnabled) {
+        if ((block.blockType == "loop") && !state.jumpStreamEnabled && !state.hasSetjmp) {
             this.write(buf,"break");
             this.newLine(buf);
             this.outdent(buf);
@@ -1627,7 +1623,8 @@ export class wasm2lua {
                                     this.write(buf,`(${tmp2} ${op} ${tmp}) and 1 or 0`);
                                 }
                             } else if (ins.object=="i32") {
-                                if (ins.id == "mul" && this.options.compileFlags.includes("correct-multiply")) {
+                                if (ins.id == "mul") {
+                                    // used to hide this behind a flag, but correctness is probably the best policy here
                                     this.write(buf,`__MULTIPLY_CORRECT__(${tmp2},${tmp})`);
                                 } else {
                                     this.write(buf,`bit_tobit(${tmp2} ${op} ${tmp})`);
@@ -2188,12 +2185,12 @@ export class wasm2lua {
                     this.write(buf,"if ");
                     this.write(buf,this.getPop(state));
                     if(ins.alternate.length > 0) {
-                        this.write(buf,`==0 then`);
+                        this.write(buf,`==0 then `);
                         this.writeGoto(buf,`${labelBaseSan}_else`,state);
                         this.write(buf,` end`);
                     }
                     else {
-                        this.write(buf,`==0 then`);
+                        this.write(buf,`==0 then `);
                         this.writeGoto(buf,`${labelBaseSan}_fin`,state);
                         this.write(buf,` end`);
                     }
