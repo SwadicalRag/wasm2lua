@@ -11,6 +11,11 @@ local __WASI_FILETYPE_SOCKET_DGRAM = 5
 local __WASI_FILETYPE_SOCKET_STREAM = 6
 local __WASI_FILETYPE_SYMBOLIC_LINK = 7
 
+local __WASI_CLOCK_MONOTONIC = 0;
+local __WASI_CLOCK_PROCESS_CPUTIME_ID = 1;
+local __WASI_CLOCK_REALTIME = 2;
+local __WASI_CLOCK_THREAD_CPUTIME_ID = 3;
+
 -- fdstat struct (24 bytes)
 -- 0    1       filetype
 -- 2    2       fs flags
@@ -123,6 +128,18 @@ return function(memory)
     function WASI.random_get(buf,len)
         for i=1,len do
             memory:write8(buf + i - 1,math.random(0,255))
+        end
+
+        return __WASI_ESUCCESS
+    end
+
+    function WASI.clock_time_get(clockID,precision,timeAddr)
+        if (clockID == __WASI_CLOCK_MONOTONIC) or (clockID == __WASI_CLOCK_REALTIME) then
+            __LONG_INT_N__(os.time() * 1000 * 1000 * 1000):store(memory,timeAddr) -- to nanoseconds
+        elseif (clockID == __WASI_CLOCK_PROCESS_CPUTIME_ID) or (clockID == __WASI_CLOCK_THREAD_CPUTIME_ID) then
+            __LONG_INT_N__(os.clock() * 1000 * 1000 * 1000):store(memory,timeAddr) -- to nanoseconds
+        else
+            return __WASI_EBADF
         end
 
         return __WASI_ESUCCESS
