@@ -7,6 +7,15 @@
         {
             "type": "node",
             "request": "launch",
+            "name": "Launch Tests",
+            "program": "${workspaceRoot}\\js\\c-testsuite.js",
+            "outFiles": [
+                "${workspaceRoot}/{js,node_modules}/**/*.js"
+            ]
+        },
+        {
+            "type": "node",
+            "request": "launch",
             "name": "Launch Program",
             "program": "${workspaceRoot}\\js\\index.js",
             "outFiles": [
