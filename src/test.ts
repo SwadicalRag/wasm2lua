@@ -120,7 +120,7 @@ function compileModule(file: string) {
     var file_index = file.match(/\.(\d+)\.wasm/)[1];
     testFileName = `test${file_index}.lua`;
     let result = child_process.spawnSync(process.argv0,[
-        pathJoin(__dirname,"index.js"),
+        pathJoin(__dirname,"compile.js"),
         file,
         `${testDirectory}${testFileName}`,
         "correct-multiply"

@@ -5,7 +5,7 @@ const fs = require("fs");
 const util_1 = require("util");
 const arraymap_1 = require("./arraymap");
 const virtualregistermanager_1 = require("./virtualregistermanager");
-const PURE_LUA_MODE = false;
+const PURE_LUA_MODE = true;
 function makeBinaryStringLiteral(array) {
     let literal = ["'"];
     for (let i = 0; i < array.length; i++) {
@@ -1203,8 +1203,8 @@ class wasm2lua {
                                 state.locals[locID].lastRef = state.insLastRefs[locID];
                             }
                             this.write(buf, state.regManager.getPhysicalRegisterName(state.locals[locID]));
-                            this.write(buf, " = " + this.getPop(state) + " ; ");
-                            this.writeLn(buf, this.getPushStack(state, state.locals[locID]));
+                            this.write(buf, " = " + this.getPeek(state) + ";");
+                            this.newLine(buf);
                             break;
                         }
                         case "neg": {

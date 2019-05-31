@@ -5,7 +5,7 @@ import { isArray } from "util";
 import {ArrayMap} from "./arraymap"
 import { VirtualRegisterManager, VirtualRegister } from "./virtualregistermanager";
 
-const PURE_LUA_MODE = false;
+const PURE_LUA_MODE = true;
 
 /* TODO CORRECTNESS:
     - Be extra careful with conversions from floats -> ints. The bit library's rounding behavior is undefined.
@@ -1568,9 +1568,10 @@ export class wasm2lua {
 
                             // write local
                             this.write(buf,state.regManager.getPhysicalRegisterName(state.locals[locID]));
-                            this.write(buf," = "+this.getPop(state)+" ; ");
+                            this.write(buf," = "+this.getPeek(state)+";");
+                            this.newLine(buf);
                             // read back
-                            this.writeLn(buf,this.getPushStack(state,state.locals[locID]));
+                            //this.writeLn(buf,this.getPushStack(state,state.locals[locID]));
 
                             break;
                         }
