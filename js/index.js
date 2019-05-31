@@ -6,6 +6,7 @@ const util_1 = require("util");
 const arraymap_1 = require("./arraymap");
 const virtualregistermanager_1 = require("./virtualregistermanager");
 const PURE_LUA_MODE = true;
+const JMPSTREAM_INS_GAP = 2000;
 function makeBinaryStringLiteral(array) {
     let literal = ["'"];
     for (let i = 0; i < array.length; i++) {
@@ -327,6 +328,7 @@ class wasm2lua {
                     hasSetjmp: false,
                     setJmps: [],
                     labels: new Map(),
+                    labelsByIns: [],
                     gotos: [],
                     jumpStreamEnabled: false,
                     curJmpID: 0,
@@ -368,6 +370,7 @@ class wasm2lua {
                     hasSetjmp: false,
                     setJmps: [],
                     labels: new Map(),
+                    labelsByIns: [],
                     gotos: [],
                     jumpStreamEnabled: false,
                     curJmpID: 0,
@@ -510,6 +513,7 @@ class wasm2lua {
             hasSetjmp: false,
             setJmps: [],
             labels: new Map(),
+            labelsByIns: [],
             gotos: [],
             jumpStreamEnabled: false,
             curJmpID: 0,
@@ -615,10 +619,13 @@ class wasm2lua {
         for (let jmpData of state.gotos) {
             let labelSrc = state.labels.get(jmpData.label);
             if (typeof labelSrc !== "undefined") {
-                if (Math.abs(labelSrc.ins - jmpData.ins) > 1500) {
+                if (Math.abs(labelSrc.ins - jmpData.ins) > JMPSTREAM_INS_GAP) {
                     state.jumpStreamEnabled = true;
                     state.curJmpID = 0;
                     this.writeLn(buf, "local __nextjmp");
+                    state.labelsByIns.sort((a, b) => {
+                        return b[0] - a[0];
+                    });
                     break;
                 }
             }
@@ -765,16 +772,31 @@ class wasm2lua {
     writeGoto(buf, label, state) {
         if (state.jumpStreamEnabled) {
             let target = state.labels.get(label);
-            if (Math.abs(target.ins - state.insCountPass2) > 1500) {
+            if (Math.abs(target.ins - state.insCountPass2) > JMPSTREAM_INS_GAP) {
                 let closestTargetID;
                 let closestTargetIns = Infinity;
-                for (let key of state.labels.keys()) {
-                    let val = state.labels.get(key);
-                    let insDiff = Math.abs(state.insCountPass2 - val.ins);
-                    if (insDiff < closestTargetIns) {
-                        closestTargetID = val.id;
-                        closestTargetIns = insDiff;
+                if (target.ins > state.insCountPass2) {
+                    for (let i = target.rid; i >= 0; i--) {
+                        let nextT = state.labelsByIns[i];
+                        if ((nextT[0] - state.insCountPass2) < JMPSTREAM_INS_GAP) {
+                            closestTargetID = i;
+                            closestTargetIns = nextT[0];
+                            break;
+                        }
                     }
+                }
+                else {
+                    for (let i = target.rid; i < state.labelsByIns.length; i++) {
+                        let nextT = state.labelsByIns[i];
+                        if ((state.insCountPass2 - nextT[0]) < JMPSTREAM_INS_GAP) {
+                            closestTargetID = i;
+                            closestTargetIns = nextT[0];
+                            break;
+                        }
+                    }
+                }
+                if (closestTargetIns == Infinity) {
+                    console.error("Couldn't resolve jump dest in " + state.id);
                 }
                 this.write(buf, `__nextjmp = ${target.id} goto jmpstream_${closestTargetID}`);
             }
@@ -790,7 +812,11 @@ class wasm2lua {
         state.blocks.push(block);
         this.writeLabel(buf, `${sanitizeIdentifier(block.id)}_start`, state);
         if (pass1LabelStore) {
-            state.labels.set(`${sanitizeIdentifier(block.id)}_start`, { ins: state.insCountPass1, id: state.labels.size });
+            if (state.labels.get(`${sanitizeIdentifier(block.id)}_start`)) {
+                throw "what";
+            }
+            state.labels.set(`${sanitizeIdentifier(block.id)}_start`, { ins: state.insCountPass1, id: state.labels.size, rid: state.labelsByIns.length });
+            state.labelsByIns.push([state.insCountPass1, `${sanitizeIdentifier(block.id)}_start`]);
         }
         if (typeof customStart === "string") {
             this.newLine(buf);
@@ -867,7 +893,11 @@ class wasm2lua {
             this.outdent(buf);
         }
         if (pass1LabelStore) {
-            state.labels.set(`${sanitizeIdentifier(block.id)}_fin`, { ins: state.insCountPass1, id: state.labels.size });
+            if (state.labels.get(`${sanitizeIdentifier(block.id)}_fin`)) {
+                throw "what";
+            }
+            state.labels.set(`${sanitizeIdentifier(block.id)}_fin`, { ins: state.insCountPass1, id: state.labels.size, rid: state.labelsByIns.length });
+            state.labelsByIns.push([state.insCountPass1, `${sanitizeIdentifier(block.id)}_fin`]);
         }
         this.writeLabel(buf, `${sanitizeIdentifier(block.id)}_fin`, state);
         this.newLine(buf);
@@ -888,7 +918,11 @@ class wasm2lua {
         this.indent();
         this.newLine(buf);
         if (pass1LabelStore) {
-            state.labels.set(`${sanitizeIdentifier(block.id)}_else`, { ins: state.insCountPass1, id: state.labels.size });
+            if (state.labels.get(`${sanitizeIdentifier(block.id)}_else`)) {
+                throw "what";
+            }
+            state.labels.set(`${sanitizeIdentifier(block.id)}_else`, { ins: state.insCountPass1, id: state.labels.size, rid: state.labelsByIns.length });
+            state.labelsByIns.push([state.insCountPass1, `${sanitizeIdentifier(block.id)}_else`]);
             state.gotos.push({ ins: state.insCountPass1, label: `${sanitizeIdentifier(block.id)}_fin` });
         }
     }
@@ -2022,4 +2056,11 @@ wasm2lua.instructionBinOpFuncRemap = {
     max: "__FLOAT__.max"
 };
 exports.wasm2lua = wasm2lua;
+let infile = process.argv[2] || (__dirname + "/../test/duktape.wasm");
+let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
+let compileFlags = process.argv[4] ? process.argv[4].split(",") : null;
+let whitelist = null;
+let wasm = fs.readFileSync(infile);
+let inst = new wasm2lua(wasm, { whitelist, compileFlags });
+fs.writeFileSync(outfile, inst.outBuf.join(""));
 //# sourceMappingURL=index.js.map
