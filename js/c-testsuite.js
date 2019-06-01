@@ -19,17 +19,17 @@ for (let fileName of files) {
         let expectedOut = fs.readFileSync(expectedOutPath);
         let prog = cp.spawnSync(`nilajit`, ["test/test.lua"], {});
         totalTests++;
-        if (prog.stdout.toString().replace(/\r\n?/g, "\n") !== expectedOut.toString().replace(/\r\n?/g, "\n")) {
+        if (prog.status != 0) {
+            console.error(`test (${fileName}) failed with code ${prog.status}...`);
+        }
+        else if (prog.stderr.toString().length != 0) {
+            console.error(`test (${fileName}) failed due to stderr...`);
+            console.error(prog.stderr.toString());
+        }
+        else if (prog.stdout.toString().replace(/\r\n?/g, "\n") !== expectedOut.toString().replace(/\r\n?/g, "\n")) {
             console.error(`test failed... (${fileName})`);
             console.error(`expected: ${expectedOut.toString()}`);
             console.error(`actual: ${prog.stdout.toString()}`);
-        }
-        else if (prog.status != 0) {
-            console.log(`test (${fileName}) failed with code ${prog.status}...`);
-        }
-        else if (prog.stderr.toString().length != 0) {
-            console.log(`test (${fileName}) failed due to stderr...`);
-            console.log(prog.stderr.toString());
         }
         else {
             console.log(`test passed!`);
