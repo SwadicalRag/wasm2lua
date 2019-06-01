@@ -5,7 +5,7 @@ import { isArray } from "util";
 import {ArrayMap} from "./arraymap"
 import { VirtualRegisterManager, VirtualRegister } from "./virtualregistermanager";
 
-const PURE_LUA_MODE = true;
+const PURE_LUA_MODE = false;
 
 /* TODO CORRECTNESS:
     - Be extra careful with conversions from floats -> ints. The bit library's rounding behavior is undefined.
@@ -1566,12 +1566,19 @@ export class wasm2lua {
                                 state.locals[locID].lastRef = state.insLastRefs[locID];
                             }
 
+                            let teeTemp = this.fn_createTempRegister(buf,state);
+
                             // write local
                             this.write(buf,state.regManager.getPhysicalRegisterName(state.locals[locID]));
-                            this.write(buf," = "+this.getPeek(state)+";");
+                            this.write(buf," = "+this.getPop(state)+"; ");
+                            // copy local
+                            this.write(buf,state.regManager.getPhysicalRegisterName(teeTemp));
+                            this.write(buf," = ");
+                            this.write(buf,state.regManager.getPhysicalRegisterName(state.locals[locID]));
+                            this.write(buf,";");
                             this.newLine(buf);
                             // read back
-                            //this.writeLn(buf,this.getPushStack(state,state.locals[locID]));
+                            this.writeLn(buf,this.getPushStack(state,teeTemp));
 
                             break;
                         }
@@ -2466,7 +2473,7 @@ export class wasm2lua {
 // // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/test2.wasm");
-// let infile  = process.argv[2] || (__dirname + "/../test/duktape-debug.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/00181.c.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/nbody.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/matrix.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/longjmp.wasm");
