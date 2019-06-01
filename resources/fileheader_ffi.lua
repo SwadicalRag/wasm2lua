@@ -6,7 +6,7 @@ local function __MEMORY_GROW__(mem,pages)
 
     mem._page_count = mem._page_count + pages
     mem._len = mem._page_count * 64 * 1024
-    mem.data = ffi.new("uint8_t[?]",mem._page_count * 64 * 1024)
+    mem.data = ffi.new("int8_t[?]",mem._page_count * 64 * 1024)
     ffi.copy(mem.data,old_data,old_pages * 64 * 1024)
 
     return old_pages
@@ -19,12 +19,12 @@ end
 
 local function __MEMORY_READ_16__(mem,loc)
     assert((loc >= 0) and (loc < (mem._len - 1)),"out of memory access")
-    return ffi.cast("uint16_t*",mem.data + loc)[0]
+    return ffi.cast("int16_t*",mem.data + loc)[0]
 end
 
 local function __MEMORY_READ_32__(mem,loc)
     assert((loc >= 0) and (loc < (mem._len - 3)),"out of memory access")
-    return ffi.cast("uint32_t*",mem.data + loc)[0]
+    return ffi.cast("int32_t*",mem.data + loc)[0]
 end
 
 local function __MEMORY_READ_32F__(mem,loc)
@@ -44,12 +44,12 @@ end
 
 local function __MEMORY_WRITE_16__(mem,loc,val)
     assert((loc >= 0) and (loc < (mem._len - 1)),"out of memory access")
-    ffi.cast("uint16_t*",mem.data + loc)[0] = val
+    ffi.cast("int16_t*",mem.data + loc)[0] = val
 end
 
 local function __MEMORY_WRITE_32__(mem,loc,val)
     assert((loc >= 0) and (loc < (mem._len - 3)),"out of memory access")
-    ffi.cast("uint32_t*",mem.data + loc)[0] = val
+    ffi.cast("int32_t*",mem.data + loc)[0] = val
 end
 
 local function __MEMORY_WRITE_32F__(mem,loc,val)
@@ -69,7 +69,7 @@ end
 
 local function __MEMORY_ALLOC__(pages)
     local mem = {}
-    mem.data = ffi.new("uint8_t[?]",pages * 64 * 1024)
+    mem.data = ffi.new("int8_t[?]",pages * 64 * 1024)
     mem._page_count = pages
     mem._len = pages * 64 * 1024
 
