@@ -1657,6 +1657,7 @@ class wasm2lua {
                             let targ = state.modState.memoryAllocations.get(0);
                             let tempVar = this.fn_createTempRegister(buf, state);
                             this.writeLn(buf, `${state.regManager.getPhysicalRegisterName(tempVar)} = ${targ}._page_count;`);
+                            this.writeLn(buf, this.getPushStack(state, tempVar));
                             break;
                         }
                         case "return": {

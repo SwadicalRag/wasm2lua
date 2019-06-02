@@ -2080,6 +2080,7 @@ export class wasm2lua {
 
                             let tempVar = this.fn_createTempRegister(buf,state);
                             this.writeLn(buf,`${state.regManager.getPhysicalRegisterName(tempVar)} = ${targ}._page_count;`);
+                            this.writeLn(buf,this.getPushStack(state,tempVar));
                             break;
                         }
                         // Misc
@@ -2502,7 +2503,7 @@ export class wasm2lua {
 // // let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/test2.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/localtest1.wasm");
-// let infile  = process.argv[2] || (__dirname + "/../test/localtest1.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../resources/tests/assemblyscript/inlining.untouched.wat.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/nbody.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/matrix.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/longjmp.wasm");
