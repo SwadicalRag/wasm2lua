@@ -1,6 +1,7 @@
 
 local __WASI_ESUCCESS = 0
 local __WASI_EBADF = 8
+local __WASI_EINVAL = 28
 
 local __WASI_FILETYPE_UNKNOWN = 0
 local __WASI_FILETYPE_BLOCK_DEVICE = 1
@@ -143,6 +144,11 @@ return function(memory)
         end
 
         return __WASI_ESUCCESS
+    end
+
+    function WASI.proc_exit(code)
+        -- print("exiting with code ",code)
+        os.exit(code)
     end
 
     return WASI
