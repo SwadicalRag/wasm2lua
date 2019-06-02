@@ -1544,15 +1544,7 @@ export class wasm2lua {
                                 state.locals[locID].lastRef = state.insLastRefs[locID];
                             }
 
-                            let locTemp = this.fn_createTempRegister(buf,state);
-
-                            this.write(buf,state.regManager.getPhysicalRegisterName(locTemp));
-                            this.write(buf," = ");
-                            this.write(buf,state.regManager.getPhysicalRegisterName(state.locals[locID]));
-                            this.write(buf,";");
-                            this.newLine(buf);
-
-                            this.writeLn(buf,this.getPushStack(state,locTemp));
+                            this.writeLn(buf,this.getPushStack(state,state.locals[locID]));
                             break;
                         }
                         case "set_local": {
@@ -1563,6 +1555,26 @@ export class wasm2lua {
                             if(typeof state.locals[locID].firstRef === "undefined") {
                                 state.locals[locID].firstRef = state.insCountPass2;
                                 state.locals[locID].lastRef = state.insLastRefs[locID];
+                            }
+
+                            if(state.locals[locID].stackEntryCount > 0) {
+                                // copy to temp var
+                                
+                                let locTemp = this.fn_createTempRegister(buf,state);
+
+                                this.write(buf,state.regManager.getPhysicalRegisterName(locTemp));
+                                this.write(buf," = ");
+                                this.write(buf,state.regManager.getPhysicalRegisterName(state.locals[locID]));
+                                this.write(buf,";");
+                                this.newLine(buf);
+
+                                for(let stackID=0;stackID < state.stackData.length;stackID++) {
+                                    if(state.stackData[stackID] == state.locals[locID]) {
+                                        state.stackData[stackID] = locTemp;
+                                        state.locals[locID].stackEntryCount--;
+                                        locTemp.stackEntryCount++;
+                                    }
+                                }
                             }
 
                             this.write(buf,state.regManager.getPhysicalRegisterName(state.locals[locID]));
@@ -2066,7 +2078,8 @@ export class wasm2lua {
                             let targ = state.modState.memoryAllocations.get(0);
                             // TODO: is target always 0?
 
-                            this.writeLn(buf,this.getPushStack(state,`${targ}._page_count`));
+                            let tempVar = this.fn_createTempRegister(buf,state);
+                            this.writeLn(buf,`${state.regManager.getPhysicalRegisterName(tempVar)} = ${targ}._page_count;`);
                             break;
                         }
                         // Misc
@@ -2488,7 +2501,8 @@ export class wasm2lua {
 // // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/test2.wasm");
-// let infile  = process.argv[2] || (__dirname + "/../test/duktape.wasm");
+// // let infile  = process.argv[2] || (__dirname + "/../test/localtest1.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/localtest1.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/nbody.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/matrix.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/longjmp.wasm");
