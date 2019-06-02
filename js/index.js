@@ -1242,6 +1242,21 @@ class wasm2lua {
                                 state.locals[locID].firstRef = state.insCountPass2;
                                 state.locals[locID].lastRef = state.insLastRefs[locID];
                             }
+                            if (state.locals[locID].stackEntryCount > 0) {
+                                let locTemp = this.fn_createTempRegister(buf, state);
+                                this.write(buf, state.regManager.getPhysicalRegisterName(locTemp));
+                                this.write(buf, " = ");
+                                this.write(buf, state.regManager.getPhysicalRegisterName(state.locals[locID]));
+                                this.write(buf, ";");
+                                this.newLine(buf);
+                                for (let stackID = 0; stackID < state.stackData.length; stackID++) {
+                                    if (state.stackData[stackID] == state.locals[locID]) {
+                                        state.stackData[stackID] = locTemp;
+                                        state.locals[locID].stackEntryCount--;
+                                        locTemp.stackEntryCount++;
+                                    }
+                                }
+                            }
                             let teeTemp = this.fn_createTempRegister(buf, state);
                             this.write(buf, state.regManager.getPhysicalRegisterName(state.locals[locID]));
                             this.write(buf, " = " + this.getPop(state) + "; ");
