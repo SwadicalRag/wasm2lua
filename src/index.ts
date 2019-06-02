@@ -378,6 +378,9 @@ export class wasm2lua {
             this.newLine(buf);
         }
 
+        this.write(buf,"local __FUNCS__ = {}");
+        this.newLine(buf);
+
         for(let section of node.metadata.sections) {
             this.processModuleMetadataSection(section);
         }
@@ -687,7 +690,7 @@ export class wasm2lua {
         }
 
         let fstate: WASMFuncState = {
-            id: renameTo ? renameTo : sanitizeIdentifier(funcID),
+            id: renameTo ? renameTo : "__FUNCS__."+sanitizeIdentifier(funcID),
             origID: betterName || funcID,
             regManager: new VirtualRegisterManager(),
             registersToBeFreed: [],

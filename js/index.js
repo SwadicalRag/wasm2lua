@@ -257,6 +257,8 @@ class wasm2lua {
             this.write(buf, "local __EXPORTS__ = __MODULES__.UNKNOWN;");
             this.newLine(buf);
         }
+        this.write(buf, "local __FUNCS__ = {}");
+        this.newLine(buf);
         for (let section of node.metadata.sections) {
             this.processModuleMetadataSection(section);
         }
@@ -501,7 +503,7 @@ class wasm2lua {
             funcID = "func_" + state.funcStates.length;
         }
         let fstate = {
-            id: renameTo ? renameTo : sanitizeIdentifier(funcID),
+            id: renameTo ? renameTo : "__FUNCS__." + sanitizeIdentifier(funcID),
             origID: betterName || funcID,
             regManager: new virtualregistermanager_1.VirtualRegisterManager(),
             registersToBeFreed: [],
