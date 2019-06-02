@@ -724,6 +724,18 @@ export class wasm2lua {
         return hasVars;
     }
 
+    forEachVarIncludeParams(state: WASMFuncState,cb: (vname: string,isVirtual: boolean) => void) {
+        let hasVars = false;
+
+        for (let i = 0; i < state.funcType.params.length; i++) {
+            cb(`reg${i}`,false);
+        }
+
+        hasVars = hasVars || this.forEachVar(state,cb);
+
+        return hasVars;
+    }
+
     processFunc(node: Func,modState: WASMModuleState) {
         let buf = [];
         if(node.signature.type == "NumberLiteral") {
@@ -819,14 +831,14 @@ export class wasm2lua {
             this.indent();
             this.newLine(buf2);
 
-            let hasVars = this.forEachVar(state,(varName) => {
+            let hasVars = this.forEachVarIncludeParams(state,(varName) => {
                 this.write(buf2,`${varName}`);
                 this.write(buf2,",");
             })
             if(hasVars) {
                 buf2.pop(); // get rid of trailing comma
                 this.write(buf2," = ");
-                this.forEachVar(state,(varName,virtual) => {
+                this.forEachVarIncludeParams(state,(varName,virtual) => {
                     if(virtual) {
                         this.write(buf2,`__setjmp_data__.data.${varName.replace(/[\[\]]/g,"")}`);
                     }
@@ -2126,7 +2138,7 @@ export class wasm2lua {
 
                         this.write(buf,`${resVarName} = {data = {},target = "jmp_${sanitizeIdentifier(ins.loc.start.line)}_${sanitizeIdentifier(ins.loc.start.column)}",result = 0};`);
                         this.newLine(buf);
-                        let hasVars = this.forEachVar(state,(varName,virtual) => {
+                        let hasVars = this.forEachVarIncludeParams(state,(varName,virtual) => {
                             if(virtual) {
                                 this.write(buf,`${resVarName}.data.${varName.replace(/[\[\]]/g,"")}`);
                             }
@@ -2138,7 +2150,7 @@ export class wasm2lua {
                         if(hasVars) {
                             buf.pop(); // get rid of trailing comma
                             this.write(buf," = ");
-                            this.forEachVar(state,(varName) => {
+                            this.forEachVarIncludeParams(state,(varName) => {
                                 this.write(buf,`${varName}`);
                                 this.write(buf,",");
                             });
