@@ -65,7 +65,7 @@ interface WASMModuleState {
     funcStates: WASMFuncState[];
     funcByName: Map<string,WASMFuncState>;
     memoryAllocations: ArrayMap<string>;
-    func_tables: Array<Array<Index>>;
+    func_tables: Array< Array< Array<Index> > >;
 
     nextGlobalIndex: number;
 }
@@ -487,7 +487,14 @@ export class wasm2lua {
             else if (field.type == "Elem") {
                 let table_index = field.table.value;
 
-                this.write(buf,`local __TABLE_FUNCS_${table_index}__, __TABLE_OFFSET_${table_index}__;`);
+                if (state.func_tables[table_index] == null) {
+                    state.func_tables[table_index] = [];
+                    this.write(buf,`local __TABLE_FUNCS_${table_index}__ = {};`);
+                    this.newLine(buf);
+                }
+                let sub_index = state.func_tables[table_index].length;
+
+                this.write(buf,`local __TABLE_OFFSET_${table_index}_${sub_index}__ = {};`);
                 this.newLine(buf);
 
                 this.write(buf,"do");
@@ -527,7 +534,7 @@ export class wasm2lua {
                 this.writeEx(buf,this.processInstructionsPass3(field.offset,global_init_state),-1);
 
                 // bias the table offset so we can just use lua table indexing like lazy bastards
-                this.write(buf,`__TABLE_OFFSET_${table_index}__ = 1 - `+this.getPop(global_init_state)+";");
+                this.write(buf,`__TABLE_OFFSET_${table_index}_${sub_index}__ = 1 + `+this.getPop(global_init_state)+";");
                 this.newLine(buf);
 
                 this.outdent(buf);
@@ -536,7 +543,7 @@ export class wasm2lua {
                 this.write(buf,"end");
                 this.newLine(buf);
 
-                state.func_tables[table_index] = field.funcs;
+                state.func_tables[table_index].push( field.funcs );
             }
             else if (field.type == "Data") {
                 if(field.memoryIndex && field.memoryIndex.type == "NumberLiteral") {
@@ -574,7 +581,21 @@ export class wasm2lua {
 
         // Process function tables
         state.func_tables.forEach((table,table_index) => {
-            this.write(buf,`__TABLE_FUNCS_${table_index}__ = {`);
+            table.forEach((sub_table,sub_index)=>{
+                let offset_var = `__TABLE_OFFSET_${table_index}_${sub_index}__`;
+
+                sub_table.forEach((func_index,n)=>{
+                    let fstate = this.getFuncByIndex(state,func_index);
+                    if (!fstate) {
+                        throw new Error("Unresolved table entry #"+func_index);
+                    }
+
+                    this.write(buf,`__TABLE_FUNCS_${table_index}__[${offset_var}+${n}] = ${fstate.id};`);
+                    this.newLine(buf);
+                });
+            });
+
+            /*this.write(buf,`__TABLE_FUNCS_${table_index}__ = {`);
             let func_ids = table.map((func_index) => {
                 let fstate = this.getFuncByIndex(state,func_index);
                 if (!fstate) {
@@ -584,7 +605,7 @@ export class wasm2lua {
             });
             this.write(buf,func_ids.join(","));
             this.write(buf,"};");
-            this.newLine(buf);
+            this.newLine(buf);*/
         });
         
         for(let field of node.fields) {
@@ -2201,7 +2222,7 @@ export class wasm2lua {
 
                     let table_index = 0;
 
-                    let func = `__TABLE_FUNCS_${table_index}__[__TABLE_OFFSET_${table_index}__+${this.getPop(state)}]`;
+                    let func = `__TABLE_FUNCS_${table_index}__[${this.getPop(state)}+1]`;
                     if (ins.signature.type=="Signature") {
                         this.writeFunctionCall(state,buf,func,ins.signature);
                         this.newLine(buf);
