@@ -300,7 +300,12 @@ class wasm2lua {
                     memID = "mem_u" + state.memoryAllocations.numSize;
                     state.memoryAllocations.push(memID);
                 }
-                this.write(buf, "local " + memID + " = __MEMORY_ALLOC__(" + (field.limits.max || field.limits.min) + ");");
+                if (field.limits.max != null) {
+                    this.write(buf, "local " + memID + " = __MEMORY_ALLOC__(" + field.limits.min + ", " + field.limits.max + ");");
+                }
+                else {
+                    this.write(buf, "local " + memID + " = __MEMORY_ALLOC__(" + field.limits.min + ");");
+                }
                 this.newLine(buf);
             }
             else if (field.type == "Global") {
@@ -546,6 +551,14 @@ class wasm2lua {
         }
         return hasVars;
     }
+    forEachVarIncludeParams(state, cb) {
+        let hasVars = false;
+        for (let i = 0; i < state.funcType.params.length; i++) {
+            cb(`reg${i}`, false);
+        }
+        hasVars = hasVars || this.forEachVar(state, cb);
+        return hasVars;
+    }
     processFunc(node, modState) {
         let buf = [];
         if (node.signature.type == "NumberLiteral") {
@@ -630,14 +643,14 @@ class wasm2lua {
             this.write(buf2, "if __setjmp_data__ then");
             this.indent();
             this.newLine(buf2);
-            let hasVars = this.forEachVar(state, (varName) => {
+            let hasVars = this.forEachVarIncludeParams(state, (varName) => {
                 this.write(buf2, `${varName}`);
                 this.write(buf2, ",");
             });
             if (hasVars) {
                 buf2.pop();
                 this.write(buf2, " = ");
-                this.forEachVar(state, (varName, virtual) => {
+                this.forEachVarIncludeParams(state, (varName, virtual) => {
                     if (virtual) {
                         this.write(buf2, `__setjmp_data__.data.${varName.replace(/[\[\]]/g, "")}`);
                     }
@@ -1699,7 +1712,7 @@ class wasm2lua {
                         let resVarName = state.regManager.getPhysicalRegisterName(resultVar);
                         this.write(buf, `${resVarName} = {data = {},target = "jmp_${sanitizeIdentifier(ins.loc.start.line)}_${sanitizeIdentifier(ins.loc.start.column)}",result = 0};`);
                         this.newLine(buf);
-                        let hasVars = this.forEachVar(state, (varName, virtual) => {
+                        let hasVars = this.forEachVarIncludeParams(state, (varName, virtual) => {
                             if (virtual) {
                                 this.write(buf, `${resVarName}.data.${varName.replace(/[\[\]]/g, "")}`);
                             }
@@ -1711,7 +1724,7 @@ class wasm2lua {
                         if (hasVars) {
                             buf.pop();
                             this.write(buf, " = ");
-                            this.forEachVar(state, (varName) => {
+                            this.forEachVarIncludeParams(state, (varName) => {
                                 this.write(buf, `${varName}`);
                                 this.write(buf, ",");
                             });
