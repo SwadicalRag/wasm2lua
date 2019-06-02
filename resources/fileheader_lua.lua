@@ -2,14 +2,23 @@
 
 local function __MEMORY_GROW__(mem,pages)
     local old_pages = mem._page_count
-    mem._len = (mem._page_count + pages) * 64 * 1024
+    local new_pages = old_pages + pages
 
-    -- TODO: check if this exceeds the maximum memory size
-    for i = 1,pages * 16 * 1024 do -- 16k cells = 64kb = 1 page
-        mem.data[#mem.data + 1] = 0
+    -- check if new size exceeds the size limit
+    if new_pages > mem._max_pages then
+        return -1
     end
 
-    mem._page_count = old_pages + pages
+    -- 16k cells = 64kb = 1 page
+    local cell_start = old_pages * 16 * 1024
+    local cell_end = new_pages * 16 * 1024 - 1
+
+    for i = cell_start, cell_end do 
+        mem.data[i] = 0
+    end
+
+    mem._len = new_pages * 64 * 1024
+    mem._page_count = new_pages
     return old_pages
 end
 
@@ -232,14 +241,15 @@ local function __MEMORY_INIT__(mem,loc,data)
     end
 end
 
-local function __MEMORY_ALLOC__(pages)
+local function __MEMORY_ALLOC__(pages, max_pages)
     local mem = {}
     mem.data = {}
     mem._page_count = pages
     mem._len = pages * 64 * 1024
     mem._fp_map = {}
+    mem._max_pages = max_pages or 1024
 
-    local cellLength = pages * 64 * 1024 -- 16k cells = 64kb = 1 page
+    local cellLength = pages * 16 * 1024 -- 16k cells = 64kb = 1 page
     for i=0,cellLength - 1 do mem.data[i] = 0 end
 
     mem.write8 = __MEMORY_WRITE_8__

@@ -300,7 +300,12 @@ class wasm2lua {
                     memID = "mem_u" + state.memoryAllocations.numSize;
                     state.memoryAllocations.push(memID);
                 }
-                this.write(buf, "local " + memID + " = __MEMORY_ALLOC__(" + (field.limits.max || field.limits.min) + ");");
+                if (field.limits.max != null) {
+                    this.write(buf, "local " + memID + " = __MEMORY_ALLOC__(" + field.limits.min + ", " + field.limits.max + ");");
+                }
+                else {
+                    this.write(buf, "local " + memID + " = __MEMORY_ALLOC__(" + field.limits.min + ");");
+                }
                 this.newLine(buf);
             }
             else if (field.type == "Global") {

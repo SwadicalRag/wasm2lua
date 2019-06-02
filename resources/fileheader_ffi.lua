@@ -4,6 +4,11 @@ local function __MEMORY_GROW__(mem,pages)
     local old_pages = mem._page_count
     local old_data = mem.data
 
+    -- check if new size exceeds the size limit
+    if old_pages + pages > mem._max_pages then
+        return -1
+    end
+
     mem._page_count = mem._page_count + pages
     mem._len = mem._page_count * 64 * 1024
     mem.data = ffi.new("int8_t[?]",mem._page_count * 64 * 1024)
@@ -67,11 +72,12 @@ local function __MEMORY_INIT__(mem,loc,data)
     ffi.copy(mem.data + loc,data)
 end
 
-local function __MEMORY_ALLOC__(pages)
+local function __MEMORY_ALLOC__(pages,max_pages)
     local mem = {}
     mem.data = ffi.new("int8_t[?]",pages * 64 * 1024)
     mem._page_count = pages
     mem._len = pages * 64 * 1024
+    mem._max_pages = max_pages or 1024
 
     mem.write8 = __MEMORY_WRITE_8__
     mem.write16 = __MEMORY_WRITE_16__
