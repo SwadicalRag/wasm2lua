@@ -8,7 +8,7 @@
             "type": "node",
             "request": "launch",
             "name": "Launch Tests",
-            "program": "${workspaceRoot}\\js\\c-testsuite.js",
+            "program": "${workspaceRoot}\\js\\testsuite.js",
             "outFiles": [
                 "${workspaceRoot}/{js,node_modules}/**/*.js"
             ]
