@@ -1102,11 +1102,11 @@ export class wasm2lua {
         }
     }
 
-    endBlock(buf: string[],state: WASMFuncState,pass1LabelStore?: boolean) {
+    endBlock(buf: string[],state: WASMFuncState,pass1LabelStore?: boolean,unreachable?: boolean) {
 
         let block = state.blocks.pop();
         if(block) {
-            this.endBlockInternal(buf,block,state,pass1LabelStore == true);
+            this.endBlockInternal(buf,block,state,pass1LabelStore == true,unreachable == true);
 
             if(state.stackLevel > (block.resultType === null ? block.enterStackLevel : block.enterStackLevel + 1)) {
                 this.writeLn(buf,"-- WARNING: a block as popped extra information into the stack.")
@@ -1118,11 +1118,16 @@ export class wasm2lua {
         return false;
     }
 
-    endBlockInternal(buf: string[],block: WASMBlockState,state: WASMFuncState,pass1LabelStore: boolean) {
+    endBlockInternal(buf: string[],block: WASMBlockState,state: WASMFuncState,pass1LabelStore: boolean,unreachable: boolean) {
         block.hasClosed = true;
         
         if(block.resultType !== null) {
-            this.write(buf,state.regManager.getPhysicalRegisterName(block.resultRegister) + " = " + this.getPop(state));
+            if(unreachable) {
+                this.write(buf,state.regManager.getPhysicalRegisterName(block.resultRegister) + " = error('unreachable')");
+            }
+            else {
+                this.write(buf,state.regManager.getPhysicalRegisterName(block.resultRegister) + " = " + this.getPop(state));
+            }
             this.newLine(buf);
         }
         
@@ -1195,14 +1200,15 @@ export class wasm2lua {
             // TODO: is this right???
             // shouldn't this be currentBlock.resultType???
             // why getpeek??
-            if(targetBlock.resultType !== null) {
-                this.write(buf,state.regManager.getPhysicalRegisterName(targetBlock.resultRegister) + " = " + this.getPeek(state)+ "; ");
-            }
 
             if(targetBlock.blockType == "loop") {
                 this.writeGoto(buf,sanitizeIdentifier(`${targetBlock.id}_start`),state);
             }
             else {
+                if(targetBlock.resultType !== null) {
+                    this.write(buf,state.regManager.getPhysicalRegisterName(targetBlock.resultRegister) + " = " + this.getPeek(state)+ "; ");
+                }
+
                 this.writeGoto(buf,sanitizeIdentifier(`${targetBlock.id}_fin`),state);
             }
         }
@@ -1443,8 +1449,10 @@ export class wasm2lua {
         // PASS 2: emit instructions
         //////////////////////////////////////////////////////////////
         
+        let insIdx = -1;
         for(let ins of insArr) {
             state.insCountPass2++;
+            insIdx++;
 
             // check if any locals need force-initialized
             let forceInitVars = state.forceVarInit.get(state.insCountPass2);
@@ -2091,7 +2099,7 @@ export class wasm2lua {
                             break;
                         }
                         case "end": {
-                            this.endBlock(buf,state);
+                            this.endBlock(buf,state,null,insArr[insIdx - 1] ? ((insArr[insIdx - 1] as Instr).id == "unreachable") : false);
                             break;
                         }
                         case "unreachable": {
@@ -2502,13 +2510,13 @@ export class wasm2lua {
 // // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/test2.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/localtest1.wasm");
-// let infile  = process.argv[2] || (__dirname + "/../resources/tests/assemblyscript/inlining.untouched.wat.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/loopret4.wasm");
+// // let infile  = process.argv[2] || (__dirname + "/../resources/tests/assemblyscript/string.optimized.wat.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/nbody.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/matrix.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/longjmp.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/mandelbrot.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/testx.wasm");
+// // let infile  = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/testorder.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/testorder2.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/testorder3.wasm");

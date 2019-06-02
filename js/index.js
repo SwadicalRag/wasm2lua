@@ -831,10 +831,10 @@ class wasm2lua {
             }
         }
     }
-    endBlock(buf, state, pass1LabelStore) {
+    endBlock(buf, state, pass1LabelStore, unreachable) {
         let block = state.blocks.pop();
         if (block) {
-            this.endBlockInternal(buf, block, state, pass1LabelStore == true);
+            this.endBlockInternal(buf, block, state, pass1LabelStore == true, unreachable == true);
             if (state.stackLevel > (block.resultType === null ? block.enterStackLevel : block.enterStackLevel + 1)) {
                 this.writeLn(buf, "-- WARNING: a block as popped extra information into the stack.");
             }
@@ -842,10 +842,15 @@ class wasm2lua {
         }
         return false;
     }
-    endBlockInternal(buf, block, state, pass1LabelStore) {
+    endBlockInternal(buf, block, state, pass1LabelStore, unreachable) {
         block.hasClosed = true;
         if (block.resultType !== null) {
-            this.write(buf, state.regManager.getPhysicalRegisterName(block.resultRegister) + " = " + this.getPop(state));
+            if (unreachable) {
+                this.write(buf, state.regManager.getPhysicalRegisterName(block.resultRegister) + " = error('unreachable')");
+            }
+            else {
+                this.write(buf, state.regManager.getPhysicalRegisterName(block.resultRegister) + " = " + this.getPop(state));
+            }
             this.newLine(buf);
         }
         let popCnt = state.stackLevel - block.enterStackLevel;
@@ -896,13 +901,13 @@ class wasm2lua {
         let targetBlock = state.blocks[state.blocks.length - blocksToExit - 1];
         let currentBlock = state.blocks[state.blocks.length - 1];
         if (targetBlock) {
-            if (targetBlock.resultType !== null) {
-                this.write(buf, state.regManager.getPhysicalRegisterName(targetBlock.resultRegister) + " = " + this.getPeek(state) + "; ");
-            }
             if (targetBlock.blockType == "loop") {
                 this.writeGoto(buf, sanitizeIdentifier(`${targetBlock.id}_start`), state);
             }
             else {
+                if (targetBlock.resultType !== null) {
+                    this.write(buf, state.regManager.getPhysicalRegisterName(targetBlock.resultRegister) + " = " + this.getPeek(state) + "; ");
+                }
                 this.writeGoto(buf, sanitizeIdentifier(`${targetBlock.id}_fin`), state);
             }
         }
@@ -1089,8 +1094,10 @@ class wasm2lua {
     }
     processInstructionsPass2(insArr, state) {
         let buf = [];
+        let insIdx = -1;
         for (let ins of insArr) {
             state.insCountPass2++;
+            insIdx++;
             let forceInitVars = state.forceVarInit.get(state.insCountPass2);
             if (forceInitVars != null) {
                 forceInitVars.forEach((locID) => {
@@ -1666,7 +1673,7 @@ class wasm2lua {
                             break;
                         }
                         case "end": {
-                            this.endBlock(buf, state);
+                            this.endBlock(buf, state, null, insArr[insIdx - 1] ? (insArr[insIdx - 1].id == "unreachable") : false);
                             break;
                         }
                         case "unreachable": {
