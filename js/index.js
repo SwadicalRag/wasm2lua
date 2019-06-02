@@ -1159,7 +1159,12 @@ class wasm2lua {
                         }
                         case "get_global": {
                             let globID = ins.args[0].value;
-                            this.writeLn(buf, this.getPushStack(state, "__GLOBALS__[" + globID + "]"));
+                            let globTemp = this.fn_createTempRegister(buf, state);
+                            this.write(buf, state.regManager.getPhysicalRegisterName(globTemp));
+                            this.write(buf, " = __GLOBALS__[" + globID + "]");
+                            this.write(buf, ";");
+                            this.newLine(buf);
+                            this.writeLn(buf, this.getPushStack(state, globTemp));
                             break;
                         }
                         case "set_global": {
@@ -1176,7 +1181,13 @@ class wasm2lua {
                                 state.locals[locID].firstRef = state.insCountPass2;
                                 state.locals[locID].lastRef = state.insLastRefs[locID];
                             }
-                            this.writeLn(buf, this.getPushStack(state, state.locals[locID]));
+                            let locTemp = this.fn_createTempRegister(buf, state);
+                            this.write(buf, state.regManager.getPhysicalRegisterName(locTemp));
+                            this.write(buf, " = ");
+                            this.write(buf, state.regManager.getPhysicalRegisterName(state.locals[locID]));
+                            this.write(buf, ";");
+                            this.newLine(buf);
+                            this.writeLn(buf, this.getPushStack(state, locTemp));
                             break;
                         }
                         case "set_local": {

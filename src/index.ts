@@ -1518,7 +1518,15 @@ export class wasm2lua {
                         }
                         case "get_global": {
                             let globID = (ins.args[0] as NumberLiteral).value;
-                            this.writeLn(buf,this.getPushStack(state,"__GLOBALS__["+globID+"]"));
+
+                            let globTemp = this.fn_createTempRegister(buf,state);
+
+                            this.write(buf,state.regManager.getPhysicalRegisterName(globTemp));
+                            this.write(buf," = __GLOBALS__["+globID+"]");
+                            this.write(buf,";");
+                            this.newLine(buf);
+
+                            this.writeLn(buf,this.getPushStack(state,globTemp));
                             break;
                         }
                         case "set_global": {
@@ -1536,8 +1544,15 @@ export class wasm2lua {
                                 state.locals[locID].lastRef = state.insLastRefs[locID];
                             }
 
-                            this.writeLn(buf,this.getPushStack(state,state.locals[locID]));
+                            let locTemp = this.fn_createTempRegister(buf,state);
 
+                            this.write(buf,state.regManager.getPhysicalRegisterName(locTemp));
+                            this.write(buf," = ");
+                            this.write(buf,state.regManager.getPhysicalRegisterName(state.locals[locID]));
+                            this.write(buf,";");
+                            this.newLine(buf);
+
+                            this.writeLn(buf,this.getPushStack(state,locTemp));
                             break;
                         }
                         case "set_local": {
@@ -2473,7 +2488,7 @@ export class wasm2lua {
 // // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/test2.wasm");
-// let infile  = process.argv[2] || (__dirname + "/../test/00181.c.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/duktape.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/nbody.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/matrix.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/longjmp.wasm");
