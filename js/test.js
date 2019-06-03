@@ -31,6 +31,7 @@ function processTestFile(filename) {
                 break;
             case "assert_malformed":
             case "assert_invalid":
+            case "assert_uninstantiable":
                 break;
             default:
                 commandQueue.push(cmd);
@@ -43,7 +44,7 @@ function compileModule(file) {
     var file_index = file.match(/\.(\d+)\.wasm/)[1];
     testFileName = `test${file_index}.lua`;
     let result = child_process.spawnSync(process.argv0, [
-        path_1.join(__dirname, "index.js"),
+        path_1.join(__dirname, "compile.js"),
         file,
         `${testDirectory}${testFileName}`,
         "correct-multiply"
@@ -72,16 +73,21 @@ function compileAndRunTests(commands) {
 }
 function compileCommand(cmd, test_num) {
     if (cmd.type == "assert_return" || cmd.type == "assert_return_canonical_nan" || cmd.type == "assert_return_arithmetic_nan" ||
-        cmd.type == "assert_trap" || cmd.type == "assert_exhaustion") {
+        cmd.type == "assert_trap" || cmd.type == "assert_exhaustion" || cmd.type == "action") {
         let instr = cmd.action;
         if (instr.type != "invoke") {
             throw new Error("Unhandled instr type: " + instr.type);
         }
-        let expected = cmd.type == "assert_trap" ? `"${cmd.text}"` :
-            cmd.type == "assert_exhaustion" ? `"exhaustion"` :
-                cmd.type == "assert_return_canonical_nan" || cmd.type == "assert_return_arithmetic_nan" ? "{(0/0)}" :
-                    `{${cmd.expected.map(compileValue).join(",")}}`;
-        return `runTest(${cmd.line},"${instr.field}",{${instr.args.map(compileValue).join(",")}},${expected})`;
+        if (cmd.type == "action") {
+            return `invoke("${instr.field}",{${instr.args.map(compileValue).join(",")}})`;
+        }
+        else {
+            let expected = cmd.type == "assert_trap" ? `"${cmd.text}"` :
+                cmd.type == "assert_exhaustion" ? `"exhaustion"` :
+                    cmd.type == "assert_return_canonical_nan" || cmd.type == "assert_return_arithmetic_nan" ? "{(0/0)}" :
+                        `{${cmd.expected.map(compileValue).join(",")}}`;
+            return `runTest(${cmd.line},"${instr.field}",{${instr.args.map(compileValue).join(",")}},${expected})`;
+        }
     }
     else {
         console.log(cmd);

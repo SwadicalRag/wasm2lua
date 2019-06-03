@@ -54,7 +54,16 @@ interface TestCmdAssertInvalid {
     type: "assert_invalid";
 }
 
-type TestCmd = (TestCmdModule | TestCmdAssertReturn | TestCmdAssertTrap | TestCmdAssertMalformed | TestCmdAssertInvalid | TestCmdAssertExhaust) & {line: number};
+interface TestCmdAssertUninstantiable {
+    type: "assert_uninstantiable"
+}
+
+interface TestCmdAction {
+    type: "action";
+    action: TestInstr;
+}
+
+type TestCmd = (TestCmdModule | TestCmdAssertReturn | TestCmdAssertTrap | TestCmdAssertMalformed | TestCmdAssertInvalid | TestCmdAssertExhaust | TestCmdAction | TestCmdAssertUninstantiable) & {line: number};
 
 function fixWSLPath(path) {
     path = path.replace(/(.):\\/g,(_,x)=>`/mnt/${x.toLowerCase()}/`);
@@ -94,6 +103,7 @@ function processTestFile(filename: string) {
                 break;
             case "assert_malformed": // should not compile to binary
             case "assert_invalid":   // compiled to binary but should be rejected by compiler / vm 
+            case "assert_uninstantiable": // start function should trap - I really don't care to test this.
                 // Don't care.
                 break;
             default:
@@ -110,7 +120,7 @@ function compileModule(file: string) {
     var file_index = file.match(/\.(\d+)\.wasm/)[1];
     testFileName = `test${file_index}.lua`;
     let result = child_process.spawnSync(process.argv0,[
-        pathJoin(__dirname,"index.js"),
+        pathJoin(__dirname,"compile.js"),
         file,
         `${testDirectory}${testFileName}`,
         "correct-multiply"
@@ -144,21 +154,24 @@ function compileAndRunTests(commands: TestCmd[]) {
 function compileCommand(cmd: TestCmd, test_num: number) {
     if (
         cmd.type == "assert_return" || cmd.type == "assert_return_canonical_nan" || cmd.type == "assert_return_arithmetic_nan" ||
-        cmd.type == "assert_trap" || cmd.type == "assert_exhaustion"
+        cmd.type == "assert_trap" || cmd.type == "assert_exhaustion" || cmd.type == "action"
     ) {
         let instr = cmd.action;
         if (instr.type != "invoke") {
             throw new Error("Unhandled instr type: "+instr.type);
         }
 
-        let expected =
-            cmd.type == "assert_trap" ? `"${cmd.text}"` :
-            cmd.type == "assert_exhaustion" ? `"exhaustion"` :
-            cmd.type == "assert_return_canonical_nan" || cmd.type == "assert_return_arithmetic_nan" ? "{(0/0)}" :
-            `{${cmd.expected.map(compileValue).join(",")}}`;
-
-        return `runTest(${cmd.line},"${instr.field}",{${instr.args.map(compileValue).join(",")}},${expected})`
-
+        if (cmd.type == "action") {
+            return `invoke("${instr.field}",{${instr.args.map(compileValue).join(",")}})`;
+        } else {
+            let expected =
+                cmd.type == "assert_trap" ? `"${cmd.text}"` :
+                cmd.type == "assert_exhaustion" ? `"exhaustion"` :
+                cmd.type == "assert_return_canonical_nan" || cmd.type == "assert_return_arithmetic_nan" ? "{(0/0)}" :
+                `{${cmd.expected.map(compileValue).join(",")}}`;
+    
+            return `runTest(${cmd.line},"${instr.field}",{${instr.args.map(compileValue).join(",")}},${expected})`;
+        }
     } else {
         console.log(cmd);
         throw new Error("Unhandled command: "+(<any>cmd).type);

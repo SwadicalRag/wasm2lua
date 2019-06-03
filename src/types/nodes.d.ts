@@ -155,7 +155,9 @@ interface StringLiteral extends BaseNode {
 interface NumberLiteral extends BaseNode {
   type: "NumberLiteral",
   value: number,
-  raw: string
+  raw: string,
+  inf?: boolean,
+  nan?: boolean
 }
 
 interface LongNumberLiteral extends BaseNode {
