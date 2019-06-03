@@ -14,10 +14,10 @@ for (let fileName of files) {
         let expectedOutPath = `${fullPath}.expected`;
         let wasm = fs.readFileSync(wasmPath);
         let inst = new _1.wasm2lua(wasm, {});
-        fs.writeFileSync(`${__dirname}/../test/test.lua`, inst.outBuf.join("") + ` __MODULES__.wasi_unstable=dofile("src/wasilib.lua")(__MODULES__.UNKNOWN.memory)os.exit(__MODULES__.UNKNOWN._start())`);
+        fs.writeFileSync(`${__dirname}/../test/test.lua`, inst.outBuf.join(""));
         console.log(`compile finished.`);
         let expectedOut = fs.readFileSync(expectedOutPath);
-        let prog = cp.spawnSync(`nilajit`, ["test/test.lua"], {});
+        let prog = cp.spawnSync(`nilajit`, ["resources/testsuite-host.lua"], {});
         totalTests++;
         if (prog.status != 0) {
             console.error(`test (${fileName}) failed with code ${prog.status}...`);
@@ -44,9 +44,9 @@ for (let fileName of files2) {
         let wasmPath = `${__dirname}/../resources/tests/assemblyscript/${fileName}`;
         let wasm = fs.readFileSync(wasmPath);
         let inst = new _1.wasm2lua(wasm, {});
-        fs.writeFileSync(`${__dirname}/../test/test.lua`, "__MODULES__ = {env={abort = function()error 'ABORT' end}} " + inst.outBuf.join(""));
+        fs.writeFileSync(`${__dirname}/../test/test.lua`, inst.outBuf.join(""));
         console.log(`compile finished.`);
-        let prog = cp.spawnSync(`nilajit`, ["test/test.lua"], {});
+        let prog = cp.spawnSync(`nilajit`, ["resources/testsuite-host.lua"], {});
         totalTests++;
         if (prog.status != 0) {
             console.error(`test (${fileName}) failed with code ${prog.status}...`);

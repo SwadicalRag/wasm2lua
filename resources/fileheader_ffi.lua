@@ -1,5 +1,7 @@
 -- ffi based memory lib
 
+local ffi = ffi or require "ffi"
+
 local function __MEMORY_GROW__(mem,pages)
     local old_pages = mem._page_count
     local old_data = mem.data
