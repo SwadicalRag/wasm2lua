@@ -27,7 +27,12 @@ class VirtualRegisterManager {
             }
         }
         else {
-            return `reg${reg.id}`;
+            if (reg.id >= VirtualRegisterManager.MAX_REG) {
+                return `vreg[${reg.id - VirtualRegisterManager.MAX_REG + 1}]`;
+            }
+            else {
+                return `reg${reg.id}`;
+            }
         }
     }
     createRegister(name) {
@@ -81,5 +86,6 @@ class VirtualRegisterManager {
         }
     }
 }
+VirtualRegisterManager.MAX_REG = 195;
 exports.VirtualRegisterManager = VirtualRegisterManager;
 //# sourceMappingURL=virtualregistermanager.js.map
