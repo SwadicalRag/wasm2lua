@@ -67,6 +67,9 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         let memLib = fs.readFileSync(PURE_LUA_MODE ? (__dirname + "/../resources/fileheader_lua.lua") : (__dirname + "/../resources/fileheader_ffi.lua")).toString();
         return `${header}${memLib}${footer}`;
     }
+    static get fileFooter() {
+        return fs.readFileSync(__dirname + "/../resources/filefooter.lua").toString();
+    }
     assert(cond, err = "assertion failed") {
         if (!cond) {
             throw new Error(err);
@@ -75,6 +78,9 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
     writeHeader(buf) {
         this.write(buf, wasm2lua.fileHeader);
         this.newLine(buf);
+    }
+    writeFooter(buf) {
+        this.write(buf, wasm2lua.fileFooter);
     }
     fn_freeRegisterEx(buf, func, reg) {
         func.regManager.freeRegister(reg);
@@ -193,20 +199,19 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
     }
     process() {
         this.writeHeader(this.outBuf);
-        for (let mod of this.program_ast.body) {
-            if (mod.type == "Module") {
-                this.write(this.outBuf, "do");
-                this.indent();
-                this.newLine(this.outBuf);
-                this.write(this.outBuf, this.processModule(mod));
-                this.outdent(this.outBuf);
-                this.write(this.outBuf, "end");
-                this.newLine(this.outBuf);
-            }
-            else {
-                throw new Error("TODO");
-            }
-        }
+        this.assert(this.program_ast.body.length > 0, "WASM file has no body");
+        this.assert(this.program_ast.body.length == 1, "WASM file has multiple bodies");
+        this.assert(this.program_ast.body[0].type == "Module", "WASM file has no Module");
+        let mod = this.program_ast.body[0];
+        this.write(this.outBuf, "do");
+        this.indent();
+        this.newLine(this.outBuf);
+        this.write(this.outBuf, this.processModule(mod));
+        this.outdent(this.outBuf);
+        this.write(this.outBuf, "end");
+        this.newLine(this.outBuf);
+        this.newLine(this.outBuf);
+        this.writeFooter(this.outBuf);
     }
     processModule(node) {
         let buf = [];
@@ -217,20 +222,6 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             func_tables: [],
             nextGlobalIndex: 0
         };
-        if (node.id) {
-            this.write(buf, "local __EXPORTS__ = {};");
-            this.newLine(buf);
-            this.write(buf, "__MODULES__." + node.id + " = __EXPORTS__");
-            this.newLine(buf);
-        }
-        else {
-            this.write(buf, "__MODULES__.UNKNOWN = __MODULES__.UNKNOWN or {}");
-            this.newLine(buf);
-            this.write(buf, "local __EXPORTS__ = __MODULES__.UNKNOWN;");
-            this.newLine(buf);
-        }
-        this.write(buf, "local __FUNCS__ = {}");
-        this.newLine(buf);
         for (let section of node.metadata.sections) {
             this.processModuleMetadataSection(section);
         }
@@ -418,6 +409,10 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                 this.write(buf, this.processModuleExport(field, state));
             }
         }
+        this.newLine(buf);
+        this.write(buf, "function module.init()");
+        this.indent();
+        this.newLine(buf);
         for (let field of node.fields) {
             if (field.type == "Start") {
                 let fstate = this.getFuncByIndex(state, field.index);
@@ -433,6 +428,9 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                 this.newLine(buf);
             }
         }
+        this.outdent(buf);
+        this.write(buf, "end");
+        this.newLine(buf);
         return buf.join("");
     }
     processModuleMetadataSection(node) {
@@ -2002,7 +2000,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         let buf = [];
         switch (node.descr.type) {
             case "Memory": {
-                let memID = `__MODULES__.${node.module}.${node.name}`;
+                let memID = `__IMPORTS__.${node.module}.${node.name}`;
                 if (node.descr.id) {
                     modState.memoryAllocations.set(node.descr.id.value, memID);
                 }
@@ -2015,7 +2013,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                 this.initFunc({
                     signature: node.descr.signature,
                     name: { value: node.descr.id.value },
-                }, modState, `__MODULES__.${node.module}.${node.name}`, node.name);
+                }, modState, `__IMPORTS__.${node.module}.${node.name}`, node.name);
                 break;
             }
             default: {
@@ -2074,4 +2072,11 @@ wasm2lua.instructionBinOpFuncRemap = {
     max: "__FLOAT__.max"
 };
 exports.wasm2lua = wasm2lua;
+let infile = process.argv[2] || (__dirname + "/../test/test.wasm");
+let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
+let compileFlags = process.argv[4] ? process.argv[4].split(",") : null;
+let whitelist = null;
+let wasm = fs.readFileSync(infile);
+let inst = new wasm2lua(wasm, { whitelist, compileFlags });
+fs.writeFileSync(outfile, inst.outBuf.join(""));
 //# sourceMappingURL=index.js.map

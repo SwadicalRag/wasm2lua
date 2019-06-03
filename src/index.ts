@@ -136,6 +136,10 @@ export class wasm2lua extends StringCompiler {
        return `${header}${memLib}${footer}`;
     }
 
+    static get fileFooter() {
+       return fs.readFileSync(__dirname + "/../resources/filefooter.lua").toString();
+    }
+
     private program_ast: Program;
 
     constructor(private program_binary: Buffer, private options: WASM2LuaOptions = {}) {
@@ -165,6 +169,10 @@ export class wasm2lua extends StringCompiler {
     writeHeader(buf: string[]) {
         this.write(buf,wasm2lua.fileHeader);
         this.newLine(buf);
+    }
+
+    writeFooter(buf: string[]) {
+        this.write(buf,wasm2lua.fileFooter);
     }
 
     fn_freeRegisterEx(buf: string[],func: WASMFuncState,reg: VirtualRegister) {
@@ -304,20 +312,22 @@ export class wasm2lua extends StringCompiler {
     process() {
         this.writeHeader(this.outBuf);
 
-        for(let mod of this.program_ast.body) {
-            if(mod.type == "Module") {
-                this.write(this.outBuf,"do");
-                this.indent();
-                this.newLine(this.outBuf);
-                this.write(this.outBuf,this.processModule(mod));
-                this.outdent(this.outBuf);
-                this.write(this.outBuf,"end");
-                this.newLine(this.outBuf);
-            }
-            else {
-                throw new Error("TODO");
-            }
-        }
+        // Note: I'm fairly sure there can only be one `module` per wasm file.
+        this.assert(this.program_ast.body.length > 0,"WASM file has no body");
+        this.assert(this.program_ast.body.length == 1,"WASM file has multiple bodies");
+        this.assert(this.program_ast.body[0].type == "Module","WASM file has no Module");
+
+        let mod = this.program_ast.body[0] as Module;
+        this.write(this.outBuf,"do");
+        this.indent();
+        this.newLine(this.outBuf);
+        this.write(this.outBuf,this.processModule(mod));
+        this.outdent(this.outBuf);
+        this.write(this.outBuf,"end");
+        this.newLine(this.outBuf);
+
+        this.newLine(this.outBuf);
+        this.writeFooter(this.outBuf);
     }
 
     // !!!!!!IMPORTANT!!!!!!
@@ -335,22 +345,6 @@ export class wasm2lua extends StringCompiler {
 
             nextGlobalIndex: 0
         };
-
-        if(node.id) {
-            this.write(buf,"local __EXPORTS__ = {};")
-            this.newLine(buf);
-            this.write(buf,"__MODULES__." + node.id + " = __EXPORTS__");
-            this.newLine(buf);
-        }
-        else {
-            this.write(buf,"__MODULES__.UNKNOWN = __MODULES__.UNKNOWN or {}");
-            this.newLine(buf);
-            this.write(buf,"local __EXPORTS__ = __MODULES__.UNKNOWN;")
-            this.newLine(buf);
-        }
-
-        this.write(buf,"local __FUNCS__ = {}");
-        this.newLine(buf);
 
         for(let section of node.metadata.sections) {
             this.processModuleMetadataSection(section);
@@ -588,6 +582,10 @@ export class wasm2lua extends StringCompiler {
             }
         }
         
+        this.newLine(buf);
+        this.write(buf,"function module.init()");
+        this.indent();
+        this.newLine(buf);
         for(let field of node.fields) {
             if(field.type == "Start") {
                 let fstate = this.getFuncByIndex(state,field.index);
@@ -603,6 +601,9 @@ export class wasm2lua extends StringCompiler {
                 this.newLine(buf);
             }
         }
+        this.outdent(buf);
+        this.write(buf,"end");
+        this.newLine(buf);
 
         return buf.join("");
     }
@@ -2513,7 +2514,7 @@ export class wasm2lua extends StringCompiler {
 
         switch(node.descr.type) {
             case "Memory": {
-                let memID = `__MODULES__.${node.module}.${node.name}`
+                let memID = `__IMPORTS__.${node.module}.${node.name}`
                 if(node.descr.id) {
                     modState.memoryAllocations.set(node.descr.id.value,memID);
                 }
@@ -2527,7 +2528,7 @@ export class wasm2lua extends StringCompiler {
                 this.initFunc({
                     signature: node.descr.signature,
                     name: {value: node.descr.id.value},
-                },modState,`__MODULES__.${node.module}.${node.name}`,node.name);
+                },modState,`__IMPORTS__.${node.module}.${node.name}`,node.name);
 
                 break;
             }
@@ -2544,32 +2545,32 @@ export class wasm2lua extends StringCompiler {
     }
 }
 
-// // Allow custom in/out file while defaulting to swad's meme :)
-// // let infile  = process.argv[2] || (__dirname + "/../test/addTwo.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/ammo-ex.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/test2.wasm");
+// Allow custom in/out file while defaulting to swad's meme :)
+// let infile  = process.argv[2] || (__dirname + "/../test/addTwo.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/ammo-ex.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
+let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/test2.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/duktape.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../resources/tests/assemblyscript/string-utf8.optimized.wat.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/nbody.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/matrix.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/longjmp.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/mandelbrot.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/testorder.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/testorder2.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/testorder3.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/testorder5.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/testswitch.wasm");
-// let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
-// let compileFlags = process.argv[4] ? process.argv[4].split(",") : null;
-// let whitelist = null;
+// let infile  = process.argv[2] || (__dirname + "/../resources/tests/assemblyscript/string-utf8.optimized.wat.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/nbody.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/matrix.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/longjmp.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/mandelbrot.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/testorder.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/testorder2.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/testorder3.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/testorder5.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/testswitch.wasm");
+let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
+let compileFlags = process.argv[4] ? process.argv[4].split(",") : null;
+let whitelist = null;
 
-// let wasm = fs.readFileSync(infile);
+let wasm = fs.readFileSync(infile);
 
-// // console.log(JSON.stringify(ast,null,4));
+// console.log(JSON.stringify(ast,null,4));
 
-// let inst = new wasm2lua(wasm, {whitelist,compileFlags});
-// fs.writeFileSync(outfile,inst.outBuf.join(""));
+let inst = new wasm2lua(wasm, {whitelist,compileFlags});
+fs.writeFileSync(outfile,inst.outBuf.join(""));
