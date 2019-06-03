@@ -23,6 +23,7 @@
     "webidl2": "^21.1.0"
   },
   "bin": {
-    "wasm2lua": "js/bin/wasm2lua.js"
+    "wasm2lua": "js/bin/wasm2lua.js",
+    "lua-webidl": "js/bin/lua-webidl.js"
   }
 }
