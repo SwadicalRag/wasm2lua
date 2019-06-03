@@ -2111,17 +2111,6 @@ export class wasm2lua {
 
                                         this.write(buf,`${vname}=bit_arshift(bit_lshift(${vname},${shift}),${shift});`);
                                     }
-                                    else if(ins.id.endsWith("_u")) {
-                                        if(ins.id == "load8_u") {
-                                            this.write(buf,`${vname}=__UNSIGNED8__(${vname});`);
-                                        }
-                                        else if(ins.id == "load16_u") {
-                                            this.write(buf,`${vname}=__UNSIGNED16__(${vname});`);
-                                        }
-                                        else if(ins.id == "load32_u") {
-                                            this.write(buf,`${vname}=__UNSIGNED__(${vname});`);
-                                        }
-                                    }
                                 } else if (ins.object == "u64") {
                                     // todo rewrite this trash
                                     if (ins.id == "load") {
