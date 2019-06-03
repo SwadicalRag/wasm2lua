@@ -112,6 +112,7 @@ interface WASMBlockState {
 interface WASM2LuaOptions {
     whitelist?: string[];
     compileFlags?: string[];
+    heapBase?: string;
 }
 
 const FUNC_VAR_HEADER = "";
@@ -141,6 +142,10 @@ export class wasm2lua {
 
         if (options.compileFlags == null) {
             options.compileFlags = [];
+        }
+
+        if (typeof options.heapBase !== "string") {
+            options.heapBase = "__GLOBALS__[0]";
         }
 
         this.program_ast = decode(program_binary,{
@@ -854,6 +859,8 @@ export class wasm2lua {
             this.write(buf2,"if __setjmp_data__ then");
             this.indent();
             this.newLine(buf2);
+
+            this.writeLn(buf2,`${this.options.heapBase} = __setjmp_data__.heapBase;`);
 
             let hasVars = this.forEachVarIncludeParams(state,(varName) => {
                 this.write(buf2,`${varName}`);
@@ -2188,7 +2195,7 @@ export class wasm2lua {
 
                         let resVarName = state.regManager.getPhysicalRegisterName(resultVar);
 
-                        this.write(buf,`${resVarName} = {data = {},target = "jmp_${sanitizeIdentifier(ins.loc.start.line)}_${sanitizeIdentifier(ins.loc.start.column)}",result = 0};`);
+                        this.write(buf,`${resVarName} = {data = {},target = "jmp_${sanitizeIdentifier(ins.loc.start.line)}_${sanitizeIdentifier(ins.loc.start.column)}",result = 0,heapBase = ${this.options.heapBase}};`);
                         this.newLine(buf);
                         let hasVars = this.forEachVarIncludeParams(state,(varName,virtual) => {
                             if(virtual) {
