@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import * as program from "commander"
 import * as fs from "fs"
 import * as fsExtra from "fs-extra"
