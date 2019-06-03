@@ -5,6 +5,7 @@ import { isArray } from "util";
 import {ArrayMap} from "./arraymap"
 import { VirtualRegisterManager, VirtualRegister } from "./virtualregistermanager";
 import { StringCompiler } from "./stringcompiler";
+import { WebIDLBinder } from "./webidlbinder";
 
 const PURE_LUA_MODE = false;
 
@@ -114,6 +115,11 @@ interface WASM2LuaOptions {
     whitelist?: string[];
     compileFlags?: string[];
     heapBase?: string;
+    webidl?: {
+        idlFilePath: string,
+        mallocName?: string,
+        freeName?: string,
+    }
 }
 
 const FUNC_VAR_HEADER = "";
@@ -138,6 +144,14 @@ export class wasm2lua extends StringCompiler {
 
     static get fileFooter() {
        return fs.readFileSync(__dirname + "/../resources/filefooter.lua").toString();
+    }
+
+    static get binderHeader() {
+       return fs.readFileSync(__dirname + "/../resources/binderheader.lua").toString();
+    }
+
+    static get wasiModule() {
+       return fs.readFileSync(__dirname + "/../resources/wasilib.lua").toString();
     }
 
     private program_ast: Program;
@@ -326,6 +340,39 @@ export class wasm2lua extends StringCompiler {
         this.write(this.outBuf,"end");
         this.newLine(this.outBuf);
 
+        if(this.importedWASI) {
+            this.newLine(this.outBuf);
+            this.writeLn(this.outBuf,"__IMPORTS__.wasi_unstable = (function()");
+            this.write(this.outBuf,wasm2lua.wasiModule);
+            this.writeLn(this.outBuf,"end)()(module.memory)");
+        }
+
+        if(this.options.webidl) {
+            let idl = fs.readFileSync(this.options.webidl.idlFilePath);
+
+            let binder = new WebIDLBinder(idl.toString());
+
+            binder.luaC.indent();
+            binder.buildOut();
+            binder.luaC.outdent();
+
+            this.newLine(this.outBuf);
+            this.writeLn(this.outBuf,`local __MALLOC__ = __FUNCS__.${this.options.webidl.mallocName || "malloc"}`);
+            this.writeLn(this.outBuf,`local __FREE__ = __FUNCS__.${this.options.webidl.freeName || "free"}`);
+
+            this.newLine(this.outBuf);
+            this.write(this.outBuf,wasm2lua.binderHeader);
+            
+            this.newLine(this.outBuf);
+            this.write(this.outBuf,"do");
+            this.indent();
+            this.newLine(this.outBuf);
+            this.write(this.outBuf,binder.outBufLua.join(""));
+            this.outdent(this.outBuf);
+            this.write(this.outBuf,"end");
+            this.newLine(this.outBuf);
+        }
+
         this.newLine(this.outBuf);
         this.writeFooter(this.outBuf);
     }
@@ -402,7 +449,12 @@ export class wasm2lua extends StringCompiler {
                 } else {
                     this.write(buf,"local " + memID + " = __MEMORY_ALLOC__(" + field.limits.min + ");");
                 }
+
                 this.newLine(buf);
+
+                if((field.id.value == 0) || (memID == "mem_0")) {
+                    this.writeLn(buf,`module.memory = ${memID}`);
+                }
             }
             else if (field.type == "Global") {
                 this.write(buf,"do");
@@ -2509,8 +2561,13 @@ export class wasm2lua extends StringCompiler {
         return buf.join("");
     }
 
+    importedWASI = false;
     processModuleImport(node: ModuleImport,modState: WASMModuleState) {
         let buf = [];
+        
+        if(node.module == "wasi_unstable") {
+            this.importedWASI = true;
+        }
 
         switch(node.descr.type) {
             case "Memory": {
@@ -2550,7 +2607,7 @@ export class wasm2lua extends StringCompiler {
 // let infile  = process.argv[2] || (__dirname + "/../test/ammo-ex.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
-let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
+let infile  = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/test2.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/duktape.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../resources/tests/assemblyscript/string-utf8.optimized.wat.wasm");
@@ -2572,5 +2629,5 @@ let wasm = fs.readFileSync(infile);
 
 // console.log(JSON.stringify(ast,null,4));
 
-let inst = new wasm2lua(wasm, {whitelist,compileFlags});
+let inst = new wasm2lua(wasm, {whitelist,compileFlags,webidl: {idlFilePath: __dirname + "/../test/test.idl"}});
 fs.writeFileSync(outfile,inst.outBuf.join(""));

@@ -17,8 +17,6 @@ export class WebIDLBinder {
 
     constructor(public source: string) {
         this.ast = webidl.parse(source);
-
-        this.buildOut();
     }
 
     mangleFunctionName(node: webidl.OperationMemberType,namespace: string,isImpl?: boolean) {
@@ -74,7 +72,8 @@ export class WebIDLBinder {
     }
 
     buildOut() {
-        this.luaC.writeLn(this.outBufLua,"local cfuncs = {}")
+        this.luaC.writeLn(this.outBufLua,"local __CFUNCS__ = {}")
+        this.luaC.writeLn(this.outBufLua,"__IMPORTS__.webidl_cfuncs = __CFUNCS__")
         for(let i=0;i < this.ast.length;i++) {
             let node = this.ast[i];
             if((node.type == "interface") || (node.type == "interface mixin")) {
@@ -99,9 +98,9 @@ export class WebIDLBinder {
 
         let hasConstructor = false;
 
-        this.luaC.writeLn(this.outBufLua,`${node.name} = {__cache = {}} ${node.name}.__index = ${node.name}`);
+        this.luaC.writeLn(this.outBufLua,`__BINDINGS__.${node.name} = {__cache = {}} __BINDINGS__.${node.name}.__index = __BINDINGS__.${node.name}`);
 
-        this.luaC.write(this.outBufLua,`setmetatable(${node.name},{__call = function(self)`)
+        this.luaC.write(this.outBufLua,`setmetatable(__BINDINGS__.${node.name},{__call = function(self)`)
         this.luaC.write(this.outBufLua,`local ins = setmetatable({__ptr = 0},self)`)
         this.luaC.write(this.outBufLua,`ins:${node.name}()`)
         this.luaC.write(this.outBufLua,`return ins`)
@@ -149,7 +148,7 @@ export class WebIDLBinder {
                 this.cppC.newLine(this.outBufCPP);
 
                 if(!JsImpl || (node.name == member.name)) {
-                    this.luaC.write(this.outBufLua,`function ${node.name}:${member.name}(`);
+                    this.luaC.write(this.outBufLua,`function __BINDINGS__.${node.name}:${member.name}(`);
                     for(let j=0;j < member.arguments.length;j++) {
                         this.luaC.write(this.outBufLua,`${member.arguments[j].name}`);
                         if((j+1) !== member.arguments.length) {
@@ -166,11 +165,11 @@ export class WebIDLBinder {
 
                     if(member.name == node.name) {
                         this.luaC.write(this.outBufLua,`self.__ptr = `);
-                        this.luaC.write(this.outBufLua,`${this.mangleFunctionName(member,node.name)}(`);
+                        this.luaC.write(this.outBufLua,`__FUNCS__.${this.mangleFunctionName(member,node.name)}(`);
                     }
                     else {
                         this.luaC.write(this.outBufLua,`local ret = `);
-                        this.luaC.write(this.outBufLua,`${this.mangleFunctionName(member,node.name)}(self.__ptr`);
+                        this.luaC.write(this.outBufLua,`__FUNCS__.${this.mangleFunctionName(member,node.name)}(self.__ptr`);
                         if(member.arguments.length > 0) {
                             this.luaC.write(this.outBufLua,",");
                         }
@@ -222,7 +221,7 @@ export class WebIDLBinder {
                 }
 
                 if(JsImpl && (member.name !== node.name)) {
-                    this.luaC.write(this.outBufLua,`function cfuncs.${this.mangleFunctionName(member,node.name,true)}(selfPtr`);
+                    this.luaC.write(this.outBufLua,`function __CFUNCS__.${this.mangleFunctionName(member,node.name,true)}(selfPtr`);
                     for(let j=0;j < member.arguments.length;j++) {
                         this.luaC.write(this.outBufLua,",");
                         this.luaC.write(this.outBufLua,`${member.arguments[j].name}`);
@@ -243,6 +242,8 @@ export class WebIDLBinder {
         }
 
         if(JsImpl) {
+            this.cppC.writeLn(this.outBufCPP,`#define __CFUNC(name) \\`);
+            this.cppC.writeLn(this.outBufCPP,`    __attribute__((__import_module__("webidl_cfuncs"), __import_name__(#name)))`);
             for(let i=0;i < node.members.length;i++) {
                 let member = node.members[i];
                 if(member.type == "operation") {
@@ -252,9 +253,10 @@ export class WebIDLBinder {
                         this.cppC.write(this.outBufCPP,",");
                         this.cppC.write(this.outBufCPP,`${this.idlTypeToCType(member.arguments[j].idlType,member.arguments[j].extAttrs)} ${member.arguments[j].name}`);
                     }
-                    this.cppC.writeLn(this.outBufCPP,`);`);
+                    this.cppC.writeLn(this.outBufCPP,`) __CFUNC(${this.mangleFunctionName(member,node.name,true)});`);
                 }
             }
+            this.cppC.writeLn(this.outBufCPP,`#undef __CFUNC`);
 
             this.cppC.writeLn(this.outBufCPP,`class ${node.name} {`);
             this.cppC.write(this.outBufCPP,`public:`);
@@ -299,21 +301,21 @@ export class WebIDLBinder {
         }
 
         if(!hasConstructor) {
-            this.luaC.writeLn(this.outBufLua,`function ${node.name}:${node.name}() error("Class ${node.name} has no WebIDL constructor and therefore cannot be instantiated via Lua") end`)
+            this.luaC.writeLn(this.outBufLua,`function __BINDINGS__.${node.name}:${node.name}() error("Class ${node.name} has no WebIDL constructor and therefore cannot be instantiated via Lua") end`)
         }
 
         this.luaC.outdent(this.outBufCPP); this.luaC.newLine(this.outBufLua);
     }
 }
 
-let infile  = process.argv[2] || (__dirname + "/../test/test.idl");
-let outfile_lua = process.argv[3] || (__dirname + "/../test/test_bind.lua");
-let outfile_cpp = process.argv[3] || (__dirname + "/../test/test_bind.cpp");
+// let infile  = process.argv[2] || (__dirname + "/../test/test.idl");
+// let outfile_lua = process.argv[3] || (__dirname + "/../test/test_bind.lua");
+// let outfile_cpp = process.argv[3] || (__dirname + "/../test/test_bind.cpp");
 
-let idl = fs.readFileSync(infile);
+// let idl = fs.readFileSync(infile);
 
-// console.log(JSON.stringify(ast,null,4));
+// // console.log(JSON.stringify(ast,null,4));
 
-let inst = new WebIDLBinder(idl.toString());
-fs.writeFileSync(outfile_lua,inst.outBufLua.join(""));
-fs.writeFileSync(outfile_cpp,inst.outBufCPP.join(""));
+// let inst = new WebIDLBinder(idl.toString());
+// fs.writeFileSync(outfile_lua,inst.outBufLua.join(""));
+// fs.writeFileSync(outfile_cpp,inst.outBufCPP.join(""));
