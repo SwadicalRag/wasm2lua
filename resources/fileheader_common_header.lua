@@ -90,6 +90,22 @@ local function __UNSIGNED__(value)
     return value
 end
 
+local function __UNSIGNED8__(value)
+    if value < 0 then
+        value = value + 256
+    end
+
+    return value
+end
+
+local function __UNSIGNED16__(value)
+    if value < 0 then
+        value = value + 65536
+    end
+
+    return value
+end
+
 -- Adapted from https://github.com/notcake/glib/blob/master/lua/glib/bitconverter.lua
 -- with permission from notcake
 local function UInt32ToFloat(int)
