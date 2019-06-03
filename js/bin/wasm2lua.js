@@ -49,8 +49,8 @@ if (program.heapBase) {
 if (program.pureLua) {
     conf.pureLua = program.pureLua;
 }
-if (program.libMode) {
-    conf.libMode = program.libMode;
+if (program.libmode) {
+    conf.libMode = program.libmode;
 }
 let inst = new __1.wasm2lua(fs.readFileSync(infile), conf);
 fs.writeFileSync(outfile, inst.outBuf.join(""));

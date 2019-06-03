@@ -61,8 +61,8 @@ if(program.pureLua) {
     conf.pureLua = program.pureLua;
 }
 
-if(program.libMode) {
-    conf.libMode = program.libMode;
+if(program.libmode) {
+    conf.libMode = program.libmode;
 }
 
 let inst = new wasm2lua(fs.readFileSync(infile),conf)
