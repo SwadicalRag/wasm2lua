@@ -6,7 +6,6 @@ const arraymap_1 = require("./arraymap");
 const virtualregistermanager_1 = require("./virtualregistermanager");
 const stringcompiler_1 = require("./stringcompiler");
 const webidlbinder_1 = require("./webidlbinder");
-const PURE_LUA_MODE = false;
 function makeBinaryStringLiteral(array) {
     let literal = ["'"];
     for (let i = 0; i < array.length; i++) {
@@ -63,10 +62,10 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         this.program_ast = wasm_parser_1.decode(program_binary, {});
         this.process();
     }
-    static get fileHeader() {
+    get fileHeader() {
         let footer = fs.readFileSync(__dirname + "/../resources/fileheader_common_footer.lua").toString();
         let header = fs.readFileSync(__dirname + "/../resources/fileheader_common_header.lua").toString();
-        let memLib = fs.readFileSync(PURE_LUA_MODE ? (__dirname + "/../resources/fileheader_lua.lua") : (__dirname + "/../resources/fileheader_ffi.lua")).toString();
+        let memLib = fs.readFileSync(this.options.pureLua ? (__dirname + "/../resources/fileheader_lua.lua") : (__dirname + "/../resources/fileheader_ffi.lua")).toString();
         return `${header}${memLib}${footer}`;
     }
     static get fileFooter() {
@@ -84,7 +83,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         }
     }
     writeHeader(buf) {
-        this.write(buf, wasm2lua.fileHeader);
+        this.write(buf, this.fileHeader);
         this.newLine(buf);
     }
     writeFooter(buf) {

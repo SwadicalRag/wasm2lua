@@ -7,8 +7,6 @@ import { VirtualRegisterManager, VirtualRegister } from "./virtualregistermanage
 import { StringCompiler } from "./stringcompiler";
 import { WebIDLBinder, BinderMode } from "./webidlbinder";
 
-const PURE_LUA_MODE = false;
-
 /* TODO CORRECTNESS:
     - Be extra careful with conversions from floats -> ints. The bit library's rounding behavior is undefined.
     - Imported globals use global IDs that precede other global IDs
@@ -115,6 +113,7 @@ export interface WASM2LuaOptions {
     whitelist?: string[];
     compileFlags?: string[];
     heapBase?: string;
+    pureLua?: boolean;
     webidl?: {
         idlFilePath: string,
         mallocName?: string,
@@ -134,10 +133,10 @@ export class wasm2lua extends StringCompiler {
     stackDebugOutput = false;
     insDebugOutput = false;
 
-    static get fileHeader() {
+    get fileHeader() {
        let footer = fs.readFileSync(__dirname + "/../resources/fileheader_common_footer.lua").toString();
        let header = fs.readFileSync(__dirname + "/../resources/fileheader_common_header.lua").toString();
-       let memLib = fs.readFileSync(PURE_LUA_MODE ? (__dirname + "/../resources/fileheader_lua.lua") : (__dirname + "/../resources/fileheader_ffi.lua")).toString();
+       let memLib = fs.readFileSync(this.options.pureLua ? (__dirname + "/../resources/fileheader_lua.lua") : (__dirname + "/../resources/fileheader_ffi.lua")).toString();
 
        return `${header}${memLib}${footer}`;
     }
@@ -181,7 +180,7 @@ export class wasm2lua extends StringCompiler {
     }
 
     writeHeader(buf: string[]) {
-        this.write(buf,wasm2lua.fileHeader);
+        this.write(buf,this.fileHeader);
         this.newLine(buf);
     }
 

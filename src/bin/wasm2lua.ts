@@ -11,6 +11,7 @@ program.version("0.1.0")
     .option("--heapBase <__GLOBALS__[0]>","Specify custom `heapBase` symbol name")
     .option("--freeName <free>","Specify custom `free` symbol name")
     .option("--mallocName <malloc>","Specify custom `malloc` symbol name")
+    .option("--pureLua","Compiles without using `ffi`")
     .option("-b, --bindings <bindings.idl>","Generates Lua-WebIDL bindings from the specified file")
     .action(function (inf, outf) {
         if((typeof inf === "string") && (typeof outf === "string")) {
@@ -53,6 +54,10 @@ if(program.bindings && program.freeName) {
 
 if(program.heapBase) {
     conf.heapBase = program.heapBase;
+}
+
+if(program.pureLua) {
+    conf.pureLua = program.pureLua;
 }
 
 let inst = new wasm2lua(fs.readFileSync(infile),conf)
