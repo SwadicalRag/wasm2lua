@@ -226,7 +226,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         }
         if (this.options.webidl) {
             let idl = fs.readFileSync(this.options.webidl.idlFilePath);
-            let binder = new webidlbinder_1.WebIDLBinder(idl.toString());
+            let binder = new webidlbinder_1.WebIDLBinder(idl.toString(), webidlbinder_1.BinderMode.WEBIDL_LUA);
             binder.luaC.indent();
             binder.buildOut();
             binder.luaC.outdent();

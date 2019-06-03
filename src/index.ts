@@ -5,7 +5,7 @@ import { isArray } from "util";
 import {ArrayMap} from "./arraymap"
 import { VirtualRegisterManager, VirtualRegister } from "./virtualregistermanager";
 import { StringCompiler } from "./stringcompiler";
-import { WebIDLBinder } from "./webidlbinder";
+import { WebIDLBinder, BinderMode } from "./webidlbinder";
 
 const PURE_LUA_MODE = false;
 
@@ -350,7 +350,7 @@ export class wasm2lua extends StringCompiler {
         if(this.options.webidl) {
             let idl = fs.readFileSync(this.options.webidl.idlFilePath);
 
-            let binder = new WebIDLBinder(idl.toString());
+            let binder = new WebIDLBinder(idl.toString(),BinderMode.WEBIDL_LUA);
 
             binder.luaC.indent();
             binder.buildOut();

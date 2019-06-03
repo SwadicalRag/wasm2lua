@@ -2,12 +2,13 @@ import * as program from "commander"
 import * as fs from "fs"
 import * as fsExtra from "fs-extra"
 import * as path from "path"
-import { WebIDLBinder } from "../webidlbinder";
+import { WebIDLBinder, BinderMode } from "../webidlbinder";
 
 let infile,outfile,includedHeaders;
 
 program.version("0.1.0")
-    .arguments("<in.idl> <out.cpp> [includedHeaders...]")
+    .arguments("<in.idl> <out> [includedHeaders...]")
+    .option("--cpp","Runs Lua-WebIDL in C++ mode")
     .action(function (inf, outf, incH) {
         if((typeof inf === "string") && (typeof outf === "string")) {
             if((inf.trim() !== "") && (outf.trim() !== "")) {
@@ -31,14 +32,26 @@ if(!fs.existsSync(infile)) {
 
 fsExtra.ensureDirSync(path.dirname(outfile));
 
-let inst = new WebIDLBinder(fs.readFileSync(infile).toString());
+let mode = BinderMode.WEBIDL_NONE;
+if(program.cpp) {
+    mode = BinderMode.WEBIDL_CPP;
+}
+
+if(mode === BinderMode.WEBIDL_NONE) {
+    console.error("Binder mode was not specified. Terminating.");
+    process.exit(-2);
+}
+
+let inst = new WebIDLBinder(fs.readFileSync(infile).toString(),mode);
 
 inst.buildOut();
 
 let out = "";
 
-for(let header of includedHeaders) {
-    out += `#include "${header}"\n`;
+if(mode === BinderMode.WEBIDL_CPP) {
+    for(let header of includedHeaders) {
+        out += `#include "${header}"\n`;
+    }
 }
 
 out += inst.outBufCPP.join("");

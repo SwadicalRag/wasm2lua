@@ -7,7 +7,8 @@ const path = require("path");
 const webidlbinder_1 = require("../webidlbinder");
 let infile, outfile, includedHeaders;
 program.version("0.1.0")
-    .arguments("<in.idl> <out.cpp> [includedHeaders...]")
+    .arguments("<in.idl> <out> [includedHeaders...]")
+    .option("--cpp", "Runs Lua-WebIDL in C++ mode")
     .action(function (inf, outf, incH) {
     if ((typeof inf === "string") && (typeof outf === "string")) {
         if ((inf.trim() !== "") && (outf.trim() !== "")) {
@@ -26,11 +27,21 @@ if (!fs.existsSync(infile)) {
     console.error(`Could not find input file ${infile}`);
 }
 fsExtra.ensureDirSync(path.dirname(outfile));
-let inst = new webidlbinder_1.WebIDLBinder(fs.readFileSync(infile).toString());
+let mode = webidlbinder_1.BinderMode.WEBIDL_NONE;
+if (program.cpp) {
+    mode = webidlbinder_1.BinderMode.WEBIDL_CPP;
+}
+if (mode === webidlbinder_1.BinderMode.WEBIDL_NONE) {
+    console.error("Binder mode was not specified. Terminating.");
+    process.exit(-2);
+}
+let inst = new webidlbinder_1.WebIDLBinder(fs.readFileSync(infile).toString(), mode);
 inst.buildOut();
 let out = "";
-for (let header of includedHeaders) {
-    out += `#include "${header}"\n`;
+if (mode === webidlbinder_1.BinderMode.WEBIDL_CPP) {
+    for (let header of includedHeaders) {
+        out += `#include "${header}"\n`;
+    }
 }
 out += inst.outBufCPP.join("");
 fs.writeFileSync(outfile, out);
