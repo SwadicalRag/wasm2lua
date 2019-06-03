@@ -8,6 +8,7 @@ let infile,outfile,includedHeaders;
 
 program.version("0.1.0")
     .arguments("<in.idl> <out> [includedHeaders...]")
+    .option("--libmode","Adds a dummy main function to use this as a library (for WASI)")
     .option("--cpp","Runs Lua-WebIDL in C++ mode")
     .action(function (inf, outf, incH) {
         if((typeof inf === "string") && (typeof outf === "string")) {
@@ -42,7 +43,7 @@ if(mode === BinderMode.WEBIDL_NONE) {
     process.exit(-2);
 }
 
-let inst = new WebIDLBinder(fs.readFileSync(infile).toString(),mode);
+let inst = new WebIDLBinder(fs.readFileSync(infile).toString(),mode,program.libmode);
 
 inst.buildOut();
 

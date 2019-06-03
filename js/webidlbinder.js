@@ -9,9 +9,10 @@ var BinderMode;
     BinderMode[BinderMode["WEBIDL_CPP"] = 1] = "WEBIDL_CPP";
 })(BinderMode = exports.BinderMode || (exports.BinderMode = {}));
 class WebIDLBinder {
-    constructor(source, mode) {
+    constructor(source, mode, addYieldStub) {
         this.source = source;
         this.mode = mode;
+        this.addYieldStub = addYieldStub;
         this.luaC = new stringcompiler_1.StringCompiler();
         this.cppC = new stringcompiler_1.StringCompiler();
         this.outBufLua = [];
@@ -83,6 +84,16 @@ class WebIDLBinder {
                     this.alreadyImplemented.set(int.name, true);
                     this.luaC.writeLn(this.outBufLua, `setmetatable(__BINDINGS__.${int.name},{__index = __BINDINGS__.${int.inheritance}})`);
                 }
+            }
+        }
+        if (this.addYieldStub) {
+            if (this.mode == BinderMode.WEBIDL_LUA) {
+                this.luaC.writeLn(this.outBufLua, "__IMPORTS__.webidl_internal = {main_yield = coroutine.yield}");
+                this.luaC.writeLn(this.outBufLua, "module.init = coroutine.wrap(module.init)");
+            }
+            else if (this.mode == BinderMode.WEBIDL_CPP) {
+                this.cppC.writeLn(this.outBufCPP, `extern "C" void _webidl_main_yield() __attribute__((__import_module__("webidl_internal"), __import_name__("main_yield")));`);
+                this.cppC.writeLn(this.outBufCPP, `int main() {_webidl_main_yield(); return 0;}`);
             }
         }
     }

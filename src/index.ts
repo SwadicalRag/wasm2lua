@@ -114,6 +114,7 @@ export interface WASM2LuaOptions {
     compileFlags?: string[];
     heapBase?: string;
     pureLua?: boolean;
+    libMode?: boolean;
     webidl?: {
         idlFilePath: string,
         mallocName?: string,
@@ -349,7 +350,7 @@ export class wasm2lua extends StringCompiler {
         if(this.options.webidl) {
             let idl = fs.readFileSync(this.options.webidl.idlFilePath);
 
-            let binder = new WebIDLBinder(idl.toString(),BinderMode.WEBIDL_LUA);
+            let binder = new WebIDLBinder(idl.toString(),BinderMode.WEBIDL_LUA,this.options.libMode);
 
             binder.luaC.indent();
             binder.buildOut();
@@ -651,6 +652,9 @@ export class wasm2lua extends StringCompiler {
                 }
                 this.newLine(buf);
             }
+        }
+        if(this.importedWASI) {
+            this.writeLn(buf,"module.exports._start()");
         }
         this.outdent(buf);
         this.write(buf,"end");

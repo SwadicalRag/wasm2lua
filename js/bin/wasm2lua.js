@@ -13,6 +13,7 @@ program.version("0.1.0")
     .option("--mallocName <malloc>", "Specify custom `malloc` symbol name")
     .option("--pureLua", "Compiles without using `ffi`")
     .option("-b, --bindings <bindings.idl>", "Generates Lua-WebIDL bindings from the specified file")
+    .option("--libmode", "Adds a dummy main function to use this as a library (for WASI)")
     .action(function (inf, outf) {
     if ((typeof inf === "string") && (typeof outf === "string")) {
         if ((inf.trim() !== "") && (outf.trim() !== "")) {
@@ -47,6 +48,9 @@ if (program.heapBase) {
 }
 if (program.pureLua) {
     conf.pureLua = program.pureLua;
+}
+if (program.libMode) {
+    conf.libMode = program.libMode;
 }
 let inst = new __1.wasm2lua(fs.readFileSync(infile), conf);
 fs.writeFileSync(outfile, inst.outBuf.join(""));

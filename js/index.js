@@ -225,7 +225,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         }
         if (this.options.webidl) {
             let idl = fs.readFileSync(this.options.webidl.idlFilePath);
-            let binder = new webidlbinder_1.WebIDLBinder(idl.toString(), webidlbinder_1.BinderMode.WEBIDL_LUA);
+            let binder = new webidlbinder_1.WebIDLBinder(idl.toString(), webidlbinder_1.BinderMode.WEBIDL_LUA, this.options.libMode);
             binder.luaC.indent();
             binder.buildOut();
             binder.luaC.outdent();
@@ -463,6 +463,9 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                 }
                 this.newLine(buf);
             }
+        }
+        if (this.importedWASI) {
+            this.writeLn(buf, "module.exports._start()");
         }
         this.outdent(buf);
         this.write(buf, "end");

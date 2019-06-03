@@ -7,7 +7,3 @@ module.imports.env = {
 }
 
 module.init()
-
-if module.exports._start then
-    module.exports._start()
-end

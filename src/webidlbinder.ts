@@ -21,7 +21,7 @@ export class WebIDLBinder {
         ["DOMString"]: "char*"
     };
 
-    constructor(public source: string,public mode: BinderMode) {
+    constructor(public source: string,public mode: BinderMode,public addYieldStub: boolean) {
         this.ast = webidl.parse(source);
     }
 
@@ -103,6 +103,17 @@ export class WebIDLBinder {
                     this.alreadyImplemented.set(int.name,true)
                     this.luaC.writeLn(this.outBufLua,`setmetatable(__BINDINGS__.${int.name},{__index = __BINDINGS__.${int.inheritance}})`);
                 }
+            }
+        }
+
+        if(this.addYieldStub) {
+            if(this.mode == BinderMode.WEBIDL_LUA) {
+                this.luaC.writeLn(this.outBufLua,"__IMPORTS__.webidl_internal = {main_yield = coroutine.yield}");
+                this.luaC.writeLn(this.outBufLua,"module.init = coroutine.wrap(module.init)");
+            }
+            else if(this.mode == BinderMode.WEBIDL_CPP) {
+                this.cppC.writeLn(this.outBufCPP,`extern "C" void _webidl_main_yield() __attribute__((__import_module__("webidl_internal"), __import_name__("main_yield")));`)
+                this.cppC.writeLn(this.outBufCPP,`int main() {_webidl_main_yield(); return 0;}`);
             }
         }
     }

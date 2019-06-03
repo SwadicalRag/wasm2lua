@@ -8,6 +8,7 @@ const webidlbinder_1 = require("../webidlbinder");
 let infile, outfile, includedHeaders;
 program.version("0.1.0")
     .arguments("<in.idl> <out> [includedHeaders...]")
+    .option("--libmode", "Adds a dummy main function to use this as a library (for WASI)")
     .option("--cpp", "Runs Lua-WebIDL in C++ mode")
     .action(function (inf, outf, incH) {
     if ((typeof inf === "string") && (typeof outf === "string")) {
@@ -35,7 +36,7 @@ if (mode === webidlbinder_1.BinderMode.WEBIDL_NONE) {
     console.error("Binder mode was not specified. Terminating.");
     process.exit(-2);
 }
-let inst = new webidlbinder_1.WebIDLBinder(fs.readFileSync(infile).toString(), mode);
+let inst = new webidlbinder_1.WebIDLBinder(fs.readFileSync(infile).toString(), mode, program.libmode);
 inst.buildOut();
 let out = "";
 if (mode === webidlbinder_1.BinderMode.WEBIDL_CPP) {
