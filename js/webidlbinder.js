@@ -85,6 +85,14 @@ class WebIDLBinder {
                 this.walkInterfaceCPP(node);
             }
         }
+        else if ((node.type == "namespace")) {
+            if (this.mode == BinderMode.WEBIDL_LUA) {
+                this.walkNamespaceLua(node);
+            }
+            else if (this.mode == BinderMode.WEBIDL_CPP) {
+                this.walkNamespaceCPP(node);
+            }
+        }
     }
     walkInterfaceLua(node) {
         let JsImpl = this.getExtendedAttribute("JSImplementation", node.extAttrs);
@@ -103,15 +111,15 @@ class WebIDLBinder {
                 if (member.name == node.name) {
                     hasConstructor = true;
                 }
-                if (!JsImpl || (node.name == member.name)) {
-                    this.luaC.write(this.outBufLua, `function __BINDINGS__.${node.name}:${member.name}(`);
-                    for (let j = 0; j < member.arguments.length; j++) {
-                        this.luaC.write(this.outBufLua, `${member.arguments[j].name}`);
-                        if ((j + 1) !== member.arguments.length) {
-                            this.luaC.write(this.outBufLua, ",");
-                        }
+                this.luaC.write(this.outBufLua, `function __BINDINGS__.${node.name}:${member.name}(`);
+                for (let j = 0; j < member.arguments.length; j++) {
+                    this.luaC.write(this.outBufLua, `${member.arguments[j].name}`);
+                    if ((j + 1) !== member.arguments.length) {
+                        this.luaC.write(this.outBufLua, ",");
                     }
-                    this.luaC.write(this.outBufLua, `)`);
+                }
+                this.luaC.write(this.outBufLua, `)`);
+                if (!JsImpl || (node.name == member.name)) {
                     for (let j = 0; j < member.arguments.length; j++) {
                         if (member.arguments[j].idlType.idlType == "DOMString") {
                             this.luaC.write(this.outBufLua, `local __arg${j} = vm.stringify(${member.arguments[j].name})`);
@@ -145,7 +153,10 @@ class WebIDLBinder {
                             this.luaC.write(this.outBufLua, ",");
                         }
                     }
-                    this.luaC.write(this.outBufLua, ")");
+                    this.luaC.write(this.outBufLua, ");");
+                    if (member.name == node.name) {
+                        this.luaC.write(this.outBufLua, `__BINDINGS__.${node.name}.__cache[self.__ptr] = self;`);
+                    }
                     for (let j = 0; j < member.arguments.length; j++) {
                         if (member.arguments[j].idlType.idlType == "DOMString") {
                             this.luaC.write(this.outBufLua, `vm.freeString(arg${j})`);
@@ -164,9 +175,12 @@ class WebIDLBinder {
                             this.luaC.write(this.outBufLua, "return ret");
                         }
                     }
-                    this.luaC.write(this.outBufLua, " end");
-                    this.luaC.newLine(this.outBufLua);
                 }
+                else {
+                    this.luaC.write(this.outBufLua, `error("Unimplemented -> ${node.name}::${member.name}()")`);
+                }
+                this.luaC.write(this.outBufLua, " end");
+                this.luaC.newLine(this.outBufLua);
                 if (JsImpl && (member.name !== node.name)) {
                     this.luaC.write(this.outBufLua, `function __CFUNCS__.${this.mangleFunctionName(member, node.name, true)}(selfPtr`);
                     for (let j = 0; j < member.arguments.length; j++) {
@@ -174,7 +188,7 @@ class WebIDLBinder {
                         this.luaC.write(this.outBufLua, `${member.arguments[j].name}`);
                     }
                     this.luaC.write(this.outBufLua, `)`);
-                    this.luaC.write(this.outBufLua, `local self = ${node.name}.__cache[selfPtr] return self.${member.name}(self`);
+                    this.luaC.write(this.outBufLua, `local self = __BINDINGS__.${node.name}.__cache[selfPtr] return self.${member.name}(self`);
                     for (let j = 0; j < member.arguments.length; j++) {
                         this.luaC.write(this.outBufLua, ",");
                         this.luaC.write(this.outBufLua, `${member.arguments[j].name}`);
@@ -194,46 +208,8 @@ class WebIDLBinder {
     walkInterfaceCPP(node) {
         let JsImpl = this.getExtendedAttribute("JSImplementation", node.extAttrs);
         let hasConstructor = false;
-        for (let i = 0; i < node.members.length; i++) {
-            let member = node.members[i];
-            if (member.type == "operation") {
-                if (member.name == node.name) {
-                    hasConstructor = true;
-                }
-                if (member.name == node.name) {
-                    this.cppC.write(this.outBufCPP, `extern "C" ${node.name}* ${this.mangleFunctionName(member, node.name)}(`);
-                }
-                else {
-                    this.cppC.write(this.outBufCPP, `extern "C" ${this.idlTypeToCType(member.idlType, member.extAttrs)} ${this.mangleFunctionName(member, node.name)}(${node.name}* self`);
-                    if (member.arguments.length > 0) {
-                        this.cppC.write(this.outBufCPP, `,`);
-                    }
-                }
-                for (let j = 0; j < member.arguments.length; j++) {
-                    this.cppC.write(this.outBufCPP, `${this.idlTypeToCType(member.arguments[j].idlType, member.arguments[j].extAttrs)} ${member.arguments[j].name}`);
-                    if ((j + 1) !== member.arguments.length) {
-                        this.cppC.write(this.outBufCPP, ",");
-                    }
-                }
-                this.cppC.write(this.outBufCPP, `) {return `);
-                if (member.name == node.name) {
-                    this.cppC.write(this.outBufCPP, `new ${member.name}`);
-                }
-                else {
-                    this.cppC.write(this.outBufCPP, `self->${member.name}`);
-                }
-                this.cppC.write(this.outBufCPP, `(`);
-                for (let j = 0; j < member.arguments.length; j++) {
-                    this.cppC.write(this.outBufCPP, `${member.arguments[j].name}`);
-                    if ((j + 1) !== member.arguments.length) {
-                        this.cppC.write(this.outBufCPP, ",");
-                    }
-                }
-                this.cppC.write(this.outBufCPP, `); };`);
-                this.cppC.newLine(this.outBufCPP);
-            }
-        }
         if (JsImpl) {
+            this.cppC.writeLn(this.outBufCPP, `class ${node.name};`);
             this.cppC.writeLn(this.outBufCPP, `#define __CFUNC(name) \\`);
             this.cppC.writeLn(this.outBufCPP, `    __attribute__((__import_module__("webidl_cfuncs"), __import_name__(#name)))`);
             for (let i = 0; i < node.members.length; i++) {
@@ -285,6 +261,228 @@ class WebIDLBinder {
             this.cppC.outdent(this.outBufCPP);
             this.cppC.write(this.outBufCPP, "};");
             this.cppC.newLine(this.outBufCPP);
+        }
+        for (let i = 0; i < node.members.length; i++) {
+            let member = node.members[i];
+            if (member.type == "operation") {
+                if (member.name == node.name) {
+                    hasConstructor = true;
+                }
+                else if (JsImpl) {
+                    continue;
+                }
+                if (member.name == node.name) {
+                    this.cppC.write(this.outBufCPP, `extern "C" ${node.name}* ${this.mangleFunctionName(member, node.name)}(`);
+                }
+                else {
+                    this.cppC.write(this.outBufCPP, `extern "C" ${this.idlTypeToCType(member.idlType, member.extAttrs)} ${this.mangleFunctionName(member, node.name)}(${node.name}* self`);
+                    if (member.arguments.length > 0) {
+                        this.cppC.write(this.outBufCPP, `,`);
+                    }
+                }
+                for (let j = 0; j < member.arguments.length; j++) {
+                    this.cppC.write(this.outBufCPP, `${this.idlTypeToCType(member.arguments[j].idlType, member.arguments[j].extAttrs)} ${member.arguments[j].name}`);
+                    if ((j + 1) !== member.arguments.length) {
+                        this.cppC.write(this.outBufCPP, ",");
+                    }
+                }
+                this.cppC.write(this.outBufCPP, `) {return `);
+                if (member.name == node.name) {
+                    this.cppC.write(this.outBufCPP, `new ${member.name}`);
+                }
+                else {
+                    this.cppC.write(this.outBufCPP, `self->${member.name}`);
+                }
+                this.cppC.write(this.outBufCPP, `(`);
+                for (let j = 0; j < member.arguments.length; j++) {
+                    this.cppC.write(this.outBufCPP, `${member.arguments[j].name}`);
+                    if ((j + 1) !== member.arguments.length) {
+                        this.cppC.write(this.outBufCPP, ",");
+                    }
+                }
+                this.cppC.write(this.outBufCPP, `); };`);
+                this.cppC.newLine(this.outBufCPP);
+            }
+        }
+    }
+    walkNamespaceLua(node) {
+        let JsImpl = this.getExtendedAttribute("JSImplementation", node.extAttrs);
+        let hasConstructor = false;
+        this.luaC.write(this.outBufLua, `__BINDINGS__.${node.name} = {}`);
+        this.luaC.indent();
+        this.luaC.newLine(this.outBufLua);
+        for (let i = 0; i < node.members.length; i++) {
+            let member = node.members[i];
+            if (member.type == "operation") {
+                if (member.name == node.name) {
+                    hasConstructor = true;
+                }
+                this.luaC.write(this.outBufLua, `function __BINDINGS__.${node.name}.${member.name}(`);
+                for (let j = 0; j < member.arguments.length; j++) {
+                    this.luaC.write(this.outBufLua, `${member.arguments[j].name}`);
+                    if ((j + 1) !== member.arguments.length) {
+                        this.luaC.write(this.outBufLua, ",");
+                    }
+                }
+                this.luaC.write(this.outBufLua, `)`);
+                if (JsImpl) {
+                    this.luaC.write(this.outBufLua, `error("Unimplemented -> ${node.name}::${member.name}()")`);
+                }
+                else {
+                    for (let j = 0; j < member.arguments.length; j++) {
+                        if (member.arguments[j].idlType.idlType == "DOMString") {
+                            this.luaC.write(this.outBufLua, `local __arg${j} = vm.stringify(${member.arguments[j].name})`);
+                        }
+                    }
+                    this.luaC.write(this.outBufLua, `local ret = `);
+                    this.luaC.write(this.outBufLua, `__FUNCS__.${this.mangleFunctionName(member, node.name)}(`);
+                    for (let j = 0; j < member.arguments.length; j++) {
+                        if (member.arguments[j].idlType.idlType == "DOMString") {
+                            this.luaC.write(this.outBufLua, `arg${j}`);
+                        }
+                        else {
+                            this.luaC.write(this.outBufLua, `${member.arguments[j].name}`);
+                        }
+                        if (this.classLookup[member.arguments[j].idlType.idlType]) {
+                            this.luaC.write(this.outBufLua, ".__ptr");
+                        }
+                        else if (member.arguments[j].idlType.idlType == "boolean") {
+                            this.luaC.write(this.outBufLua, " and 1 or 0");
+                        }
+                        if ((j + 1) !== member.arguments.length) {
+                            this.luaC.write(this.outBufLua, ",");
+                        }
+                    }
+                    this.luaC.write(this.outBufLua, ")");
+                    for (let j = 0; j < member.arguments.length; j++) {
+                        if (member.arguments[j].idlType.idlType == "DOMString") {
+                            this.luaC.write(this.outBufLua, `vm.freeString(arg${j})`);
+                        }
+                    }
+                    if (this.classLookup[member.idlType.idlType]) {
+                        this.luaC.write(this.outBufLua, `local __obj = ${member.idlType.idlType}.__cache[ret] `);
+                        this.luaC.write(this.outBufLua, `if not __obj then __obj = setmetatable({__ptr = ret},${member.idlType.idlType}) ${member.idlType.idlType}.__cache[ret] = __obj end `);
+                        this.luaC.write(this.outBufLua, "return __obj");
+                    }
+                    else if (member.idlType.idlType == "DOMString") {
+                        this.luaC.write(this.outBufLua, "return vm.readString(ret)");
+                    }
+                    else {
+                        this.luaC.write(this.outBufLua, "return ret");
+                    }
+                }
+                this.luaC.write(this.outBufLua, " end");
+                this.luaC.newLine(this.outBufLua);
+                if (JsImpl) {
+                    this.luaC.write(this.outBufLua, `function __CFUNCS__.${this.mangleFunctionName(member, node.name, true)}(`);
+                    for (let j = 0; j < member.arguments.length; j++) {
+                        this.luaC.write(this.outBufLua, `${member.arguments[j].name}`);
+                        if ((j + 1) != member.arguments.length) {
+                            this.luaC.write(this.outBufLua, ",");
+                        }
+                    }
+                    this.luaC.write(this.outBufLua, `)`);
+                    this.luaC.write(this.outBufLua, `return __BINDINGS__.${node.name}.${member.name}(`);
+                    for (let j = 0; j < member.arguments.length; j++) {
+                        this.luaC.write(this.outBufLua, `${member.arguments[j].name}`);
+                        if ((j + 1) != member.arguments.length) {
+                            this.luaC.write(this.outBufLua, ",");
+                        }
+                    }
+                    this.luaC.write(this.outBufLua, `)`);
+                    this.luaC.write(this.outBufLua, " end");
+                    this.luaC.newLine(this.outBufLua);
+                }
+            }
+        }
+        this.luaC.outdent(this.outBufLua);
+        this.luaC.newLine(this.outBufLua);
+    }
+    walkNamespaceCPP(node) {
+        let JsImpl = this.getExtendedAttribute("JSImplementation", node.extAttrs);
+        let hasConstructor = false;
+        if (JsImpl) {
+            this.cppC.writeLn(this.outBufCPP, `#define __CFUNC(name) \\`);
+            this.cppC.writeLn(this.outBufCPP, `    __attribute__((__import_module__("webidl_cfuncs"), __import_name__(#name)))`);
+            for (let i = 0; i < node.members.length; i++) {
+                let member = node.members[i];
+                if (member.type == "operation") {
+                    this.cppC.write(this.outBufCPP, `extern "C" ${this.idlTypeToCType(member.idlType, node.extAttrs)} ${this.mangleFunctionName(member, node.name, true)}(`);
+                    for (let j = 0; j < member.arguments.length; j++) {
+                        this.cppC.write(this.outBufCPP, `${this.idlTypeToCType(member.arguments[j].idlType, member.arguments[j].extAttrs)} ${member.arguments[j].name}`);
+                        if ((j + 1) !== member.arguments.length) {
+                            this.cppC.write(this.outBufCPP, ",");
+                        }
+                    }
+                    this.cppC.writeLn(this.outBufCPP, `) __CFUNC(${this.mangleFunctionName(member, node.name, true)});`);
+                }
+            }
+            this.cppC.writeLn(this.outBufCPP, `#undef __CFUNC`);
+            this.cppC.write(this.outBufCPP, `namespace ${node.name} {`);
+            this.cppC.indent();
+            this.cppC.newLine(this.outBufCPP);
+            for (let i = 0; i < node.members.length; i++) {
+                let member = node.members[i];
+                if (member.type == "operation") {
+                    if (member.name == node.name) {
+                        hasConstructor = true;
+                        continue;
+                    }
+                    this.cppC.write(this.outBufCPP, `${this.idlTypeToCType(member.idlType, node.extAttrs)} `);
+                    this.cppC.write(this.outBufCPP, `${member.name}(`);
+                    for (let j = 0; j < member.arguments.length; j++) {
+                        this.cppC.write(this.outBufCPP, `${this.idlTypeToCType(member.arguments[j].idlType, member.arguments[j].extAttrs)} ${member.arguments[j].name}`);
+                        if ((j + 1) !== member.arguments.length) {
+                            this.cppC.write(this.outBufCPP, ",");
+                        }
+                    }
+                    this.cppC.write(this.outBufCPP, `) {`);
+                    this.cppC.write(this.outBufCPP, `return `);
+                    this.cppC.write(this.outBufCPP, `${this.mangleFunctionName(member, node.name, true)}(`);
+                    for (let j = 0; j < member.arguments.length; j++) {
+                        this.cppC.write(this.outBufCPP, `${member.arguments[j].name}`);
+                        if ((j + 1) !== member.arguments.length) {
+                            this.cppC.write(this.outBufCPP, ",");
+                        }
+                    }
+                    this.cppC.write(this.outBufCPP, ");");
+                    this.cppC.write(this.outBufCPP, " };");
+                    this.cppC.newLine(this.outBufCPP);
+                }
+            }
+            this.cppC.outdent(this.outBufCPP);
+            this.cppC.write(this.outBufCPP, "};");
+            this.cppC.newLine(this.outBufCPP);
+        }
+        else {
+            for (let i = 0; i < node.members.length; i++) {
+                let member = node.members[i];
+                if (member.type == "operation") {
+                    this.cppC.write(this.outBufCPP, `extern "C" ${this.idlTypeToCType(member.idlType, member.extAttrs)} ${this.mangleFunctionName(member, node.name)}(`);
+                    for (let j = 0; j < member.arguments.length; j++) {
+                        this.cppC.write(this.outBufCPP, `${this.idlTypeToCType(member.arguments[j].idlType, member.arguments[j].extAttrs)} ${member.arguments[j].name}`);
+                        if ((j + 1) !== member.arguments.length) {
+                            this.cppC.write(this.outBufCPP, ",");
+                        }
+                    }
+                    this.cppC.write(this.outBufCPP, `) {return `);
+                    if (node.name === "global") {
+                        this.cppC.write(this.outBufCPP, `${member.name}`);
+                    }
+                    else {
+                        this.cppC.write(this.outBufCPP, `${node.name}::${member.name}`);
+                    }
+                    this.cppC.write(this.outBufCPP, `(`);
+                    for (let j = 0; j < member.arguments.length; j++) {
+                        this.cppC.write(this.outBufCPP, `${member.arguments[j].name}`);
+                        if ((j + 1) !== member.arguments.length) {
+                            this.cppC.write(this.outBufCPP, ",");
+                        }
+                    }
+                    this.cppC.write(this.outBufCPP, `); };`);
+                    this.cppC.newLine(this.outBufCPP);
+                }
+            }
         }
     }
 }
