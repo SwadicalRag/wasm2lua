@@ -72,9 +72,26 @@ end
 _G.__LONG_INT__ = __LONG_INT__
 _G.__LONG_INT_N__ = __LONG_INT_N__
 
-__MODULES__ = __MODULES__ or {}
-__GLOBALS__ = __GLOBALS__ or {}
-__SETJMP_STATES__ = __SETJMP_STATES__ or setmetatable({},{__mode="k"})
+-- Modules are entirely localised and can be modified post load
+local __IMPORTS__ = {}
+local __GLOBALS__ = {}
+local __SETJMP_STATES__ = setmetatable({},{__mode="k"})
+local __FUNCS__ = {}
+local __EXPORTS__ = {}
+local __BINDINGS__ = {}
+
+local module = {
+    imports = __IMPORTS__,
+    exports = __EXPORTS__,
+    globals = __GLOBALS__,
+    funcs = __FUNCS__,
+    bindings = __BINDINGS__,
+}
+
+function module.setImports(imp)
+    __IMPORTS__ = imp
+    module.imports = imp
+end
 
 local function __STACK_POP__(__STACK__)
     local v = __STACK__[#__STACK__]

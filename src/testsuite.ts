@@ -17,11 +17,11 @@ for(let fileName of files) {
 
         let wasm = fs.readFileSync(wasmPath);
         let inst = new wasm2lua(wasm, {});
-        fs.writeFileSync(`${__dirname}/../test/test.lua`,inst.outBuf.join("") + ` __MODULES__.wasi_unstable=dofile("src/wasilib.lua")(__MODULES__.UNKNOWN.memory)os.exit(__MODULES__.UNKNOWN._start())`);
+        fs.writeFileSync(`${__dirname}/../test/test.lua`,inst.outBuf.join(""));
 
         console.log(`compile finished.`)
         let expectedOut = fs.readFileSync(expectedOutPath);
-        let prog = cp.spawnSync(`nilajit`,["test/test.lua"],{
+        let prog = cp.spawnSync(`nilajit`,["resources/testsuite-host.lua"],{
             
         });
         
@@ -54,10 +54,10 @@ for(let fileName of files2) {
 
         let wasm = fs.readFileSync(wasmPath);
         let inst = new wasm2lua(wasm, {});
-        fs.writeFileSync(`${__dirname}/../test/test.lua`,"__MODULES__ = {env={abort = function()error 'ABORT' end}} " + inst.outBuf.join(""));
+        fs.writeFileSync(`${__dirname}/../test/test.lua`,inst.outBuf.join(""));
 
         console.log(`compile finished.`)
-        let prog = cp.spawnSync(`nilajit`,["test/test.lua"],{
+        let prog = cp.spawnSync(`nilajit`,["resources/testsuite-host.lua"],{
             
         });
         

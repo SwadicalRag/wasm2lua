@@ -2,9 +2,10 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const wasm_parser_1 = require("@webassemblyjs/wasm-parser");
 const fs = require("fs");
-const util_1 = require("util");
 const arraymap_1 = require("./arraymap");
 const virtualregistermanager_1 = require("./virtualregistermanager");
+const stringcompiler_1 = require("./stringcompiler");
+const webidlbinder_1 = require("./webidlbinder");
 const PURE_LUA_MODE = false;
 function makeBinaryStringLiteral(array) {
     let literal = ["'"];
@@ -41,17 +42,18 @@ function sanitizeIdentifier(ident) {
         .replace(/\-/g, "__IDENT_CHAR_MINUS__");
 }
 const FUNC_VAR_HEADER = "";
-class wasm2lua {
+class wasm2lua extends stringcompiler_1.StringCompiler {
     constructor(program_binary, options = {}) {
+        super();
         this.program_binary = program_binary;
         this.options = options;
         this.outBuf = [];
-        this.indentLevel = 0;
         this.moduleStates = [];
         this.globalTypes = [];
         this.registerDebugOutput = false;
         this.stackDebugOutput = false;
         this.insDebugOutput = false;
+        this.importedWASI = false;
         if (options.compileFlags == null) {
             options.compileFlags = [];
         }
@@ -67,45 +69,26 @@ class wasm2lua {
         let memLib = fs.readFileSync(PURE_LUA_MODE ? (__dirname + "/../resources/fileheader_lua.lua") : (__dirname + "/../resources/fileheader_ffi.lua")).toString();
         return `${header}${memLib}${footer}`;
     }
+    static get fileFooter() {
+        return fs.readFileSync(__dirname + "/../resources/filefooter.lua").toString();
+    }
+    static get binderHeader() {
+        return fs.readFileSync(__dirname + "/../resources/binderheader.lua").toString();
+    }
+    static get wasiModule() {
+        return fs.readFileSync(__dirname + "/../resources/wasilib.lua").toString();
+    }
     assert(cond, err = "assertion failed") {
         if (!cond) {
             throw new Error(err);
         }
     }
-    indent() { this.indentLevel++; }
-    outdent(buf) {
-        this.indentLevel--;
-        if (util_1.isArray(buf)) {
-            while (buf[buf.length - 1] === "") {
-                buf.pop();
-            }
-            if (buf.length > 0) {
-                let mat = buf[buf.length - 1].match(/^([\s\S]*?)\n(?:    )*$/);
-                if (mat) {
-                    buf[buf.length - 1] = mat[1] + "\n" + (("    ").repeat(this.indentLevel));
-                }
-            }
-        }
-    }
-    newLine(buf) {
-        buf.push("\n" + (("    ").repeat(this.indentLevel)));
-    }
-    write(buf, str) { buf.push(str); }
-    writeLn(buf, str) {
-        if (str !== "") {
-            buf.push(str);
-            this.newLine(buf);
-        }
-    }
-    writeEx(buf, str, offset) {
-        if (offset < 0) {
-            offset += buf.length;
-        }
-        buf.splice(offset, 0, str);
-    }
     writeHeader(buf) {
         this.write(buf, wasm2lua.fileHeader);
         this.newLine(buf);
+    }
+    writeFooter(buf) {
+        this.write(buf, wasm2lua.fileFooter);
     }
     fn_freeRegisterEx(buf, func, reg) {
         func.regManager.freeRegister(reg);
@@ -224,20 +207,45 @@ class wasm2lua {
     }
     process() {
         this.writeHeader(this.outBuf);
-        for (let mod of this.program_ast.body) {
-            if (mod.type == "Module") {
-                this.write(this.outBuf, "do");
-                this.indent();
-                this.newLine(this.outBuf);
-                this.write(this.outBuf, this.processModule(mod));
-                this.outdent(this.outBuf);
-                this.write(this.outBuf, "end");
-                this.newLine(this.outBuf);
-            }
-            else {
-                throw new Error("TODO");
-            }
+        this.assert(this.program_ast.body.length > 0, "WASM file has no body");
+        this.assert(this.program_ast.body.length == 1, "WASM file has multiple bodies");
+        this.assert(this.program_ast.body[0].type == "Module", "WASM file has no Module");
+        let mod = this.program_ast.body[0];
+        this.write(this.outBuf, "do");
+        this.indent();
+        this.newLine(this.outBuf);
+        this.write(this.outBuf, this.processModule(mod));
+        this.outdent(this.outBuf);
+        this.write(this.outBuf, "end");
+        this.newLine(this.outBuf);
+        if (this.importedWASI) {
+            this.newLine(this.outBuf);
+            this.writeLn(this.outBuf, "__IMPORTS__.wasi_unstable = (function()");
+            this.write(this.outBuf, wasm2lua.wasiModule);
+            this.writeLn(this.outBuf, "end)()(module.memory)");
         }
+        if (this.options.webidl) {
+            let idl = fs.readFileSync(this.options.webidl.idlFilePath);
+            let binder = new webidlbinder_1.WebIDLBinder(idl.toString(), webidlbinder_1.BinderMode.WEBIDL_LUA);
+            binder.luaC.indent();
+            binder.buildOut();
+            binder.luaC.outdent();
+            this.newLine(this.outBuf);
+            this.writeLn(this.outBuf, `local __MALLOC__ = __FUNCS__.${this.options.webidl.mallocName || "malloc"}`);
+            this.writeLn(this.outBuf, `local __FREE__ = __FUNCS__.${this.options.webidl.freeName || "free"}`);
+            this.newLine(this.outBuf);
+            this.write(this.outBuf, wasm2lua.binderHeader);
+            this.newLine(this.outBuf);
+            this.write(this.outBuf, "do");
+            this.indent();
+            this.newLine(this.outBuf);
+            this.write(this.outBuf, binder.outBufLua.join(""));
+            this.outdent(this.outBuf);
+            this.write(this.outBuf, "end");
+            this.newLine(this.outBuf);
+        }
+        this.newLine(this.outBuf);
+        this.writeFooter(this.outBuf);
     }
     processModule(node) {
         let buf = [];
@@ -248,20 +256,6 @@ class wasm2lua {
             func_tables: [],
             nextGlobalIndex: 0
         };
-        if (node.id) {
-            this.write(buf, "local __EXPORTS__ = {};");
-            this.newLine(buf);
-            this.write(buf, "__MODULES__." + node.id + " = __EXPORTS__");
-            this.newLine(buf);
-        }
-        else {
-            this.write(buf, "__MODULES__.UNKNOWN = __MODULES__.UNKNOWN or {}");
-            this.newLine(buf);
-            this.write(buf, "local __EXPORTS__ = __MODULES__.UNKNOWN;");
-            this.newLine(buf);
-        }
-        this.write(buf, "local __FUNCS__ = {}");
-        this.newLine(buf);
         for (let section of node.metadata.sections) {
             this.processModuleMetadataSection(section);
         }
@@ -312,6 +306,9 @@ class wasm2lua {
                     this.write(buf, "local " + memID + " = __MEMORY_ALLOC__(" + field.limits.min + ");");
                 }
                 this.newLine(buf);
+                if ((field.id.value == 0) || (memID == "mem_0")) {
+                    this.writeLn(buf, `module.memory = ${memID}`);
+                }
             }
             else if (field.type == "Global") {
                 this.write(buf, "do");
@@ -449,6 +446,10 @@ class wasm2lua {
                 this.write(buf, this.processModuleExport(field, state));
             }
         }
+        this.newLine(buf);
+        this.write(buf, "function module.init()");
+        this.indent();
+        this.newLine(buf);
         for (let field of node.fields) {
             if (field.type == "Start") {
                 let fstate = this.getFuncByIndex(state, field.index);
@@ -464,6 +465,9 @@ class wasm2lua {
                 this.newLine(buf);
             }
         }
+        this.outdent(buf);
+        this.write(buf, "end");
+        this.newLine(buf);
         return buf.join("");
     }
     processModuleMetadataSection(node) {
@@ -2031,9 +2035,12 @@ class wasm2lua {
     }
     processModuleImport(node, modState) {
         let buf = [];
+        if (node.module == "wasi_unstable") {
+            this.importedWASI = true;
+        }
         switch (node.descr.type) {
             case "Memory": {
-                let memID = `__MODULES__.${node.module}.${node.name}`;
+                let memID = `__IMPORTS__.${node.module}.${node.name}`;
                 if (node.descr.id) {
                     modState.memoryAllocations.set(node.descr.id.value, memID);
                 }
@@ -2046,7 +2053,7 @@ class wasm2lua {
                 this.initFunc({
                     signature: node.descr.signature,
                     name: { value: node.descr.id.value },
-                }, modState, `__MODULES__.${node.module}.${node.name}`, node.name);
+                }, modState, `__IMPORTS__.${node.module}.${node.name}`, node.name);
                 break;
             }
             default: {
