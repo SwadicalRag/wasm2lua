@@ -66,6 +66,11 @@ class WebIDLBinder {
             this.luaC.writeLn(this.outBufLua, "local __CFUNCS__ = {}");
             this.luaC.writeLn(this.outBufLua, "__IMPORTS__.webidl_cfuncs = __CFUNCS__");
         }
+        else if (this.mode == BinderMode.WEBIDL_CPP) {
+            this.cppC.writeLn(this.outBufCPP, `#define __CFUNC(name) \\`);
+            this.cppC.writeLn(this.outBufCPP, `    __attribute__((__import_module__("webidl_cfuncs"), __import_name__(#name)))`);
+            this.cppC.writeLn(this.outBufCPP, `#define export __attribute__((visibility( "default" )))`);
+        }
         for (let i = 0; i < this.ast.length; i++) {
             let node = this.ast[i];
             if ((node.type == "interface") || (node.type == "interface mixin")) {
@@ -95,6 +100,9 @@ class WebIDLBinder {
                 this.cppC.writeLn(this.outBufCPP, `extern "C" void _webidl_main_yield() __attribute__((__import_module__("webidl_internal"), __import_name__("main_yield")));`);
                 this.cppC.writeLn(this.outBufCPP, `int main() {_webidl_main_yield(); return 0;}`);
             }
+        }
+        if (this.mode == BinderMode.WEBIDL_CPP) {
+            this.cppC.writeLn(this.outBufCPP, `#undef __CFUNC`);
         }
     }
     walkRootType(node) {
@@ -166,7 +174,7 @@ class WebIDLBinder {
                     }
                     for (let j = 0; j < member.arguments.length; j++) {
                         if (member.arguments[j].idlType.idlType == "DOMString") {
-                            this.luaC.write(this.outBufLua, `arg${j}`);
+                            this.luaC.write(this.outBufLua, `__arg${j}`);
                         }
                         else {
                             this.luaC.write(this.outBufLua, `${member.arguments[j].name}`);
@@ -187,13 +195,13 @@ class WebIDLBinder {
                     }
                     for (let j = 0; j < member.arguments.length; j++) {
                         if (member.arguments[j].idlType.idlType == "DOMString") {
-                            this.luaC.write(this.outBufLua, `vm.freeString(arg${j})`);
+                            this.luaC.write(this.outBufLua, `vm.freeString(__arg${j})`);
                         }
                     }
                     if (member.name !== node.name) {
                         if (this.classLookup[member.idlType.idlType]) {
-                            this.luaC.write(this.outBufLua, `local __obj = ${member.idlType.idlType}.__cache[ret] `);
-                            this.luaC.write(this.outBufLua, `if not __obj then __obj = setmetatable({__ptr = ret},${member.idlType.idlType}) ${member.idlType.idlType}.__cache[ret] = __obj end `);
+                            this.luaC.write(this.outBufLua, `local __obj = __BINDINGS__.${member.idlType.idlType}.__cache[ret] `);
+                            this.luaC.write(this.outBufLua, `if not __obj then __obj = setmetatable({__ptr = ret},${member.idlType.idlType}) __BINDINGS__.${member.idlType.idlType}.__cache[ret] = __obj end `);
                             this.luaC.write(this.outBufLua, "return __obj");
                         }
                         else if (member.idlType.idlType == "DOMString") {
@@ -238,15 +246,13 @@ class WebIDLBinder {
         let hasConstructor = false;
         if (JsImpl) {
             this.cppC.writeLn(this.outBufCPP, `class ${node.name};`);
-            this.cppC.writeLn(this.outBufCPP, `#define __CFUNC(name) \\`);
-            this.cppC.writeLn(this.outBufCPP, `    __attribute__((__import_module__("webidl_cfuncs"), __import_name__(#name)))`);
             for (let i = 0; i < node.members.length; i++) {
                 let member = node.members[i];
                 if (member.type == "operation") {
                     if (member.name == node.name) {
                         continue;
                     }
-                    this.cppC.write(this.outBufCPP, `extern "C" ${this.idlTypeToCType(member.idlType, node.extAttrs)} ${this.mangleFunctionName(member, node.name, true)}(${node.name}* self`);
+                    this.cppC.write(this.outBufCPP, `export extern "C" ${this.idlTypeToCType(member.idlType, node.extAttrs)} ${this.mangleFunctionName(member, node.name, true)}(${node.name}* self`);
                     for (let j = 0; j < member.arguments.length; j++) {
                         this.cppC.write(this.outBufCPP, ",");
                         this.cppC.write(this.outBufCPP, `${this.idlTypeToCType(member.arguments[j].idlType, member.arguments[j].extAttrs)} ${member.arguments[j].name}`);
@@ -254,7 +260,6 @@ class WebIDLBinder {
                     this.cppC.writeLn(this.outBufCPP, `) __CFUNC(${this.mangleFunctionName(member, node.name, true)});`);
                 }
             }
-            this.cppC.writeLn(this.outBufCPP, `#undef __CFUNC`);
             this.cppC.writeLn(this.outBufCPP, `class ${node.name} {`);
             this.cppC.write(this.outBufCPP, `public:`);
             this.cppC.indent();
@@ -300,10 +305,10 @@ class WebIDLBinder {
                     continue;
                 }
                 if (member.name == node.name) {
-                    this.cppC.write(this.outBufCPP, `extern "C" ${node.name}* ${this.mangleFunctionName(member, node.name)}(`);
+                    this.cppC.write(this.outBufCPP, `export extern "C" ${node.name}* ${this.mangleFunctionName(member, node.name)}(`);
                 }
                 else {
-                    this.cppC.write(this.outBufCPP, `extern "C" ${this.idlTypeToCType(member.idlType, member.extAttrs)} ${this.mangleFunctionName(member, node.name)}(${node.name}* self`);
+                    this.cppC.write(this.outBufCPP, `export extern "C" ${this.idlTypeToCType(member.idlType, member.extAttrs)} ${this.mangleFunctionName(member, node.name)}(${node.name}* self`);
                     if (member.arguments.length > 0) {
                         this.cppC.write(this.outBufCPP, `,`);
                     }
@@ -366,7 +371,7 @@ class WebIDLBinder {
                     this.luaC.write(this.outBufLua, `__FUNCS__.${this.mangleFunctionName(member, node.name)}(`);
                     for (let j = 0; j < member.arguments.length; j++) {
                         if (member.arguments[j].idlType.idlType == "DOMString") {
-                            this.luaC.write(this.outBufLua, `arg${j}`);
+                            this.luaC.write(this.outBufLua, `__arg${j}`);
                         }
                         else {
                             this.luaC.write(this.outBufLua, `${member.arguments[j].name}`);
@@ -384,12 +389,12 @@ class WebIDLBinder {
                     this.luaC.write(this.outBufLua, ")");
                     for (let j = 0; j < member.arguments.length; j++) {
                         if (member.arguments[j].idlType.idlType == "DOMString") {
-                            this.luaC.write(this.outBufLua, `vm.freeString(arg${j})`);
+                            this.luaC.write(this.outBufLua, `vm.freeString(__arg${j})`);
                         }
                     }
                     if (this.classLookup[member.idlType.idlType]) {
-                        this.luaC.write(this.outBufLua, `local __obj = ${member.idlType.idlType}.__cache[ret] `);
-                        this.luaC.write(this.outBufLua, `if not __obj then __obj = setmetatable({__ptr = ret},${member.idlType.idlType}) ${member.idlType.idlType}.__cache[ret] = __obj end `);
+                        this.luaC.write(this.outBufLua, `local __obj = __BINDINGS__.${member.idlType.idlType}.__cache[ret] `);
+                        this.luaC.write(this.outBufLua, `if not __obj then __obj = setmetatable({__ptr = ret},${member.idlType.idlType}) __BINDINGS__.${member.idlType.idlType}.__cache[ret] = __obj end `);
                         this.luaC.write(this.outBufLua, "return __obj");
                     }
                     else if (member.idlType.idlType == "DOMString") {
@@ -430,8 +435,6 @@ class WebIDLBinder {
         let JsImpl = this.getExtendedAttribute("JSImplementation", node.extAttrs);
         let hasConstructor = false;
         if (JsImpl) {
-            this.cppC.writeLn(this.outBufCPP, `#define __CFUNC(name) \\`);
-            this.cppC.writeLn(this.outBufCPP, `    __attribute__((__import_module__("webidl_cfuncs"), __import_name__(#name)))`);
             for (let i = 0; i < node.members.length; i++) {
                 let member = node.members[i];
                 if (member.type == "operation") {
@@ -445,7 +448,6 @@ class WebIDLBinder {
                     this.cppC.writeLn(this.outBufCPP, `) __CFUNC(${this.mangleFunctionName(member, node.name, true)});`);
                 }
             }
-            this.cppC.writeLn(this.outBufCPP, `#undef __CFUNC`);
             this.cppC.write(this.outBufCPP, `namespace ${node.name} {`);
             this.cppC.indent();
             this.cppC.newLine(this.outBufCPP);
