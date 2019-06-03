@@ -96,6 +96,15 @@ export class WebIDLBinder {
         for(let i=0;i < this.ast.length;i++) {
             this.walkRootType(this.ast[i]);
         }
+        for(let i=0;i < this.ast.length;i++) {
+            if(this.ast[i].type == "interface") {
+                let int = this.ast[i] as webidl.InterfaceType;
+                if(int.inheritance) {
+                    this.alreadyImplemented.set(int.name,true)
+                    this.luaC.writeLn(this.outBufLua,`setmetatable(__BINDINGS__.${int.name},{__index = __BINDINGS__.${int.inheritance}})`);
+                }
+            }
+        }
     }
 
     walkRootType(node: webidl.IDLRootType) {
@@ -113,6 +122,15 @@ export class WebIDLBinder {
             }
             else if(this.mode == BinderMode.WEBIDL_CPP) {
                 this.walkNamespaceCPP(node);
+            }
+        }
+        else if((node.type == "implements")) {
+            if(this.mode == BinderMode.WEBIDL_LUA) {
+                this.walkImplementsLua(node);
+            }
+            else if(this.mode == BinderMode.WEBIDL_CPP) {
+                // not sure this is needed?
+                // this.walkImplementsCPP(node);
             }
         }
     }
@@ -559,6 +577,15 @@ export class WebIDLBinder {
                 }
             }
         }
+    }
+
+    alreadyImplemented = new Map();
+    walkImplementsLua(node: webidl.ImplementsType) {
+        if(this.alreadyImplemented.get(node.target)) {
+            throw new Error("Multiple 'implements' statements are currently unsupported")
+        }
+        this.alreadyImplemented.set(node.target,true)
+        this.luaC.writeLn(this.outBufLua,`setmetatable(__BINDINGS__.${node.target},{__index = __BINDINGS__.${node.implements}})`);
     }
 }
 

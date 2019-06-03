@@ -17,6 +17,7 @@ class WebIDLBinder {
         this.outBufLua = [];
         this.outBufCPP = [];
         this.classLookup = {};
+        this.alreadyImplemented = new Map();
         this.ast = webidl.parse(source);
     }
     mangleFunctionName(node, namespace, isImpl) {
@@ -75,6 +76,15 @@ class WebIDLBinder {
         for (let i = 0; i < this.ast.length; i++) {
             this.walkRootType(this.ast[i]);
         }
+        for (let i = 0; i < this.ast.length; i++) {
+            if (this.ast[i].type == "interface") {
+                let int = this.ast[i];
+                if (int.inheritance) {
+                    this.alreadyImplemented.set(int.name, true);
+                    this.luaC.writeLn(this.outBufLua, `setmetatable(__BINDINGS__.${int.name},{__index = __BINDINGS__.${int.inheritance}})`);
+                }
+            }
+        }
     }
     walkRootType(node) {
         if ((node.type == "interface") || (node.type == "interface mixin")) {
@@ -91,6 +101,13 @@ class WebIDLBinder {
             }
             else if (this.mode == BinderMode.WEBIDL_CPP) {
                 this.walkNamespaceCPP(node);
+            }
+        }
+        else if ((node.type == "implements")) {
+            if (this.mode == BinderMode.WEBIDL_LUA) {
+                this.walkImplementsLua(node);
+            }
+            else if (this.mode == BinderMode.WEBIDL_CPP) {
             }
         }
     }
@@ -484,6 +501,13 @@ class WebIDLBinder {
                 }
             }
         }
+    }
+    walkImplementsLua(node) {
+        if (this.alreadyImplemented.get(node.target)) {
+            throw new Error("Multiple 'implements' statements are currently unsupported");
+        }
+        this.alreadyImplemented.set(node.target, true);
+        this.luaC.writeLn(this.outBufLua, `setmetatable(__BINDINGS__.${node.target},{__index = __BINDINGS__.${node.implements}})`);
     }
 }
 WebIDLBinder.CTypeRenames = {
