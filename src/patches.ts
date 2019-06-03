@@ -1,4 +1,3 @@
-const fs = require("fs");
 const path = require("path");
 const Module = require("module");
 
@@ -8,10 +7,10 @@ Module.prototype.require = function(request) {
     const filename = path.relative(__dirname,absPath);
     
     if(filename == "../node_modules/@webassemblyjs/wasm-parser/lib/decoder.js") {
-        fs.writeFileSync(absPath,fs.readFileSync(__dirname + "/../resources/patches/decoder.js"));
+        return require("./../resources/patches/decoder.js");
     }
     else if(filename == "../node_modules/@webassemblyjs/leb128/lib/leb.js") {
-        fs.writeFileSync(absPath,fs.readFileSync(__dirname + "/../resources/patches/leb.js"));
+        return require("./../resources/patches/leb.js");
     }
 
     return origRequire.apply(this, arguments);
