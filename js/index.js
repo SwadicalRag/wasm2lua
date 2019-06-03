@@ -2112,11 +2112,4 @@ wasm2lua.instructionBinOpFuncRemap = {
     max: "__FLOAT__.max"
 };
 exports.wasm2lua = wasm2lua;
-let infile = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
-let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
-let compileFlags = process.argv[4] ? process.argv[4].split(",") : null;
-let whitelist = null;
-let wasm = fs.readFileSync(infile);
-let inst = new wasm2lua(wasm, { whitelist, compileFlags, webidl: { idlFilePath: __dirname + "/../test/test.idl" } });
-fs.writeFileSync(outfile, inst.outBuf.join(""));
 //# sourceMappingURL=index.js.map
