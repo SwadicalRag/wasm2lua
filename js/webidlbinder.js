@@ -28,6 +28,14 @@ class WebIDLBinder {
         }
         return arg.replace(/^"/, "").replace(/"$/, "");
     }
+    getWithRefs(arg) {
+        if (this.hasExtendedAttribute("Ref", arg.extAttrs)) {
+            return `*${arg.name}`;
+        }
+        else {
+            return arg.name;
+        }
+    }
     mangleFunctionName(node, namespace, isImpl) {
         let out = "_webidl_lua_";
         if (isImpl) {
@@ -355,7 +363,10 @@ class WebIDLBinder {
                 }
                 else {
                     if (member.arguments.length > 0) {
-                        this.cppC.write(this.outBufCPP, `self ${this.unquote(Operator.rhs.value)} ${member.arguments[0].name};`);
+                        if (this.hasExtendedAttribute("Ref", member.extAttrs)) {
+                            this.cppC.write(this.outBufCPP, "&");
+                        }
+                        this.cppC.write(this.outBufCPP, `(*self ${this.unquote(Operator.rhs.value)} ${this.getWithRefs(member.arguments[0])});`);
                     }
                     else {
                         this.cppC.write(this.outBufCPP, `${this.unquote(Operator.rhs.value)} self;`);
@@ -520,7 +531,6 @@ class WebIDLBinder {
             for (let i = 0; i < node.members.length; i++) {
                 let member = node.members[i];
                 if (member.type == "operation") {
-                    let Operator = this.getExtendedAttribute("Operator", member.extAttrs);
                     let NoReturn = this.getExtendedAttribute("NoReturn", member.extAttrs);
                     this.cppC.write(this.outBufCPP, `export extern "C" ${this.idlTypeToCType(member.idlType, member.extAttrs)} ${this.mangleFunctionName(member, node.name)}(`);
                     for (let j = 0; j < member.arguments.length; j++) {
@@ -534,30 +544,20 @@ class WebIDLBinder {
                         this.cppC.write(this.outBufCPP, "return");
                     }
                     this.cppC.write(this.outBufCPP, ` `);
-                    if (Operator === false) {
-                        if (node.name === "global") {
-                            this.cppC.write(this.outBufCPP, `${member.name}`);
-                        }
-                        else {
-                            this.cppC.write(this.outBufCPP, `${node.name}::${member.name}`);
-                        }
-                        this.cppC.write(this.outBufCPP, `(`);
-                        for (let j = 0; j < member.arguments.length; j++) {
-                            this.cppC.write(this.outBufCPP, `${member.arguments[j].name}`);
-                            if ((j + 1) !== member.arguments.length) {
-                                this.cppC.write(this.outBufCPP, ",");
-                            }
-                        }
-                        this.cppC.write(this.outBufCPP, `); `);
+                    if (node.name === "global") {
+                        this.cppC.write(this.outBufCPP, `${member.name}`);
                     }
                     else {
-                        if (member.arguments.length > 0) {
-                            this.cppC.write(this.outBufCPP, `self ${this.unquote(Operator.rhs.value)} ${member.arguments[0].name};`);
-                        }
-                        else {
-                            this.cppC.write(this.outBufCPP, `${this.unquote(Operator.rhs.value)} self;`);
+                        this.cppC.write(this.outBufCPP, `${node.name}::${member.name}`);
+                    }
+                    this.cppC.write(this.outBufCPP, `(`);
+                    for (let j = 0; j < member.arguments.length; j++) {
+                        this.cppC.write(this.outBufCPP, `${member.arguments[j].name}`);
+                        if ((j + 1) !== member.arguments.length) {
+                            this.cppC.write(this.outBufCPP, ",");
                         }
                     }
+                    this.cppC.write(this.outBufCPP, `); `);
                     this.cppC.write(this.outBufCPP, `};`);
                     this.cppC.newLine(this.outBufCPP);
                 }
