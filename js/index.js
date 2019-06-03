@@ -686,7 +686,8 @@ class wasm2lua {
                 }
                 i++;
             }
-            this.write(buf2, " end");
+            this.newLine(buf2);
+            this.write(buf2, "else __setjmp_data__.unresolved = true error(__setjmp_data__) end");
             this.outdent();
             this.newLine(buf2);
             this.write(buf2, "end");
@@ -755,6 +756,13 @@ class wasm2lua {
             this.write(buf, `if not suc and (type(ret0) == "table") then`);
             this.indent();
             this.newLine(buf);
+            this.write(buf, `if ret0.unresolved then`);
+            this.indent();
+            this.newLine(buf);
+            this.write(buf, "ret0.unresolved = false; error(ret0)");
+            this.outdent();
+            this.newLine(buf);
+            this.writeLn(buf, "end");
             this.writeLn(buf, "setjmpState = ret0;");
             this.write(buf, "goto start;");
             this.outdent();
@@ -1737,7 +1745,7 @@ class wasm2lua {
                         let resultVar = this.fn_createTempRegister(buf, state);
                         let jmpBufLoc = this.getPop(state);
                         let resVarName = state.regManager.getPhysicalRegisterName(resultVar);
-                        this.write(buf, `${resVarName} = {data = {},target = "jmp_${sanitizeIdentifier(ins.loc.start.line)}_${sanitizeIdentifier(ins.loc.start.column)}",result = 0,heapBase = ${this.options.heapBase}};`);
+                        this.write(buf, `${resVarName} = {data = {},target = "jmp_${sanitizeIdentifier(ins.loc.start.line)}_${sanitizeIdentifier(ins.loc.start.column)}",result = 0,heapBase = ${this.options.heapBase},unresolved = false};`);
                         this.newLine(buf);
                         let hasVars = this.forEachVarIncludeParams(state, (varName, virtual) => {
                             if (virtual) {

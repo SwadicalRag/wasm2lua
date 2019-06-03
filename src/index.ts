@@ -894,7 +894,8 @@ export class wasm2lua {
                 }
                 i++;
             }
-            this.write(buf2," end");
+            this.newLine(buf2);
+            this.write(buf2,"else __setjmp_data__.unresolved = true error(__setjmp_data__) end");
             this.outdent();
             this.newLine(buf2);
             this.write(buf2,"end");
@@ -978,6 +979,13 @@ export class wasm2lua {
             this.write(buf,`if not suc and (type(ret0) == "table") then`);
             this.indent()
             this.newLine(buf);
+            this.write(buf,`if ret0.unresolved then`);
+            this.indent()
+            this.newLine(buf);
+            this.write(buf,"ret0.unresolved = false; error(ret0)")
+            this.outdent();
+            this.newLine(buf)
+            this.writeLn(buf,"end")
             this.writeLn(buf,"setjmpState = ret0;");
             this.write(buf,"goto start;");
             this.outdent();
@@ -2195,7 +2203,7 @@ export class wasm2lua {
 
                         let resVarName = state.regManager.getPhysicalRegisterName(resultVar);
 
-                        this.write(buf,`${resVarName} = {data = {},target = "jmp_${sanitizeIdentifier(ins.loc.start.line)}_${sanitizeIdentifier(ins.loc.start.column)}",result = 0,heapBase = ${this.options.heapBase}};`);
+                        this.write(buf,`${resVarName} = {data = {},target = "jmp_${sanitizeIdentifier(ins.loc.start.line)}_${sanitizeIdentifier(ins.loc.start.column)}",result = 0,heapBase = ${this.options.heapBase},unresolved = false};`);
                         this.newLine(buf);
                         let hasVars = this.forEachVarIncludeParams(state,(varName,virtual) => {
                             if(virtual) {
@@ -2577,8 +2585,8 @@ export class wasm2lua {
 // // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/test.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/test2.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/loopret4.wasm");
-// let infile  = process.argv[2] || (__dirname + "/../resources/tests/assemblyscript/memset.optimized.wat.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/duktape.wasm");
+// // let infile  = process.argv[2] || (__dirname + "/../resources/tests/assemblyscript/string-utf8.optimized.wat.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/nbody.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/matrix.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/longjmp.wasm");
