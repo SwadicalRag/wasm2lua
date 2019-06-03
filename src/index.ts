@@ -1,3 +1,5 @@
+import "./patches"
+
 import {decode} from "@webassemblyjs/wasm-parser"
 import * as fs from "fs"
 import { isArray } from "util";

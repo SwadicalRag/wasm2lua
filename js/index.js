@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+require("./patches");
 const wasm_parser_1 = require("@webassemblyjs/wasm-parser");
 const fs = require("fs");
 const arraymap_1 = require("./arraymap");
