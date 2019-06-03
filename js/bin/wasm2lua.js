@@ -13,6 +13,7 @@ program.version("0.1.0")
     .option("--freeName <free>", "Specify custom `free` symbol name")
     .option("--mallocName <malloc>", "Specify custom `malloc` symbol name")
     .option("--pureLua", "Compiles without using `ffi`")
+    .option("-m, --minify", "Generates a minified Lua file")
     .option("-b, --bindings <bindings.idl>", "Generates Lua-WebIDL bindings from the specified file")
     .option("--libmode", "Adds a dummy main function to use this as a library (for WASI)")
     .action(function (inf, outf) {
@@ -54,5 +55,12 @@ if (program.libmode) {
     conf.libMode = program.libmode;
 }
 let inst = new __1.wasm2lua(fs.readFileSync(infile), conf);
-fs.writeFileSync(outfile, inst.outBuf.join(""));
+if (program.minify) {
+    let src = inst.outBuf.join("");
+    src = require("luamin").minify(src);
+    fs.writeFileSync(outfile, src);
+}
+else {
+    fs.writeFileSync(outfile, inst.outBuf.join(""));
+}
 //# sourceMappingURL=wasm2lua.js.map
