@@ -73,7 +73,7 @@ export class WebIDLBinder {
         return this.getExtendedAttribute(attribute,extAttrs) !== false;
     }
 
-    idlTypeToCType(idlType: webidl.IDLTypeDescription,extAttrs: webidl.ExtendedAttributes[] = []) {
+    idlTypeToCType(idlType: webidl.IDLTypeDescription,extAttrs: webidl.ExtendedAttributes[],maskRef: boolean) {
         let prefixes = "";
         let suffixes = "";
 
@@ -81,6 +81,14 @@ export class WebIDLBinder {
             prefixes += "const ";
         }
         if(this.hasExtendedAttribute("Ref",extAttrs)) {
+            if(maskRef) {
+                suffixes += "*";
+            }
+            else {
+                suffixes += "&";
+            }
+        }
+        else if(this.classLookup[idlType.idlType as string]) {
             suffixes += "*";
         }
 
@@ -150,7 +158,7 @@ export class WebIDLBinder {
 
         for(let j=0;j < args.length;j++) {
             if(needsType) {
-                this.cppC.write(buf,`${this.idlTypeToCType(args[j].idlType,args[j].extAttrs)} `);
+                this.cppC.write(buf,`${this.idlTypeToCType(args[j].idlType,args[j].extAttrs,true)} `);
             }
             this.cppC.write(buf,`${args[j].name}`);
             if((j+1) !== args.length) {
@@ -324,7 +332,7 @@ export class WebIDLBinder {
                 let member = node.members[i];
                 if(member.type == "operation") {
                     if(member.name == node.name) {continue;}
-                    this.cppC.write(this.outBufCPP,`export extern "C" ${this.idlTypeToCType(member.idlType,node.extAttrs)} ${Prefix}${this.mangleFunctionName(member,node.name,true)}(${node.name}* self`);
+                    this.cppC.write(this.outBufCPP,`export extern "C" ${this.idlTypeToCType(member.idlType,node.extAttrs,true)} ${Prefix}${this.mangleFunctionName(member,node.name,true)}(${node.name}* self`);
                     this.writeCArgs(this.outBufCPP,member.arguments,true,true);
                     this.cppC.writeLn(this.outBufCPP,`) __CFUNC(${this.mangleFunctionName(member,node.name,true)});`);
                 }
@@ -343,7 +351,7 @@ export class WebIDLBinder {
                         continue;
                     }
 
-                    this.cppC.write(this.outBufCPP,`${this.idlTypeToCType(member.idlType,node.extAttrs)} `);
+                    this.cppC.write(this.outBufCPP,`${this.idlTypeToCType(member.idlType,node.extAttrs,true)} `);
                     this.cppC.write(this.outBufCPP,`${member.name}(`);
                     this.writeCArgs(this.outBufCPP,member.arguments,true,false);
                     this.cppC.write(this.outBufCPP,`) {`);
@@ -380,7 +388,7 @@ export class WebIDLBinder {
                     this.cppC.write(this.outBufCPP,`export extern "C" ${node.name}* ${this.mangleFunctionName(member,node.name)}(`);
                 }
                 else {
-                    this.cppC.write(this.outBufCPP,`export extern "C" ${this.idlTypeToCType(member.idlType,member.extAttrs)} ${this.mangleFunctionName(member,node.name)}(${node.name}* self`);
+                    this.cppC.write(this.outBufCPP,`export extern "C" ${this.idlTypeToCType(member.idlType,member.extAttrs,true)} ${this.mangleFunctionName(member,node.name)}(${node.name}* self`);
                     if(member.arguments.length > 0) {
                         this.cppC.write(this.outBufCPP,`,`);
                     }
@@ -396,6 +404,9 @@ export class WebIDLBinder {
                         this.cppC.write(this.outBufCPP,`new ${member.name}`);
                     }
                     else {
+                        if(this.hasExtendedAttribute("Ref",member.extAttrs)) {
+                            this.cppC.write(this.outBufCPP,"&");
+                        }
                         this.cppC.write(this.outBufCPP,`self->${member.name}`);
                     }
                     this.cppC.write(this.outBufCPP,`(`);
@@ -523,7 +534,7 @@ export class WebIDLBinder {
             for(let i=0;i < node.members.length;i++) {
                 let member = node.members[i];
                 if(member.type == "operation") {
-                    this.cppC.write(this.outBufCPP,`extern "C" ${this.idlTypeToCType(member.idlType,node.extAttrs)} ${Prefix}${this.mangleFunctionName(member,node.name,true)}(`);
+                    this.cppC.write(this.outBufCPP,`extern "C" ${this.idlTypeToCType(member.idlType,node.extAttrs,true)} ${Prefix}${this.mangleFunctionName(member,node.name,true)}(`);
                     this.writeCArgs(this.outBufCPP,member.arguments,true,false);
                     this.cppC.writeLn(this.outBufCPP,`) __CFUNC(${this.mangleFunctionName(member,node.name,true)});`);
                 }
@@ -541,7 +552,7 @@ export class WebIDLBinder {
                         continue;
                     }
 
-                    this.cppC.write(this.outBufCPP,`${this.idlTypeToCType(member.idlType,node.extAttrs)} `);
+                    this.cppC.write(this.outBufCPP,`${this.idlTypeToCType(member.idlType,node.extAttrs,true)} `);
                     this.cppC.write(this.outBufCPP,`${member.name}(`);
                     this.writeCArgs(this.outBufCPP,member.arguments,true,false);
                     this.cppC.write(this.outBufCPP,`) {`);
@@ -568,7 +579,7 @@ export class WebIDLBinder {
             for(let i=0;i < node.members.length;i++) {
                 let member = node.members[i];
                 if(member.type == "operation") {
-                    this.cppC.write(this.outBufCPP,`export extern "C" ${this.idlTypeToCType(member.idlType,member.extAttrs)} ${this.mangleFunctionName(member,node.name)}(`);
+                    this.cppC.write(this.outBufCPP,`export extern "C" ${this.idlTypeToCType(member.idlType,member.extAttrs,true)} ${this.mangleFunctionName(member,node.name)}(`);
                     this.writeCArgs(this.outBufCPP,member.arguments,true,false);
                     this.cppC.write(this.outBufCPP,`) {`);
                     if(member.idlType.idlType !== "void") {
