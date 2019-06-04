@@ -658,15 +658,15 @@ export class WebIDLBinder {
     }
 }
 
-let infile  = process.argv[2] || (__dirname + "/../test/test.idl");
-let outfile_lua = process.argv[3] || (__dirname + "/../test/test_bind.lua");
-let outfile_cpp = process.argv[3] || (__dirname + "/../test/test_bind.cpp");
+// let infile  = process.argv[2] || (__dirname + "/../test/test.idl");
+// let outfile_lua = process.argv[3] || (__dirname + "/../test/test_bind.lua");
+// let outfile_cpp = process.argv[3] || (__dirname + "/../test/test_bind.cpp");
 
-let idl = fs.readFileSync(infile);
+// let idl = fs.readFileSync(infile);
 
-// console.log(JSON.stringify(ast,null,4));
+// // console.log(JSON.stringify(ast,null,4));
 
-let inst = new WebIDLBinder(idl.toString(),BinderMode.WEBIDL_CPP,true);
-inst.buildOut()
-fs.writeFileSync(outfile_lua,inst.outBufLua.join(""));
-fs.writeFileSync(outfile_cpp,inst.outBufCPP.join(""));
+// let inst = new WebIDLBinder(idl.toString(),BinderMode.WEBIDL_CPP,true);
+// inst.buildOut()
+// fs.writeFileSync(outfile_lua,inst.outBufLua.join(""));
+// fs.writeFileSync(outfile_cpp,inst.outBufCPP.join(""));
