@@ -92,6 +92,11 @@ export class WebIDLBinder {
             suffixes += "*";
         }
 
+        if(this.hasExtendedAttribute("Array",extAttrs)) {
+            // TODO: convert in Lua
+            suffixes += "*";
+        }
+
         let body = idlType.idlType as string;
         if(WebIDLBinder.CTypeRenames[body]) {
             body = WebIDLBinder.CTypeRenames[body];

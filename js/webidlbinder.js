@@ -77,6 +77,9 @@ class WebIDLBinder {
         else if (this.classLookup[idlType.idlType]) {
             suffixes += "*";
         }
+        if (this.hasExtendedAttribute("Array", extAttrs)) {
+            suffixes += "*";
+        }
         let body = idlType.idlType;
         if (WebIDLBinder.CTypeRenames[body]) {
             body = WebIDLBinder.CTypeRenames[body];
