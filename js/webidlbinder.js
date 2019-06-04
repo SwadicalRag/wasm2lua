@@ -316,7 +316,6 @@ class WebIDLBinder {
             let member = node.members[i];
             if (member.type == "operation") {
                 let Operator = this.getExtendedAttribute("Operator", member.extAttrs);
-                let NoReturn = this.getExtendedAttribute("NoReturn", member.extAttrs);
                 if (member.name == node.name) {
                     hasConstructor = true;
                 }
@@ -334,7 +333,7 @@ class WebIDLBinder {
                 }
                 this.writeCArgs(this.outBufCPP, member.arguments, true, false);
                 this.cppC.write(this.outBufCPP, `) {`);
-                if (((member.idlType.idlType !== "void") && !NoReturn) || (member.name == node.name)) {
+                if ((member.idlType.idlType !== "void") || (member.name == node.name)) {
                     this.cppC.write(this.outBufCPP, "return");
                 }
                 this.cppC.write(this.outBufCPP, ` `);
@@ -489,11 +488,10 @@ class WebIDLBinder {
             for (let i = 0; i < node.members.length; i++) {
                 let member = node.members[i];
                 if (member.type == "operation") {
-                    let NoReturn = this.getExtendedAttribute("NoReturn", member.extAttrs);
                     this.cppC.write(this.outBufCPP, `export extern "C" ${this.idlTypeToCType(member.idlType, member.extAttrs)} ${this.mangleFunctionName(member, node.name)}(`);
                     this.writeCArgs(this.outBufCPP, member.arguments, true, false);
                     this.cppC.write(this.outBufCPP, `) {`);
-                    if ((member.idlType.idlType !== "void") && !NoReturn) {
+                    if (member.idlType.idlType !== "void") {
                         this.cppC.write(this.outBufCPP, "return");
                     }
                     this.cppC.write(this.outBufCPP, ` `);
