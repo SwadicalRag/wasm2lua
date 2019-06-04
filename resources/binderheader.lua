@@ -35,10 +35,18 @@ function vm.stringify(str)
     return ptr
 end
 
-function vm.createClass(tbl)
+function vm.createClass(tbl,tblName)
     tbl.__cache = {}
     tbl.__specialIndex = {}
     tbl.__specialNewIndex = {}
+
+    function tbl:__tostring()
+        if self.__ptr == 0 then
+            return string.format("%s: NULL",tblName)
+        else
+            return string.format("%s: %08x",tblName,self.__ptr)
+        end
+    end
 
     function tbl:__index(k)
         if tbl.__specialIndex[k] then
@@ -52,7 +60,7 @@ function vm.createClass(tbl)
 
     function tbl:__newindex(k,v)
         if tbl.__specialNewIndex[k] then
-            return tbl.__specialNewIndex[k](self,v)
+            return tbl.__specialNewIndex[k](self,k,v)
         end
 
         rawset(self,k,v)
@@ -80,7 +88,7 @@ function vm.createNamespace()
         if k == "__specialNewIndex" then return end
 
         if meta.__specialNewIndex[k] then
-            return meta.__specialNewIndex[k](self,v)
+            return meta.__specialNewIndex[k](self,k,v)
         end
 
         rawset(self,k,v)
