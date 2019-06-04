@@ -120,7 +120,6 @@ export class WebIDLBinder {
             if(this.ast[i].type == "interface") {
                 let int = this.ast[i] as webidl.InterfaceType;
                 if(int.inheritance) {
-                    this.alreadyImplemented.set(int.name,true)
                     this.luaC.writeLn(this.outBufLua,`setmetatable(__BINDINGS__.${int.name},{__index = __BINDINGS__.${int.inheritance}})`);
                 }
             }
@@ -176,7 +175,7 @@ export class WebIDLBinder {
     }
 
     walkRootType(node: webidl.IDLRootType) {
-        if((node.type == "interface") || (node.type == "interface mixin")) {
+        if(node.type == "interface") {
             if(this.mode == BinderMode.WEBIDL_LUA) {
                 this.walkInterfaceLua(node);
             }
@@ -192,18 +191,9 @@ export class WebIDLBinder {
                 this.walkNamespaceCPP(node);
             }
         }
-        else if((node.type == "implements")) {
-            if(this.mode == BinderMode.WEBIDL_LUA) {
-                this.walkImplementsLua(node);
-            }
-            else if(this.mode == BinderMode.WEBIDL_CPP) {
-                // not sure this is needed?
-                // this.walkImplementsCPP(node);
-            }
-        }
     }
 
-    walkInterfaceLua(node: webidl.InterfaceType | webidl.InterfaceMixinType) {
+    walkInterfaceLua(node: webidl.InterfaceType) {
         let JsImpl = this.getExtendedAttribute("JSImplementation",node.extAttrs);
 
         let hasConstructor = false;
@@ -322,7 +312,7 @@ export class WebIDLBinder {
         this.luaC.outdent(this.outBufLua); this.luaC.newLine(this.outBufLua);
     }
 
-    walkInterfaceCPP(node: webidl.InterfaceType | webidl.InterfaceMixinType) {
+    walkInterfaceCPP(node: webidl.InterfaceType) {
         let JsImpl = this.getExtendedAttribute("JSImplementation",node.extAttrs);
         let Prefix = this.getExtendedAttribute("Prefix",node.extAttrs) || "";
 
@@ -601,15 +591,6 @@ export class WebIDLBinder {
                 }
             }
         }
-    }
-
-    alreadyImplemented = new Map();
-    walkImplementsLua(node: webidl.ImplementsType) {
-        if(this.alreadyImplemented.get(node.target)) {
-            throw new Error("Multiple 'implements' statements are currently unsupported")
-        }
-        this.alreadyImplemented.set(node.target,true)
-        this.luaC.writeLn(this.outBufLua,`setmetatable(__BINDINGS__.${node.target},{__index = __BINDINGS__.${node.implements}})`);
     }
 }
 
