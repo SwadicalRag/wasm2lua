@@ -293,7 +293,7 @@ class WebIDLBinder {
                 funcSig[member.name].push(member.arguments.length);
             }
         }
-        this.luaC.write(this.outBufLua, `setmetatable(__BINDINGS__.${node.name},{__call = function(self`);
+        this.luaC.write(this.outBufLua, `getmetatable(__BINDINGS__.${node.name}).__call = function(self`);
         if (funcSig[node.name]) {
             if (funcSig[node.name].length > 1) {
                 this.luaC.write(this.outBufLua, `,`);
@@ -322,7 +322,7 @@ class WebIDLBinder {
         }
         this.luaC.write(this.outBufLua, `)`);
         this.luaC.write(this.outBufLua, `return ins`);
-        this.luaC.write(this.outBufLua, ` end})`);
+        this.luaC.write(this.outBufLua, ` end `);
         this.luaC.indent();
         this.luaC.newLine(this.outBufLua);
         for (let i = 0; i < node.members.length; i++) {
