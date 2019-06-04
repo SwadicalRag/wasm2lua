@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const webidl = require("webidl2");
 const stringcompiler_1 = require("./stringcompiler");
+const fs = require("fs");
 var BinderMode;
 (function (BinderMode) {
     BinderMode[BinderMode["WEBIDL_NONE"] = -1] = "WEBIDL_NONE";
@@ -302,6 +303,18 @@ class WebIDLBinder {
                     this.luaC.write(this.outBufLua, `arg${i}`);
                     if ((i + 1) !== maxArg) {
                         this.luaC.write(this.outBufLua, ",");
+                    }
+                }
+            }
+            else {
+                let maxArg = Math.max(...funcSig[node.name]);
+                if (maxArg > 0) {
+                    this.luaC.write(this.outBufLua, `,`);
+                    for (let i = 0; i < maxArg; i++) {
+                        this.luaC.write(this.outBufLua, `arg${i}`);
+                        if ((i + 1) !== maxArg) {
+                            this.luaC.write(this.outBufLua, ",");
+                        }
                     }
                 }
             }
@@ -805,4 +818,12 @@ WebIDLBinder.CTypeRenames = {
     ["VoidPtr"]: "void*",
 };
 exports.WebIDLBinder = WebIDLBinder;
+let infile = process.argv[2] || (__dirname + "/../test/test.idl");
+let outfile_lua = process.argv[3] || (__dirname + "/../test/test_bind.lua");
+let outfile_cpp = process.argv[3] || (__dirname + "/../test/test_bind.cpp");
+let idl = fs.readFileSync(infile);
+let inst = new WebIDLBinder(idl.toString(), BinderMode.WEBIDL_LUA, true);
+inst.buildOut();
+fs.writeFileSync(outfile_lua, inst.outBufLua.join(""));
+fs.writeFileSync(outfile_cpp, inst.outBufCPP.join(""));
 //# sourceMappingURL=webidlbinder.js.map
