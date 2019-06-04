@@ -400,7 +400,7 @@ export class WebIDLBinder {
                 this.writeCArgs(this.outBufCPP,member.arguments,true,false);
                 this.cppC.write(this.outBufCPP,`) {`);
                 if(Value && (member.name !== node.name)) {
-                    this.cppC.write(this.outBufCPP,`static ${this.idlTypeToCType(member.idlType,[],false)} temp; return (temp = `);
+                    this.cppC.write(this.outBufCPP,`static ${member.idlType.idlType} temp; return (temp = `);
                 }
                 else if((member.idlType.idlType !== "void") || (member.name == node.name)) {
                     this.cppC.write(this.outBufCPP,"return");
@@ -595,7 +595,7 @@ export class WebIDLBinder {
                     this.writeCArgs(this.outBufCPP,member.arguments,true,false);
                     this.cppC.write(this.outBufCPP,`) {`);
                     if(Value) {
-                        this.cppC.write(this.outBufCPP,`static ${this.idlTypeToCType(member.idlType,[],false)} temp; return (temp = `);
+                        this.cppC.write(this.outBufCPP,`static ${member.idlType.idlType} temp; return (temp = `);
                     }
                     else if(member.idlType.idlType !== "void") {
                         this.cppC.write(this.outBufCPP,"return");
