@@ -314,7 +314,7 @@ export class WebIDLBinder {
 
         let hasConstructor = false;
 
-        this.luaC.writeLn(this.outBufLua,`__BINDINGS__.${node.name} = {} vm.createClass(__BINDINGS__.${node.name})`);
+        this.luaC.writeLn(this.outBufLua,`__BINDINGS__.${node.name} = {} vm.createClass(__BINDINGS__.${node.name},"${node.name}")`);
 
         let funcSig: {[ident: string]: number[]} = {};
         for(let i=0;i < node.members.length;i++) {
