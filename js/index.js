@@ -45,6 +45,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         this.registerDebugOutput = false;
         this.stackDebugOutput = false;
         this.insDebugOutput = false;
+        this.doneFunctions = {};
         this.importedWASI = false;
         if (options.compileFlags == null) {
             options.compileFlags = [];
@@ -585,6 +586,11 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         if (!state) {
             state = this.initFunc(node, modState);
         }
+        if (this.doneFunctions[state.id]) {
+            console.log(`Warning: duplicate WASM function ${state.id} ignored`);
+            return "";
+        }
+        this.doneFunctions[state.id] = true;
         state.stackLevel = 1;
         this.getAllFuncCallsTo(node.body, state, "setjmp", state.setJmps);
         state.hasSetjmp = state.setJmps.length > 0;

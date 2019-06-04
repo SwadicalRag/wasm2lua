@@ -793,6 +793,7 @@ export class wasm2lua extends StringCompiler {
         return hasVars;
     }
 
+    doneFunctions: {[funcID: string]: boolean} = {};
     processFunc(node: Func,modState: WASMModuleState) {
         let buf = [];
         if(node.signature.type == "NumberLiteral") {
@@ -808,6 +809,12 @@ export class wasm2lua extends StringCompiler {
 
         let state = modState.funcByName.get(typeof node.name.value === "string" ? node.name.value : "func_u" + modState.funcStates.length);
         if(!state) {state = this.initFunc(node,modState);}
+
+        if(this.doneFunctions[state.id]) {
+            console.log(`Warning: duplicate WASM function ${state.id} ignored`)
+            return "";
+        }
+        this.doneFunctions[state.id] = true;
 
         state.stackLevel = 1;
         this.getAllFuncCallsTo(node.body,state,"setjmp",state.setJmps);
@@ -2616,7 +2623,7 @@ export class wasm2lua extends StringCompiler {
 // // let infile  = process.argv[2] || (__dirname + "/../test/ammo-ex.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
-// let infile  = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/teststub.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/test2.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/duktape.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../resources/tests/assemblyscript/string-utf8.optimized.wat.wasm");
