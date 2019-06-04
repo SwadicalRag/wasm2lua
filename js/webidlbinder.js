@@ -311,7 +311,7 @@ class WebIDLBinder {
                     if (member.name !== node.name) {
                         if (this.classLookup[member.idlType.idlType]) {
                             this.luaC.write(this.outBufLua, `local __obj = __BINDINGS__.${member.idlType.idlType}.__cache[ret] `);
-                            this.luaC.write(this.outBufLua, `if not __obj then __obj = setmetatable({__ptr = ret},${member.idlType.idlType}) __BINDINGS__.${member.idlType.idlType}.__cache[ret] = __obj end `);
+                            this.luaC.write(this.outBufLua, `if not __obj then __obj = setmetatable({__ptr = ret},__BINDINGS__.${member.idlType.idlType}) __BINDINGS__.${member.idlType.idlType}.__cache[ret] = __obj end `);
                             this.luaC.write(this.outBufLua, "return __obj");
                         }
                         else if (member.idlType.idlType == "DOMString") {
@@ -557,7 +557,7 @@ class WebIDLBinder {
                     }
                     if (this.classLookup[member.idlType.idlType]) {
                         this.luaC.write(this.outBufLua, `local __obj = __BINDINGS__.${member.idlType.idlType}.__cache[ret] `);
-                        this.luaC.write(this.outBufLua, `if not __obj then __obj = setmetatable({__ptr = ret},${member.idlType.idlType}) __BINDINGS__.${member.idlType.idlType}.__cache[ret] = __obj end `);
+                        this.luaC.write(this.outBufLua, `if not __obj then __obj = setmetatable({__ptr = ret},__BINDINGS__.${member.idlType.idlType}) __BINDINGS__.${member.idlType.idlType}.__cache[ret] = __obj end `);
                         this.luaC.write(this.outBufLua, "return __obj");
                     }
                     else if (member.idlType.idlType == "DOMString") {
