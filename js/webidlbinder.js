@@ -306,7 +306,7 @@ class WebIDLBinder {
         let Prefix = this.unquoteEx(this.getExtendedAttribute("Prefix", node.extAttrs));
         let hasConstructor = false;
         if (JsImpl) {
-            this.cppC.writeLn(this.outBufCPP, `class ${node.name};`);
+            this.cppC.writeLn(this.outBufCPP, `class ${Prefix}${node.name};`);
             for (let i = 0; i < node.members.length; i++) {
                 let member = node.members[i];
                 if (member.type == "operation") {
@@ -360,7 +360,7 @@ class WebIDLBinder {
                     continue;
                 }
                 if (member.name == node.name) {
-                    this.cppC.write(this.outBufCPP, `export extern "C" ${node.name}* ${this.mangleFunctionName(member, node.name)}(`);
+                    this.cppC.write(this.outBufCPP, `export extern "C" ${Prefix}${node.name}* ${this.mangleFunctionName(member, node.name)}(`);
                 }
                 else {
                     this.cppC.write(this.outBufCPP, `export extern "C" ${this.idlTypeToCType(member.idlType, member.extAttrs, true)} ${this.mangleFunctionName(member, node.name)}(${Prefix}${node.name}* self`);
@@ -379,7 +379,7 @@ class WebIDLBinder {
                 this.cppC.write(this.outBufCPP, ` `);
                 if (Operator === false) {
                     if (member.name == node.name) {
-                        this.cppC.write(this.outBufCPP, `new ${member.name}`);
+                        this.cppC.write(this.outBufCPP, `new ${Prefix}${node.name}`);
                     }
                     else {
                         if (this.hasExtendedAttribute("Ref", member.extAttrs)) {
