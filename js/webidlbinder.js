@@ -207,13 +207,6 @@ class WebIDLBinder {
         let JsImpl = this.getExtendedAttribute("JSImplementation", node.extAttrs);
         let hasConstructor = false;
         this.luaC.writeLn(this.outBufLua, `__BINDINGS__.${node.name} = {__cache = {}} __BINDINGS__.${node.name}.__index = __BINDINGS__.${node.name}`);
-        this.luaC.write(this.outBufLua, `setmetatable(__BINDINGS__.${node.name},{__call = function(self)`);
-        this.luaC.write(this.outBufLua, `local ins = setmetatable({__ptr = 0},self)`);
-        this.luaC.write(this.outBufLua, `ins:${node.name}()`);
-        this.luaC.write(this.outBufLua, `return ins`);
-        this.luaC.write(this.outBufLua, ` end})`);
-        this.luaC.indent();
-        this.luaC.newLine(this.outBufLua);
         let funcSig = {};
         for (let i = 0; i < node.members.length; i++) {
             let member = node.members[i];
@@ -227,6 +220,38 @@ class WebIDLBinder {
                 funcSig[member.name].push(member.arguments.length);
             }
         }
+        this.luaC.write(this.outBufLua, `setmetatable(__BINDINGS__.${node.name},{__call = function(self`);
+        if (funcSig[node.name]) {
+            if (funcSig[node.name].length > 1) {
+                this.luaC.write(this.outBufLua, `,`);
+                let maxArg = Math.max(...funcSig[node.name]);
+                for (let i = 0; i < maxArg; i++) {
+                    this.luaC.write(this.outBufLua, `arg${i}`);
+                    if ((i + 1) !== maxArg) {
+                        this.luaC.write(this.outBufLua, ",");
+                    }
+                }
+            }
+        }
+        this.luaC.write(this.outBufLua, `)`);
+        this.luaC.write(this.outBufLua, `local ins = setmetatable({__ptr = 0},self)`);
+        this.luaC.write(this.outBufLua, `ins:${node.name}(`);
+        if (funcSig[node.name]) {
+            if (funcSig[node.name].length > 1) {
+                let maxArg = Math.max(...funcSig[node.name]);
+                for (let i = 0; i < maxArg; i++) {
+                    this.luaC.write(this.outBufLua, `arg${i}`);
+                    if ((i + 1) !== maxArg) {
+                        this.luaC.write(this.outBufLua, ",");
+                    }
+                }
+            }
+        }
+        this.luaC.write(this.outBufLua, `)`);
+        this.luaC.write(this.outBufLua, `return ins`);
+        this.luaC.write(this.outBufLua, ` end})`);
+        this.luaC.indent();
+        this.luaC.newLine(this.outBufLua);
         for (let i = 0; i < node.members.length; i++) {
             let member = node.members[i];
             if (member.type == "operation") {
