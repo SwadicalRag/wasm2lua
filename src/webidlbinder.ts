@@ -627,7 +627,7 @@ export class WebIDLBinder {
             else if(member.type == "attribute") {
                 this.cppC.write(this.outBufCPP,`export extern "C" ${this.idlTypeToCType(member.idlType,member.extAttrs,true)} ${this.mangleIndexerName(member,node.name,false)}(${Prefix}${node.name}* self) {`);
                 this.cppC.write(this.outBufCPP,`return `);
-                if(this.hasExtendedAttribute("Ref",member.extAttrs) || this.classLookup[member.idlType.idlType as string]) {
+                if(this.hasExtendedAttribute("Value",member.extAttrs)) {
                     this.cppC.write(this.outBufCPP,"&");
                 }
                 this.cppC.write(this.outBufCPP,`self->${member.name}; `);
@@ -635,7 +635,7 @@ export class WebIDLBinder {
                 
                 this.cppC.write(this.outBufCPP,`export extern "C" void ${this.mangleIndexerName(member,node.name,true)}(${Prefix}${node.name}* self,${this.idlTypeToCType(member.idlType,member.extAttrs,true)} val) {`);
                 this.cppC.write(this.outBufCPP,`self->${member.name} = `);
-                if(!this.hasExtendedAttribute("Ref",member.extAttrs) && this.classLookup[member.idlType.idlType as string]) {
+                if(this.hasExtendedAttribute("Value",member.extAttrs)) {
                     this.cppC.write(this.outBufCPP,"*");
                 }
                 this.cppC.write(this.outBufCPP,`val;`);
@@ -867,7 +867,7 @@ export class WebIDLBinder {
                 else if(member.type == "attribute") {
                     this.cppC.write(this.outBufCPP,`export extern "C" ${this.idlTypeToCType(member.idlType,member.extAttrs,true)} ${this.mangleIndexerName(member,node.name,false)}(${node.name}* self) {`);
                     this.cppC.write(this.outBufCPP,`return `);
-                    if(this.hasExtendedAttribute("Ref",member.extAttrs) || this.classLookup[member.idlType.idlType as string]) {
+                    if(this.hasExtendedAttribute("Value",member.extAttrs)) {
                         this.cppC.write(this.outBufCPP,"&");
                     }
                     if(node.name === "global") {
@@ -887,7 +887,7 @@ export class WebIDLBinder {
                         this.cppC.write(this.outBufCPP,`${node.name}::${member.name}`);
                     }
                     this.cppC.write(this.outBufCPP,` = `);
-                    if(!this.hasExtendedAttribute("Ref",member.extAttrs) && this.classLookup[member.idlType.idlType as string]) {
+                    if(this.hasExtendedAttribute("Value",member.extAttrs)) {
                         this.cppC.write(this.outBufCPP,"*");
                     }
                     this.cppC.write(this.outBufCPP,`val;`);
