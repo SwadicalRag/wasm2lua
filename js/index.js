@@ -29,17 +29,9 @@ function makeBinaryStringLiteral(array) {
     return literal.join("");
 }
 function sanitizeIdentifier(ident) {
-    ident = ident.toString();
-    return ident
-        .replace(/\$/g, "__IDENT_CHAR_DOLLAR__")
-        .replace(/\./g, "__IDENT_CHAR_DOT__")
-        .replace(/\:/g, "__IDENT_CHAR_COLON__")
-        .replace(/\~/g, "__IDENT_CHAR_TILDE__")
-        .replace(/\//g, "__IDENT_CHAR_FSLASH__")
-        .replace(/\#/g, "__IDENT_CHAR_HASH__")
-        .replace(/\</g, "__IDENT_CHAR_LT__")
-        .replace(/\>/g, "__IDENT_CHAR_GT__")
-        .replace(/\-/g, "__IDENT_CHAR_MINUS__");
+    return ident.toString().replace(/[^A-Za-z0-9_]/g, (str) => {
+        return `__x${str.charCodeAt(0).toString(16)}`;
+    });
 }
 const FUNC_VAR_HEADER = "";
 class wasm2lua extends stringcompiler_1.StringCompiler {

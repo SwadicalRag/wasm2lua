@@ -50,17 +50,21 @@ function makeBinaryStringLiteral(array: number[]) {
 
 // Probably won't work on lua implementations with sane identifier parsing rules.
 function sanitizeIdentifier(ident: string|number) {
-    ident = ident.toString();
-    return ident
-        .replace(/\$/g,"__IDENT_CHAR_DOLLAR__")
-        .replace(/\./g,"__IDENT_CHAR_DOT__")
-        .replace(/\:/g,"__IDENT_CHAR_COLON__")
-        .replace(/\~/g,"__IDENT_CHAR_TILDE__")
-        .replace(/\//g,"__IDENT_CHAR_FSLASH__")
-        .replace(/\#/g,"__IDENT_CHAR_HASH__")
-        .replace(/\</g,"__IDENT_CHAR_LT__")
-        .replace(/\>/g,"__IDENT_CHAR_GT__")
-        .replace(/\-/g,"__IDENT_CHAR_MINUS__");
+    // ident = ident.toString();
+    // return ident
+    //     .replace(/\$/g,"__IDENT_CHAR_DOLLAR__")
+    //     .replace(/\./g,"__IDENT_CHAR_DOT__")
+    //     .replace(/\:/g,"__IDENT_CHAR_COLON__")
+    //     .replace(/\~/g,"__IDENT_CHAR_TILDE__")
+    //     .replace(/\//g,"__IDENT_CHAR_FSLASH__")
+    //     .replace(/\#/g,"__IDENT_CHAR_HASH__")
+    //     .replace(/\</g,"__IDENT_CHAR_LT__")
+    //     .replace(/\>/g,"__IDENT_CHAR_GT__")
+    //     .replace(/\-/g,"__IDENT_CHAR_MINUS__");
+
+    return ident.toString().replace(/[^A-Za-z0-9_]/g,(str) => {
+        return `__x${str.charCodeAt(0).toString(16)}`;
+    });
 }
 
 interface WASMModuleState {
