@@ -317,7 +317,7 @@ class WebIDLBinder {
         for (let ident in funcSig) {
             let memberData = funcSig[ident];
             if (memberData.length > 1) {
-                this.luaC.write(this.outBufLua, `function __BINDINGS__.${node.name}.${ident}(`);
+                this.luaC.write(this.outBufLua, `function __BINDINGS__.${node.name}:${ident}(`);
                 let maxArg = Math.max(...memberData);
                 for (let i = 0; i < maxArg; i++) {
                     this.luaC.write(this.outBufLua, `arg${i}`);
@@ -332,7 +332,7 @@ class WebIDLBinder {
                     if (memberData[i] != 0) {
                         this.luaC.write(this.outBufLua, `arg${memberData[i] - 1} ~= nil then `);
                     }
-                    this.luaC.write(this.outBufLua, `return __BINDINGS__.${node.name}.${ident}__internal${memberData[i]}(`);
+                    this.luaC.write(this.outBufLua, `return self:${ident}__internal${memberData[i]}(`);
                     for (let j = 0; j < memberData[i]; j++) {
                         this.luaC.write(this.outBufLua, `arg${j}`);
                         if ((j + 1) !== memberData[i]) {
