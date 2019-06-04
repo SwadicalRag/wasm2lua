@@ -491,7 +491,6 @@ class WebIDLBinder {
     }
     walkNamespaceCPP(node) {
         let JsImpl = this.getExtendedAttribute("JSImplementation", node.extAttrs);
-        let hasConstructor = false;
         if (JsImpl) {
             for (let i = 0; i < node.members.length; i++) {
                 let member = node.members[i];
