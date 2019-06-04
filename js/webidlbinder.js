@@ -513,7 +513,7 @@ class WebIDLBinder {
                         this.cppC.write(this.outBufCPP, `${node.name}::${member.name}`);
                     }
                     this.cppC.write(this.outBufCPP, `(`);
-                    this.writeCArgs(this.outBufCPP, member.arguments, false, false);
+                    this.writeCArgs(this.outBufCPP, member.arguments, false, false, true);
                     this.cppC.write(this.outBufCPP, `); `);
                     this.cppC.write(this.outBufCPP, `};`);
                     this.cppC.newLine(this.outBufCPP);
