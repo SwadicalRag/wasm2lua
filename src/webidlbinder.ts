@@ -2,11 +2,16 @@ import * as webidl from "webidl2"
 import { StringCompiler } from "./stringcompiler";
 import * as fs from "fs"
 import { O_NOCTTY } from "constants";
+import { maxHeaderSize } from "http";
 
 export enum BinderMode {
     WEBIDL_NONE = -1,
     WEBIDL_LUA = 0,
     WEBIDL_CPP = 1,
+}
+
+export class SemanticError extends Error {
+
 }
 
 export class WebIDLBinder {
@@ -255,6 +260,20 @@ export class WebIDLBinder {
 
         this.luaC.indent(); this.luaC.newLine(this.outBufLua);
 
+        let funcSig: {[ident: string]: number[]} = {};
+        for(let i=0;i < node.members.length;i++) {
+            let member = node.members[i];
+            if(member.type == "operation") {
+                funcSig[member.name] = funcSig[member.name] || []
+                for(let otherSig of funcSig[member.name]) {
+                    if(otherSig == member.arguments.length) {
+                        throw new SemanticError(`Function ${node.name}::${member.name} has incompatible overloaded signatures`);
+                    }
+                }
+                funcSig[member.name].push(member.arguments.length);
+            }
+        }
+
         for(let i=0;i < node.members.length;i++) {
             let member = node.members[i];
             if(member.type == "operation") {
@@ -262,7 +281,11 @@ export class WebIDLBinder {
                     hasConstructor = true;
                 }
 
-                this.luaC.write(this.outBufLua,`function __BINDINGS__.${node.name}:${member.name}(`);
+                this.luaC.write(this.outBufLua,`function __BINDINGS__.${node.name}:${member.name}`);
+                if(funcSig[member.name].length > 1) {
+                    this.luaC.write(this.outBufLua,`__internal${member.arguments.length}`);
+                }
+                this.luaC.write(this.outBufLua,`(`);
                 this.writeLuaArgs(this.outBufLua,member.arguments,false);
                 this.luaC.write(this.outBufLua,`)`);
 
@@ -349,6 +372,50 @@ export class WebIDLBinder {
                     this.luaC.write(this.outBufLua," end");
                     this.luaC.newLine(this.outBufLua);
                 }
+            }
+        }
+
+        for(let ident in funcSig) {
+            let memberData = funcSig[ident];
+
+            if(memberData.length > 1) {
+                // needs resolution
+
+                this.luaC.write(this.outBufLua,`function __BINDINGS__.${node.name}.${ident}(`);
+                let maxArg = Math.max(...memberData);
+                for(let i=0;i < maxArg;i++) {
+                    this.luaC.write(this.outBufLua,`arg${i}`);
+                    if((i+1) !== maxArg) {
+                        this.luaC.write(this.outBufLua,",");
+                    }
+                }
+                this.luaC.write(this.outBufLua,") ");
+
+                memberData.sort().reverse(); // I'm lazy
+
+                this.luaC.write(this.outBufLua,"if ");
+                for(let i=0;i < memberData.length;i++) {
+                    if(memberData[i] != 0) {
+                        this.luaC.write(this.outBufLua,`arg${memberData[i]-1} ~= nil then `);
+                    }
+                    this.luaC.write(this.outBufLua,`return __BINDINGS__.${node.name}.${ident}__internal${memberData[i]}(`);
+                    for(let j=0;j < memberData[i];j++) {
+                        this.luaC.write(this.outBufLua,`arg${j}`);
+                        if((j+1) !== memberData[i]) {
+                            this.luaC.write(this.outBufLua,",");
+                        }
+                    }
+                    this.luaC.write(this.outBufLua,") ");
+                    if((i+1) !== memberData.length) {
+                        if(memberData[i+1] != 0) {
+                            this.luaC.write(this.outBufLua,"elseif ");
+                        }
+                        else {
+                            this.luaC.write(this.outBufLua,"else ");
+                        }
+                    }
+                }
+                this.luaC.writeLn(this.outBufLua,"end end");
             }
         }
 
@@ -483,20 +550,32 @@ export class WebIDLBinder {
     walkNamespaceLua(node: webidl.NamespaceType) {
         let JsImpl = this.getExtendedAttribute("JSImplementation",node.extAttrs);
 
-        let hasConstructor = false;
-
         this.luaC.write(this.outBufLua,`__BINDINGS__.${node.name} = {}`);
 
         this.luaC.indent(); this.luaC.newLine(this.outBufLua);
 
+        let funcSig: {[ident: string]: number[]} = {};
         for(let i=0;i < node.members.length;i++) {
             let member = node.members[i];
             if(member.type == "operation") {
-                if(member.name == node.name) {
-                    hasConstructor = true;
+                funcSig[member.name] = funcSig[member.name] || []
+                for(let otherSig of funcSig[member.name]) {
+                    if(otherSig == member.arguments.length) {
+                        throw new SemanticError(`Function ${node.name}::${member.name} has incompatible overloaded signatures`);
+                    }
                 }
+                funcSig[member.name].push(member.arguments.length);
+            }
+        }
 
-                this.luaC.write(this.outBufLua,`function __BINDINGS__.${node.name}.${member.name}(`);
+        for(let i=0;i < node.members.length;i++) {
+            let member = node.members[i];
+            if(member.type == "operation") {
+                this.luaC.write(this.outBufLua,`function __BINDINGS__.${node.name}.${member.name}`);
+                if(funcSig[member.name].length > 1) {
+                    this.luaC.write(this.outBufLua,`__internal${member.arguments.length}`);
+                }
+                this.luaC.write(this.outBufLua,`(`);
                 this.writeLuaArgs(this.outBufLua,member.arguments,false);
                 this.luaC.write(this.outBufLua,`)`);
 
@@ -571,6 +650,50 @@ export class WebIDLBinder {
             }
         }
 
+        for(let ident in funcSig) {
+            let memberData = funcSig[ident];
+
+            if(memberData.length > 1) {
+                // needs resolution
+
+                this.luaC.write(this.outBufLua,`function __BINDINGS__.${node.name}.${ident}(`);
+                let maxArg = Math.max(...memberData);
+                for(let i=0;i < maxArg;i++) {
+                    this.luaC.write(this.outBufLua,`arg${i}`);
+                    if((i+1) !== maxArg) {
+                        this.luaC.write(this.outBufLua,",");
+                    }
+                }
+                this.luaC.write(this.outBufLua,") ");
+
+                memberData.sort().reverse(); // I'm lazy
+
+                this.luaC.write(this.outBufLua,"if ");
+                for(let i=0;i < memberData.length;i++) {
+                    if(memberData[i] != 0) {
+                        this.luaC.write(this.outBufLua,`arg${memberData[i]-1} ~= nil then `);
+                    }
+                    this.luaC.write(this.outBufLua,`return __BINDINGS__.${node.name}.${ident}__internal${memberData[i]}(`);
+                    for(let j=0;j < memberData[i];j++) {
+                        this.luaC.write(this.outBufLua,`arg${j}`);
+                        if((j+1) !== memberData[i]) {
+                            this.luaC.write(this.outBufLua,",");
+                        }
+                    }
+                    this.luaC.write(this.outBufLua,") ");
+                    if((i+1) !== memberData.length) {
+                        if(memberData[i+1] != 0) {
+                            this.luaC.write(this.outBufLua,"elseif ");
+                        }
+                        else {
+                            this.luaC.write(this.outBufLua,"else ");
+                        }
+                    }
+                }
+                this.luaC.writeLn(this.outBufLua,"end end");
+            }
+        }
+
         this.luaC.outdent(this.outBufLua); this.luaC.newLine(this.outBufLua);
     }
 
@@ -594,11 +717,6 @@ export class WebIDLBinder {
             for(let i=0;i < node.members.length;i++) {
                 let member = node.members[i];
                 if(member.type == "operation") {
-                    if(member.name == node.name) {
-                        hasConstructor = true;
-                        continue;
-                    }
-
                     this.cppC.write(this.outBufCPP,`${this.idlTypeToCType(member.idlType,node.extAttrs,true)} `);
                     this.cppC.write(this.outBufCPP,`${member.name}(`);
                     this.writeCArgs(this.outBufCPP,member.arguments,true,false);
@@ -658,15 +776,15 @@ export class WebIDLBinder {
     }
 }
 
-// let infile  = process.argv[2] || (__dirname + "/../test/test.idl");
-// let outfile_lua = process.argv[3] || (__dirname + "/../test/test_bind.lua");
-// let outfile_cpp = process.argv[3] || (__dirname + "/../test/test_bind.cpp");
+let infile  = process.argv[2] || (__dirname + "/../test/test.idl");
+let outfile_lua = process.argv[3] || (__dirname + "/../test/test_bind.lua");
+let outfile_cpp = process.argv[3] || (__dirname + "/../test/test_bind.cpp");
 
-// let idl = fs.readFileSync(infile);
+let idl = fs.readFileSync(infile);
 
-// // console.log(JSON.stringify(ast,null,4));
+// console.log(JSON.stringify(ast,null,4));
 
-// let inst = new WebIDLBinder(idl.toString(),BinderMode.WEBIDL_CPP,true);
-// inst.buildOut()
-// fs.writeFileSync(outfile_lua,inst.outBufLua.join(""));
-// fs.writeFileSync(outfile_cpp,inst.outBufCPP.join(""));
+let inst = new WebIDLBinder(idl.toString(),BinderMode.WEBIDL_LUA,true);
+inst.buildOut()
+fs.writeFileSync(outfile_lua,inst.outBufLua.join(""));
+fs.writeFileSync(outfile_cpp,inst.outBufCPP.join(""));
