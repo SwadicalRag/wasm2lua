@@ -79,7 +79,9 @@ export class WebIDLBinder {
     }
 
     mangleIndexerName(node: webidl.AttributeMemberType,namespace: string,isNewindex?: boolean) {
-        let out = "_webidl_lua__";
+        let out = "_webidl_lua_";
+
+        out += namespace + "_"
 
         out += node.name;
 

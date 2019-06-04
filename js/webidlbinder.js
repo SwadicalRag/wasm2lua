@@ -60,7 +60,8 @@ class WebIDLBinder {
         return out;
     }
     mangleIndexerName(node, namespace, isNewindex) {
-        let out = "_webidl_lua__";
+        let out = "_webidl_lua_";
+        out += namespace + "_";
         out += node.name;
         if (isNewindex) {
             out += "_set";
