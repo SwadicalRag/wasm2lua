@@ -16,6 +16,7 @@ export class WebIDLBinder {
     outBufCPP: string[] = [];
     ast: webidl.IDLRootType[];
     classLookup: {[n: string]: boolean} = {};
+    classPrefixLookup: {[n: string]: string} = {};
 
     static CTypeRenames: {[type: string]: string} = {
         ["DOMString"]: "char*",
@@ -36,6 +37,12 @@ export class WebIDLBinder {
         if(Array.isArray(arg)) {arg = arg.join("");}
 
         return arg.replace(/^"/,"").replace(/"$/,"");
+    }
+
+    unquoteEx(arg: webidl.ExtendedAttributes | false) {
+        if(arg === false) {return "";}
+
+        return this.unquote(arg.rhs.value);
     }
 
     getWithRefs(arg: webidl.Argument) {
@@ -80,33 +87,48 @@ export class WebIDLBinder {
         return this.getExtendedAttribute(attribute,extAttrs) !== false;
     }
 
-    idlTypeToCType(idlType: webidl.IDLTypeDescription,extAttrs: webidl.ExtendedAttributes[],maskRef: boolean) {
+    idlTypeToCType(idlType: webidl.IDLTypeDescription,extAttrs: webidl.ExtendedAttributes[],maskRef: boolean,tempVar?: boolean) {
         let prefixes = "";
         let suffixes = "";
 
         if(this.hasExtendedAttribute("Const",extAttrs)) {
-            prefixes += "const ";
+            if(!tempVar) {
+                prefixes += "const ";
+            }
         }
         if(this.hasExtendedAttribute("Ref",extAttrs)) {
-            if(maskRef) {
-                suffixes += "*";
-            }
-            else {
-                suffixes += "&";
+            if(!tempVar) {
+                if(maskRef) {
+                    suffixes += "*";
+                }
+                else {
+                    suffixes += "&";
+                }
             }
         }
         else if(this.classLookup[idlType.idlType as string]) {
-            suffixes += "*";
+            if(!tempVar) {
+                suffixes += "*";
+            }
         }
 
         if(this.hasExtendedAttribute("Array",extAttrs)) {
-            // TODO: convert in Lua
-            suffixes += "*";
+            if(!tempVar) {
+                // TODO: convert in Lua
+                suffixes += "*";
+            }
+            else {
+                // TODO: what even??? Throw error???
+                suffixes += "[]";
+            }
         }
 
         let body = idlType.idlType as string;
         if(WebIDLBinder.CTypeRenames[body]) {
             body = WebIDLBinder.CTypeRenames[body];
+        }
+        else if(this.classPrefixLookup[body]) {
+            body = this.classPrefixLookup[body] + body;
         }
 
         return `${prefixes} ${body} ${suffixes}`.replace(/\s+/g," ").trim();
@@ -127,6 +149,11 @@ export class WebIDLBinder {
             let node = this.ast[i];
             if((node.type == "interface") || (node.type == "interface mixin")) {
                 this.classLookup[node.name] = true;
+
+                let prefix = this.getExtendedAttribute("Prefix",node.extAttrs);
+                if(prefix) {
+                    this.classPrefixLookup[node.name] = this.unquote(prefix.rhs.value);
+                }
 
                 if(this.mode == BinderMode.WEBIDL_CPP) {
                     // this.cppC.writeLn(this.outBufCPP,`class ${node.name};`);
@@ -334,7 +361,7 @@ export class WebIDLBinder {
 
     walkInterfaceCPP(node: webidl.InterfaceType) {
         let JsImpl = this.getExtendedAttribute("JSImplementation",node.extAttrs);
-        let Prefix = this.getExtendedAttribute("Prefix",node.extAttrs) || "";
+        let Prefix = this.unquoteEx(this.getExtendedAttribute("Prefix",node.extAttrs));
 
         let hasConstructor = false;
 
@@ -412,7 +439,7 @@ export class WebIDLBinder {
                 this.writeCArgs(this.outBufCPP,member.arguments,true,false);
                 this.cppC.write(this.outBufCPP,`) {`);
                 if(Value && (member.name !== node.name)) {
-                    this.cppC.write(this.outBufCPP,`static ${member.idlType.idlType} temp; return (temp = `);
+                    this.cppC.write(this.outBufCPP,`static ${this.idlTypeToCType(member.idlType,[],false,true)} temp; return (temp = `);
                 }
                 else if((member.idlType.idlType !== "void") || (member.name == node.name)) {
                     this.cppC.write(this.outBufCPP,"return");
@@ -549,7 +576,7 @@ export class WebIDLBinder {
 
     walkNamespaceCPP(node: webidl.NamespaceType) {
         let JsImpl = this.getExtendedAttribute("JSImplementation",node.extAttrs);
-        let Prefix = this.getExtendedAttribute("Prefix",node.extAttrs) || "";
+        let Prefix = this.unquoteEx(this.getExtendedAttribute("Prefix",node.extAttrs));
 
         let hasConstructor = false;
 
@@ -607,7 +634,7 @@ export class WebIDLBinder {
                     this.writeCArgs(this.outBufCPP,member.arguments,true,false);
                     this.cppC.write(this.outBufCPP,`) {`);
                     if(Value) {
-                        this.cppC.write(this.outBufCPP,`static ${member.idlType.idlType} temp; return (temp = `);
+                        this.cppC.write(this.outBufCPP,`static ${this.idlTypeToCType(member.idlType,[],false,true)} temp; return (temp = `);
                     }
                     else if(member.idlType.idlType !== "void") {
                         this.cppC.write(this.outBufCPP,"return");

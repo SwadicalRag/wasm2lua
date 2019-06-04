@@ -19,6 +19,7 @@ class WebIDLBinder {
         this.outBufLua = [];
         this.outBufCPP = [];
         this.classLookup = {};
+        this.classPrefixLookup = {};
         this.ast = webidl.parse(source);
     }
     unquote(arg) {
@@ -26,6 +27,12 @@ class WebIDLBinder {
             arg = arg.join("");
         }
         return arg.replace(/^"/, "").replace(/"$/, "");
+    }
+    unquoteEx(arg) {
+        if (arg === false) {
+            return "";
+        }
+        return this.unquote(arg.rhs.value);
     }
     getWithRefs(arg) {
         if (this.hasExtendedAttribute("Ref", arg.extAttrs)) {
@@ -60,29 +67,43 @@ class WebIDLBinder {
     hasExtendedAttribute(attribute, extAttrs) {
         return this.getExtendedAttribute(attribute, extAttrs) !== false;
     }
-    idlTypeToCType(idlType, extAttrs, maskRef) {
+    idlTypeToCType(idlType, extAttrs, maskRef, tempVar) {
         let prefixes = "";
         let suffixes = "";
         if (this.hasExtendedAttribute("Const", extAttrs)) {
-            prefixes += "const ";
+            if (!tempVar) {
+                prefixes += "const ";
+            }
         }
         if (this.hasExtendedAttribute("Ref", extAttrs)) {
-            if (maskRef) {
-                suffixes += "*";
-            }
-            else {
-                suffixes += "&";
+            if (!tempVar) {
+                if (maskRef) {
+                    suffixes += "*";
+                }
+                else {
+                    suffixes += "&";
+                }
             }
         }
         else if (this.classLookup[idlType.idlType]) {
-            suffixes += "*";
+            if (!tempVar) {
+                suffixes += "*";
+            }
         }
         if (this.hasExtendedAttribute("Array", extAttrs)) {
-            suffixes += "*";
+            if (!tempVar) {
+                suffixes += "*";
+            }
+            else {
+                suffixes += "[]";
+            }
         }
         let body = idlType.idlType;
         if (WebIDLBinder.CTypeRenames[body]) {
             body = WebIDLBinder.CTypeRenames[body];
+        }
+        else if (this.classPrefixLookup[body]) {
+            body = this.classPrefixLookup[body] + body;
         }
         return `${prefixes} ${body} ${suffixes}`.replace(/\s+/g, " ").trim();
     }
@@ -100,6 +121,10 @@ class WebIDLBinder {
             let node = this.ast[i];
             if ((node.type == "interface") || (node.type == "interface mixin")) {
                 this.classLookup[node.name] = true;
+                let prefix = this.getExtendedAttribute("Prefix", node.extAttrs);
+                if (prefix) {
+                    this.classPrefixLookup[node.name] = this.unquote(prefix.rhs.value);
+                }
                 if (this.mode == BinderMode.WEBIDL_CPP) {
                 }
             }
@@ -278,7 +303,7 @@ class WebIDLBinder {
     }
     walkInterfaceCPP(node) {
         let JsImpl = this.getExtendedAttribute("JSImplementation", node.extAttrs);
-        let Prefix = this.getExtendedAttribute("Prefix", node.extAttrs) || "";
+        let Prefix = this.unquoteEx(this.getExtendedAttribute("Prefix", node.extAttrs));
         let hasConstructor = false;
         if (JsImpl) {
             this.cppC.writeLn(this.outBufCPP, `class ${node.name};`);
@@ -346,7 +371,7 @@ class WebIDLBinder {
                 this.writeCArgs(this.outBufCPP, member.arguments, true, false);
                 this.cppC.write(this.outBufCPP, `) {`);
                 if (Value && (member.name !== node.name)) {
-                    this.cppC.write(this.outBufCPP, `static ${member.idlType.idlType} temp; return (temp = `);
+                    this.cppC.write(this.outBufCPP, `static ${this.idlTypeToCType(member.idlType, [], false, true)} temp; return (temp = `);
                 }
                 else if ((member.idlType.idlType !== "void") || (member.name == node.name)) {
                     this.cppC.write(this.outBufCPP, "return");
@@ -466,7 +491,7 @@ class WebIDLBinder {
     }
     walkNamespaceCPP(node) {
         let JsImpl = this.getExtendedAttribute("JSImplementation", node.extAttrs);
-        let Prefix = this.getExtendedAttribute("Prefix", node.extAttrs) || "";
+        let Prefix = this.unquoteEx(this.getExtendedAttribute("Prefix", node.extAttrs));
         let hasConstructor = false;
         if (JsImpl) {
             for (let i = 0; i < node.members.length; i++) {
@@ -515,7 +540,7 @@ class WebIDLBinder {
                     this.writeCArgs(this.outBufCPP, member.arguments, true, false);
                     this.cppC.write(this.outBufCPP, `) {`);
                     if (Value) {
-                        this.cppC.write(this.outBufCPP, `static ${member.idlType.idlType} temp; return (temp = `);
+                        this.cppC.write(this.outBufCPP, `static ${this.idlTypeToCType(member.idlType, [], false, true)} temp; return (temp = `);
                     }
                     else if (member.idlType.idlType !== "void") {
                         this.cppC.write(this.outBufCPP, "return");
