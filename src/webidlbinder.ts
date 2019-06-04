@@ -182,6 +182,30 @@ export class WebIDLBinder {
                 }
             }
         }
+
+        // separate out "optional" args into different functions
+        for(let i=0;i < this.ast.length;i++) {
+            let node = this.ast[i];
+            if(node.type == "interface") {
+                let toAdd = [];
+
+                for(let j=0;j < node.members.length;j++) {
+                    let member = node.members[j];
+                    if(member.type == "operation") {
+                        for(let k=member.arguments.length-1;k >= 0;k--) {
+                            if(member.arguments[k].optional) {
+                                let copy: webidl.OperationMemberType = JSON.parse(JSON.stringify(member));
+                                copy.arguments.splice(k,member.arguments.length - k);
+                                toAdd.push(copy);
+                            }
+                        }
+                    }
+                }
+
+                node.members.push(...toAdd);
+            }
+        }
+
         for(let i=0;i < this.ast.length;i++) {
             this.walkRootType(this.ast[i]);
         }
