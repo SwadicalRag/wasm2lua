@@ -18,7 +18,14 @@ export class WebIDLBinder {
     classLookup: {[n: string]: boolean} = {};
 
     static CTypeRenames: {[type: string]: string} = {
-        ["DOMString"]: "char*"
+        ["DOMString"]: "char*",
+        ["boolean"]: "bool",
+        ["byte"]: "char",
+        ["octet"]: "unsigned char",
+        ["unsigned short"]: "unsigned short int",
+        ["long"]: "int",
+        ["any"]: "void*",
+        ["VoidPtr"]: "void*",
     };
 
     constructor(public source: string,public mode: BinderMode,public addYieldStub: boolean) {

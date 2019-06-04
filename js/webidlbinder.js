@@ -542,7 +542,14 @@ class WebIDLBinder {
     }
 }
 WebIDLBinder.CTypeRenames = {
-    ["DOMString"]: "char*"
+    ["DOMString"]: "char*",
+    ["boolean"]: "bool",
+    ["byte"]: "char",
+    ["octet"]: "unsigned char",
+    ["unsigned short"]: "unsigned short int",
+    ["long"]: "int",
+    ["any"]: "void*",
+    ["VoidPtr"]: "void*",
 };
 exports.WebIDLBinder = WebIDLBinder;
 let infile = process.argv[2] || (__dirname + "/../test/test.idl");
