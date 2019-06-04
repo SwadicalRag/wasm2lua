@@ -371,12 +371,12 @@ class WebIDLBinder {
             }
             else if (member.type == "attribute") {
                 this.luaC.write(this.outBufLua, `function __BINDINGS__.${node.name}.__specialIndex.${member.name}(self,k) `);
-                this.luaC.write(this.outBufLua, `local ret = __FUNCS__.${this.mangleIndexerName(member, node.name, false)}(self)`);
+                this.luaC.write(this.outBufLua, `local ret = __FUNCS__.${this.mangleIndexerName(member, node.name, false)}(self.__ptr)`);
                 this.convertCPPToLuaReturn(this.outBufLua, member.idlType, "ret");
                 this.luaC.writeLn(this.outBufLua, ` end`);
                 this.luaC.write(this.outBufLua, `function __BINDINGS__.${node.name}.__specialNewIndex.${member.name}(self,k,v) `);
                 this.convertLuaToCPP_Pre(this.outBufLua, { name: "v", idlType: member.idlType }, 0);
-                this.luaC.write(this.outBufLua, `__FUNCS__.${this.mangleIndexerName(member, node.name, true)}(self,`);
+                this.luaC.write(this.outBufLua, `__FUNCS__.${this.mangleIndexerName(member, node.name, true)}(self.__ptr,`);
                 this.convertLuaToCPP_Arg(this.outBufLua, { name: "v", idlType: member.idlType }, 0);
                 this.luaC.write(this.outBufLua, `)`);
                 this.convertLuaToCPP_Post(this.outBufLua, { name: "v", idlType: member.idlType }, 0);

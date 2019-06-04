@@ -42,10 +42,15 @@ function vm.createClass(tbl,tblName)
 
     function tbl:__tostring()
         if self.__ptr == 0 then
-            return string.format("%s: NULL",tblName)
+            return string.format("wasm.%s: NULL",tblName)
         else
-            return string.format("%s: %08x",tblName,self.__ptr)
+            return string.format("wasm.%s: 0x%08x",tblName,self.__ptr)
         end
+    end
+
+    function tbl:__eq(obj2)
+        -- TODO: operator overload
+        return self.__ptr == obj2.__ptr
     end
 
     function tbl:__index(k)
