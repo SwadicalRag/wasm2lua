@@ -2,7 +2,6 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const webidl = require("webidl2");
 const stringcompiler_1 = require("./stringcompiler");
-const fs = require("fs");
 var BinderMode;
 (function (BinderMode) {
     BinderMode[BinderMode["WEBIDL_NONE"] = -1] = "WEBIDL_NONE";
@@ -787,12 +786,4 @@ WebIDLBinder.CTypeRenames = {
     ["VoidPtr"]: "void*",
 };
 exports.WebIDLBinder = WebIDLBinder;
-let infile = process.argv[2] || (__dirname + "/../test/test.idl");
-let outfile_lua = process.argv[3] || (__dirname + "/../test/test_bind.lua");
-let outfile_cpp = process.argv[3] || (__dirname + "/../test/test_bind.cpp");
-let idl = fs.readFileSync(infile);
-let inst = new WebIDLBinder(idl.toString(), BinderMode.WEBIDL_CPP, true);
-inst.buildOut();
-fs.writeFileSync(outfile_lua, inst.outBufLua.join(""));
-fs.writeFileSync(outfile_cpp, inst.outBufCPP.join(""));
 //# sourceMappingURL=webidlbinder.js.map
