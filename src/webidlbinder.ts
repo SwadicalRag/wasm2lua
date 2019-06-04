@@ -213,7 +213,7 @@ export class WebIDLBinder {
             if(this.ast[i].type == "interface") {
                 let int = this.ast[i] as webidl.InterfaceType;
                 if(int.inheritance) {
-                    this.luaC.writeLn(this.outBufLua,`setmetatable(__BINDINGS__.${int.name},{__index = __BINDINGS__.${int.inheritance}})`);
+                    this.luaC.writeLn(this.outBufLua,`getmetatable(__BINDINGS__.${int.name}).__index = __BINDINGS__.${int.inheritance};`);
                 }
             }
         }
@@ -354,7 +354,7 @@ export class WebIDLBinder {
             }
         }
 
-        this.luaC.write(this.outBufLua,`getmetatable(__BINDINGS__.${node.name}).__call = function(self`)
+        this.luaC.write(this.outBufLua,`setmetatable(__BINDINGS__.${node.name},{__call = function(self`)
         if(funcSig[node.name]) {
             if(funcSig[node.name].length > 1) {
                 this.luaC.write(this.outBufLua,`,`)
@@ -384,7 +384,7 @@ export class WebIDLBinder {
         }
         this.luaC.write(this.outBufLua,`)`)
         this.luaC.write(this.outBufLua,`return ins`)
-        this.luaC.write(this.outBufLua,` end `)
+        this.luaC.write(this.outBufLua,` end})`)
 
         this.luaC.indent(); this.luaC.newLine(this.outBufLua);
 
