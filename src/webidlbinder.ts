@@ -78,6 +78,21 @@ export class WebIDLBinder {
         return out;
     }
 
+    mangleIndexerName(node: webidl.AttributeMemberType,namespace: string,isNewindex?: boolean) {
+        let out = "_webidl_lua__";
+
+        out += node.name;
+
+        if(isNewindex) {
+            out += "_set";
+        }
+        else {
+            out += "_get";
+        }
+
+        return out;
+    }
+
     getExtendedAttribute(attribute: string,extAttrs: webidl.ExtendedAttributes[]) {
         for(let i=0;i < extAttrs.length;i++) {
             if(extAttrs[i].name === attribute) {
@@ -250,13 +265,13 @@ export class WebIDLBinder {
         }
     }
 
-    convertLuaToCPP_Pre(buf: string[],arg: webidl.Argument,argID: number) {
+    convertLuaToCPP_Pre(buf: string[],arg: {name: string,idlType: webidl.IDLTypeDescription} | webidl.Argument,argID: number) {
         if(arg.idlType.idlType == "DOMString") {
             this.luaC.write(buf,`local __arg${argID} = vm.stringify(${arg.name})`);
         }
     }
 
-    convertLuaToCPP_Arg(buf: string[],arg: webidl.Argument,argID: number) {
+    convertLuaToCPP_Arg(buf: string[],arg: {name: string,idlType: webidl.IDLTypeDescription} | webidl.Argument,argID: number) {
         if(arg.idlType.idlType == "DOMString") {
             this.luaC.write(buf,`__arg${argID}`);
         }
@@ -271,7 +286,7 @@ export class WebIDLBinder {
         }
     }
 
-    convertLuaToCPP_Post(buf: string[],arg: webidl.Argument,argID: number) {
+    convertLuaToCPP_Post(buf: string[],arg: {name: string,idlType: webidl.IDLTypeDescription} | webidl.Argument,argID: number) {
         if(arg.idlType.idlType == "DOMString") {
             this.luaC.write(buf,`vm.freeString(__arg${argID})`);
         }
@@ -297,7 +312,7 @@ export class WebIDLBinder {
 
         let hasConstructor = false;
 
-        this.luaC.writeLn(this.outBufLua,`__BINDINGS__.${node.name} = {__cache = {}} __BINDINGS__.${node.name}.__index = __BINDINGS__.${node.name}`);
+        this.luaC.writeLn(this.outBufLua,`__BINDINGS__.${node.name} = {} vm.createClass(__BINDINGS__.${node.name})`);
 
         let funcSig: {[ident: string]: number[]} = {};
         for(let i=0;i < node.members.length;i++) {
@@ -423,6 +438,20 @@ export class WebIDLBinder {
                     this.luaC.write(this.outBufLua," end");
                     this.luaC.newLine(this.outBufLua);
                 }
+            }
+            else if(member.type == "attribute") {
+                this.luaC.write(this.outBufLua,`function __BINDINGS__.${node.name}.__specialIndex.${member.name}(self,k) `);
+                this.luaC.write(this.outBufLua,`local ret = __FUNCS__.${this.mangleIndexerName(member,node.name,false)}(self)`);
+                this.convertCPPToLuaReturn(this.outBufLua,member.idlType,"ret");
+                this.luaC.writeLn(this.outBufLua,` end`);
+
+                this.luaC.write(this.outBufLua,`function __BINDINGS__.${node.name}.__specialNewIndex.${member.name}(self,k,v) `);
+                this.convertLuaToCPP_Pre(this.outBufLua,{name: "v",idlType: member.idlType},0);
+                this.luaC.write(this.outBufLua,`__FUNCS__.${this.mangleIndexerName(member,node.name,true)}(self,`);
+                this.convertLuaToCPP_Arg(this.outBufLua,{name: "v",idlType: member.idlType},0);
+                this.luaC.write(this.outBufLua,`)`);
+                this.convertLuaToCPP_Post(this.outBufLua,{name: "v",idlType: member.idlType},0);
+                this.luaC.writeLn(this.outBufLua,` end`);
             }
         }
 
@@ -595,13 +624,30 @@ export class WebIDLBinder {
                 this.cppC.write(this.outBufCPP,`};`);
                 this.cppC.newLine(this.outBufCPP);
             }
+            else if(member.type == "attribute") {
+                this.cppC.write(this.outBufCPP,`export extern "C" ${this.idlTypeToCType(member.idlType,member.extAttrs,true)} ${this.mangleIndexerName(member,node.name,false)}(${Prefix}${node.name}* self) {`);
+                this.cppC.write(this.outBufCPP,`return `);
+                if(this.hasExtendedAttribute("Ref",member.extAttrs)) {
+                    this.cppC.write(this.outBufCPP,"*");
+                }
+                this.cppC.write(this.outBufCPP,`self->${member.name}; `);
+                this.cppC.writeLn(this.outBufCPP,`};`);
+                
+                this.cppC.write(this.outBufCPP,`export extern "C" void ${this.mangleIndexerName(member,node.name,true)}(${Prefix}${node.name}* self,${this.idlTypeToCType(member.idlType,member.extAttrs,true)} val) {`);
+                this.cppC.write(this.outBufCPP,`self->${member.name} = `);
+                if(this.hasExtendedAttribute("Ref",member.extAttrs)) {
+                    this.cppC.write(this.outBufCPP,"*");
+                }
+                this.cppC.write(this.outBufCPP,`val;`);
+                this.cppC.writeLn(this.outBufCPP,`};`);
+            }
         }
     }
 
     walkNamespaceLua(node: webidl.NamespaceType) {
         let JsImpl = this.getExtendedAttribute("JSImplementation",node.extAttrs);
 
-        this.luaC.write(this.outBufLua,`__BINDINGS__.${node.name} = {}`);
+        this.luaC.write(this.outBufLua,`__BINDINGS__.${node.name} = vm.createNamespace()`);
 
         this.luaC.indent(); this.luaC.newLine(this.outBufLua);
 
@@ -677,6 +723,20 @@ export class WebIDLBinder {
                     this.luaC.newLine(this.outBufLua);
                 }
             }
+            else if(member.type == "attribute") {
+                this.luaC.write(this.outBufLua,`function __BINDINGS__.${node.name}.__specialIndex.${member.name}(self,k) `);
+                this.luaC.write(this.outBufLua,`local ret = __FUNCS__.${this.mangleIndexerName(member,node.name,false)}()`);
+                this.convertCPPToLuaReturn(this.outBufLua,member.idlType,"ret");
+                this.luaC.writeLn(this.outBufLua,` end`);
+
+                this.luaC.write(this.outBufLua,`function __BINDINGS__.${node.name}.__specialNewIndex.${member.name}(self,k,v) `);
+                this.convertLuaToCPP_Pre(this.outBufLua,{name: "v",idlType: member.idlType},0);
+                this.luaC.write(this.outBufLua,`__FUNCS__.${this.mangleIndexerName(member,node.name,true)}(`);
+                this.convertLuaToCPP_Arg(this.outBufLua,{name: "v",idlType: member.idlType},0);
+                this.luaC.write(this.outBufLua,`)`);
+                this.convertLuaToCPP_Post(this.outBufLua,{name: "v",idlType: member.idlType},0);
+                this.luaC.writeLn(this.outBufLua,` end`);
+            }
         }
 
         for(let ident in funcSig) {
@@ -739,7 +799,9 @@ export class WebIDLBinder {
                 }
             }
 
-            this.cppC.write(this.outBufCPP,`namespace ${node.name} {`);
+            if(node.name !== "global") {
+                this.cppC.write(this.outBufCPP,`namespace ${node.name} {`);
+            }
             this.cppC.indent();
             this.cppC.newLine(this.outBufCPP);
 
@@ -766,7 +828,9 @@ export class WebIDLBinder {
             }
             
             this.cppC.outdent(this.outBufCPP)
-            this.cppC.write(this.outBufCPP,"};");
+            if(node.name !== "global") {
+                this.cppC.write(this.outBufCPP,"};");
+            }
             this.cppC.newLine(this.outBufCPP);
         }
         else {
@@ -800,6 +864,35 @@ export class WebIDLBinder {
                     this.cppC.write(this.outBufCPP,`};`);
                     this.cppC.newLine(this.outBufCPP);
                 }
+                else if(member.type == "attribute") {
+                    this.cppC.write(this.outBufCPP,`export extern "C" ${this.idlTypeToCType(member.idlType,member.extAttrs,true)} ${this.mangleIndexerName(member,node.name,false)}(${node.name}* self) {`);
+                    this.cppC.write(this.outBufCPP,`return `);
+                    if(this.hasExtendedAttribute("Ref",member.extAttrs)) {
+                        this.cppC.write(this.outBufCPP,"*");
+                    }
+                    if(node.name === "global") {
+                        this.cppC.write(this.outBufCPP,`${member.name}`);
+                    }
+                    else {
+                        this.cppC.write(this.outBufCPP,`${node.name}::${member.name}`);
+                    }
+                    this.cppC.write(this.outBufCPP,`; `);
+                    this.cppC.writeLn(this.outBufCPP,`};`);
+                    
+                    this.cppC.write(this.outBufCPP,`export extern "C" void ${this.mangleIndexerName(member,node.name,true)}(${node.name}* self,${this.idlTypeToCType(member.idlType,member.extAttrs,true)} val) {`);
+                    if(node.name === "global") {
+                        this.cppC.write(this.outBufCPP,`${member.name}`);
+                    }
+                    else {
+                        this.cppC.write(this.outBufCPP,`${node.name}::${member.name}`);
+                    }
+                    this.cppC.write(this.outBufCPP,` = `);
+                    if(this.hasExtendedAttribute("Ref",member.extAttrs)) {
+                        this.cppC.write(this.outBufCPP,"*");
+                    }
+                    this.cppC.write(this.outBufCPP,`val;`);
+                    this.cppC.writeLn(this.outBufCPP,`};`);
+                }
             }
         }
     }
@@ -813,7 +906,7 @@ let idl = fs.readFileSync(infile);
 
 // console.log(JSON.stringify(ast,null,4));
 
-let inst = new WebIDLBinder(idl.toString(),BinderMode.WEBIDL_LUA,true);
+let inst = new WebIDLBinder(idl.toString(),BinderMode.WEBIDL_CPP,true);
 inst.buildOut()
 fs.writeFileSync(outfile_lua,inst.outBufLua.join(""));
 fs.writeFileSync(outfile_cpp,inst.outBufCPP.join(""));
