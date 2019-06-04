@@ -331,6 +331,18 @@ class WebIDLBinder {
                     }
                 }
             }
+            else {
+                let maxArg = Math.max(...funcSig[node.name]);
+                if (maxArg > 0) {
+                    this.luaC.write(this.outBufLua, `,`);
+                    for (let i = 0; i < maxArg; i++) {
+                        this.luaC.write(this.outBufLua, `arg${i}`);
+                        if ((i + 1) !== maxArg) {
+                            this.luaC.write(this.outBufLua, ",");
+                        }
+                    }
+                }
+            }
         }
         this.luaC.write(this.outBufLua, `)`);
         this.luaC.write(this.outBufLua, `return ins`);
