@@ -379,6 +379,10 @@ export class WebIDLBinder {
             let member = node.members[i];
             if(member.type == "operation") {
                 let Operator = this.getExtendedAttribute("Operator",member.extAttrs);
+                let Value = this.getExtendedAttribute("Value",member.extAttrs);
+                // TODO: we're using emscripten's way of wrapping values into static temp vars
+                // I think this is unsafe. We should allocate new memory per return
+                // and make lua garbage collect the result..
                 if(member.name == node.name) {
                     hasConstructor = true;
                 }
@@ -395,7 +399,10 @@ export class WebIDLBinder {
                 }
                 this.writeCArgs(this.outBufCPP,member.arguments,true,false);
                 this.cppC.write(this.outBufCPP,`) {`);
-                if((member.idlType.idlType !== "void") || (member.name == node.name)) {
+                if(Value && (member.name !== node.name)) {
+                    this.cppC.write(this.outBufCPP,`static ${this.idlTypeToCType(member.idlType,[],false)} temp; return (temp = `);
+                }
+                else if((member.idlType.idlType !== "void") || (member.name == node.name)) {
                     this.cppC.write(this.outBufCPP,"return");
                 }
                 this.cppC.write(this.outBufCPP,` `);
@@ -411,19 +418,23 @@ export class WebIDLBinder {
                     }
                     this.cppC.write(this.outBufCPP,`(`);
                     this.writeCArgs(this.outBufCPP,member.arguments,false,false,true);
-                    this.cppC.write(this.outBufCPP,`); `);
+                    this.cppC.write(this.outBufCPP,`) `);
                 }
                 else {
                     if(member.arguments.length > 0) {
                         if(this.hasExtendedAttribute("Ref",member.extAttrs)) {
                             this.cppC.write(this.outBufCPP,"&");
                         }
-                        this.cppC.write(this.outBufCPP,`(*self ${this.unquote(Operator.rhs.value)} ${this.getWithRefs(member.arguments[0])});`);
+                        this.cppC.write(this.outBufCPP,`(*self ${this.unquote(Operator.rhs.value)} ${this.getWithRefs(member.arguments[0])})`);
                     }
                     else {
-                        this.cppC.write(this.outBufCPP,`${this.unquote(Operator.rhs.value)} self;`);
+                        this.cppC.write(this.outBufCPP,`${this.unquote(Operator.rhs.value)} self`);
                     }
                 }
+                if(Value && (member.name !== node.name)) {
+                    this.cppC.write(this.outBufCPP,`, &temp)`);
+                }
+                this.cppC.write(this.outBufCPP,`;`);
                 this.cppC.write(this.outBufCPP,`};`);
                 this.cppC.newLine(this.outBufCPP);
             }
@@ -579,10 +590,14 @@ export class WebIDLBinder {
             for(let i=0;i < node.members.length;i++) {
                 let member = node.members[i];
                 if(member.type == "operation") {
+                    let Value = this.getExtendedAttribute("Value",member.extAttrs);
                     this.cppC.write(this.outBufCPP,`export extern "C" ${this.idlTypeToCType(member.idlType,member.extAttrs,true)} ${this.mangleFunctionName(member,node.name)}(`);
                     this.writeCArgs(this.outBufCPP,member.arguments,true,false);
                     this.cppC.write(this.outBufCPP,`) {`);
-                    if(member.idlType.idlType !== "void") {
+                    if(Value) {
+                        this.cppC.write(this.outBufCPP,`static ${this.idlTypeToCType(member.idlType,[],false)} temp; return (temp = `);
+                    }
+                    else if(member.idlType.idlType !== "void") {
                         this.cppC.write(this.outBufCPP,"return");
                     }
                     this.cppC.write(this.outBufCPP,` `);
@@ -594,7 +609,11 @@ export class WebIDLBinder {
                     }
                     this.cppC.write(this.outBufCPP,`(`);
                     this.writeCArgs(this.outBufCPP,member.arguments,false,false,true);
-                    this.cppC.write(this.outBufCPP,`); `);
+                    this.cppC.write(this.outBufCPP,`) `);
+                    if(Value && (member.name !== node.name)) {
+                        this.cppC.write(this.outBufCPP,`, &temp)`);
+                    }
+                    this.cppC.write(this.outBufCPP,`;`);
                     this.cppC.write(this.outBufCPP,`};`);
                     this.cppC.newLine(this.outBufCPP);
                 }
