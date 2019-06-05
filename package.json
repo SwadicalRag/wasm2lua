@@ -1,10 +1,11 @@
 {
   "name": "wasm2lua",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A tool to convert WASM into Lua",
   "main": "js/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node js/testsuite.js",
+    "build": "tsc -p ."
   },
   "keywords": ["wasm","lua","compiler","transpiler","wasi","luajit","webassembly"],
   "author": {
