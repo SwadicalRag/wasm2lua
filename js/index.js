@@ -1775,7 +1775,19 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                             break;
                         }
                         case "end": {
-                            this.endBlock(buf, state, null, insArr[insIdx - 1] ? (insArr[insIdx - 1].id == "unreachable") : false);
+                            let lastIns = insArr[insIdx - 1];
+                            let isUnreachable = false;
+                            if (lastIns) {
+                                if (lastIns.type == "Instr") {
+                                    if (lastIns.id == "unreachable") {
+                                        isUnreachable = true;
+                                    }
+                                    else if (lastIns.id == "br") {
+                                        isUnreachable = true;
+                                    }
+                                }
+                            }
+                            this.endBlock(buf, state, isUnreachable);
                             break;
                         }
                         case "unreachable": {

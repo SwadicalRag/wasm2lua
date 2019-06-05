@@ -2270,7 +2270,23 @@ export class wasm2lua extends StringCompiler {
                             break;
                         }
                         case "end": {
-                            this.endBlock(buf,state,null,insArr[insIdx - 1] ? ((insArr[insIdx - 1] as Instr).id == "unreachable") : false);
+                            let lastIns = insArr[insIdx - 1];
+                            let isUnreachable = false;
+
+                            if(lastIns) {
+                                if(lastIns.type == "Instr") {
+                                    if(lastIns.id == "unreachable") {
+                                        // self explanatory
+                                        isUnreachable = true;
+                                    }
+                                    else if(lastIns.id == "br") {
+                                        // unconditional branch: this instruction will never be reached
+                                        isUnreachable = true;
+                                    }
+                                }
+                            }
+
+                            this.endBlock(buf,state,isUnreachable);
                             break;
                         }
                         case "unreachable": {
