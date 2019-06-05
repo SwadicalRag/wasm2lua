@@ -7,6 +7,7 @@ fsExtra.ensureDirSync(__dirname + "/../test/");
 
 let totalTests = 0;
 let passedTests = 0;
+let ignoredFailedTests = 0;
 
 const ignoredTests = [
     "00174.c", // Floating point weirdness
@@ -64,6 +65,7 @@ for(let fileName of files) {
 
         if(!didPass && (ignoredTests.indexOf(fileName) !== -1)) {
             passedTests++;
+            ignoredFailedTests++;
         }
     }
 }
@@ -102,11 +104,12 @@ for(let fileName of files2) {
 
         if(!didPass && (ignoredTests.indexOf(fileName) !== -1)) {
             passedTests++;
+            ignoredFailedTests++;
         }
     }
 }
 
-console.log(`All done! ${passedTests}/${totalTests} tests passed :)`);
+console.log(`All done! (${passedTests - ignoredFailedTests} + ${ignoredFailedTests})/${totalTests} tests passed :)`);
 
 if(passedTests !== totalTests) {
     process.exit(-100);
