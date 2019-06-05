@@ -1,5 +1,7 @@
 # 🎉 wasm2lua 🎊
 
+![](https://forthebadge.com/images/badges/powered-by-electricity.svg) ![](https://forthebadge.com/images/badges/made-with-crayons.svg)
+
 Have YOU ever wanted to run C++/C/Rust/javascript/banana/etc. on Lua without using native modules?
 
 GOOD NEWS, fam: `wasm2lua` can compile WebAssembly modules to pure Lua (or with FFI LuaJIT for extra speed). This means that anything that can be compiled to WASM can be compiled to Lua! Long Live John Lua!
