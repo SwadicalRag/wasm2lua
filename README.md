@@ -19,6 +19,10 @@ GOOD NEWS, fam: `wasm2lua` can compile WebAssembly modules to pure Lua (or with 
 
 (Run those commands with `--help` for other options)
 
+## Installation
+
+`npm i -g wasm2lua`
+
 ### BONUS: duktape via wasm2lua
 
 ```c
