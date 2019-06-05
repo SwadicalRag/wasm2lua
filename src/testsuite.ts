@@ -43,12 +43,12 @@ for(let fileName of files) {
         
         totalTests++;
         let didPass = false;
-        if(prog.status != 0) {
-            console.error(`test (${fileName}) failed with code ${prog.status}...`)
-        }
-        else if(prog.stderr.toString().length != 0) {
+        if(prog.stderr.toString().length != 0) {
             console.error(`test (${fileName}) failed due to stderr...`)
             console.error(prog.stderr.toString())
+        }
+        else if(prog.status != 0) {
+            console.error(`test (${fileName}) failed with code ${prog.status}...`)
         }
         else if(prog.stdout.toString().replace(/\r\n?/g,"\n") !== expectedOut.toString().replace(/\r\n?/g,"\n")) {
             console.error(`test failed... (${fileName})`)
@@ -86,12 +86,12 @@ for(let fileName of files2) {
         
         totalTests++;
         let didPass = false;
-        if(prog.status != 0) {
-            console.error(`test (${fileName}) failed with code ${prog.status}...`)
-        }
-        else if(prog.stderr.toString().length != 0) {
+        if(prog.stderr.toString().length != 0) {
             console.error(`test (${fileName}) failed due to stderr...`)
             console.error(prog.stderr.toString())
+        }
+        else if(prog.status != 0) {
+            console.error(`test (${fileName}) failed with code ${prog.status}...`)
         }
         else {
             console.log(`test passed!`)
