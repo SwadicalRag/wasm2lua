@@ -1354,15 +1354,10 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                                     }
                                 }
                             }
-                            let teeTemp = this.fn_createTempRegister(buf, state);
                             this.write(buf, state.regManager.getPhysicalRegisterName(state.locals[locID]));
-                            this.write(buf, " = " + this.getPop(state) + "; ");
-                            this.write(buf, state.regManager.getPhysicalRegisterName(teeTemp));
-                            this.write(buf, " = ");
-                            this.write(buf, state.regManager.getPhysicalRegisterName(state.locals[locID]));
-                            this.write(buf, ";");
+                            this.write(buf, " = " + this.getPop(state) + ";");
                             this.newLine(buf);
-                            this.writeLn(buf, this.getPushStack(state, teeTemp));
+                            this.writeLn(buf, this.getPushStack(state, state.locals[locID]));
                             break;
                         }
                         case "neg": {

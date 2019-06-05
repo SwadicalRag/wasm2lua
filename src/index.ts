@@ -1800,19 +1800,12 @@ export class wasm2lua extends StringCompiler {
                                 }
                             }
 
-                            let teeTemp = this.fn_createTempRegister(buf,state);
-
                             // write local
                             this.write(buf,state.regManager.getPhysicalRegisterName(state.locals[locID]));
-                            this.write(buf," = "+this.getPop(state)+"; ");
-                            // copy local
-                            this.write(buf,state.regManager.getPhysicalRegisterName(teeTemp));
-                            this.write(buf," = ");
-                            this.write(buf,state.regManager.getPhysicalRegisterName(state.locals[locID]));
-                            this.write(buf,";");
+                            this.write(buf," = "+this.getPop(state)+";");
                             this.newLine(buf);
                             // read back
-                            this.writeLn(buf,this.getPushStack(state,teeTemp));
+                            this.writeLn(buf,this.getPushStack(state,state.locals[locID]));
 
                             break;
                         }
