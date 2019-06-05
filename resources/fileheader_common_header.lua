@@ -1,5 +1,7 @@
 -- fileheader (common:header)
 
+args = args or {...}
+
 if jit and jit.opt then
     -- boost jit limits
     jit.opt.start("maxsnap=1000","loopunroll=500","maxmcode=2048")
