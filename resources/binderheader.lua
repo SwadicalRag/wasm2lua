@@ -26,11 +26,12 @@ function vm.readString(ptr)
 end
 
 function vm.stringify(str)
-    local ptr = __MALLOC__(#str)
+    local ptr = __MALLOC__(#str + 1)
 
     for i=1,#str do
         __MEMORY_WRITE_8__(module.memory,ptr + i - 1,str:byte(i,i))
     end
+    __MEMORY_WRITE_8__(module.memory,ptr + #str,0)
 
     return ptr
 end
