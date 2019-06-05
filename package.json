@@ -6,6 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "keywords": ["wasm","lua","compiler","transpiler","wasi","luajit","webassembly"],
   "author": "swadical",
   "license": "MIT",
   "devDependencies": {
