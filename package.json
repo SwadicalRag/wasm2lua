@@ -1,13 +1,13 @@
 {
   "name": "wasm2lua",
   "version": "0.2.0",
-  "description": "",
+  "description": "A tool to convert WASM into Lua",
   "main": "js/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "swadical",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "devDependencies": {
     "@types/commander": "^2.12.2",
     "@types/fs-extra": "^7.0.0",
