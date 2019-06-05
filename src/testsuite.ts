@@ -23,7 +23,7 @@ for(let fileName of files) {
 
         console.log(`compile finished.`)
         let expectedOut = fs.readFileSync(expectedOutPath);
-        let prog = cp.spawnSync(`nilajit`,["resources/testsuite-host.lua"],{
+        let prog = cp.spawnSync(`luajit`,["resources/testsuite-host.lua"],{
             
         });
         

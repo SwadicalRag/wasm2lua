@@ -19,7 +19,7 @@ for (let fileName of files) {
         fs.writeFileSync(`${__dirname}/../test/test.lua`, inst.outBuf.join(""));
         console.log(`compile finished.`);
         let expectedOut = fs.readFileSync(expectedOutPath);
-        let prog = cp.spawnSync(`nilajit`, ["resources/testsuite-host.lua"], {});
+        let prog = cp.spawnSync(`luajit`, ["resources/testsuite-host.lua"], {});
         totalTests++;
         if (prog.status != 0) {
             console.error(`test (${fileName}) failed with code ${prog.status}...`);
