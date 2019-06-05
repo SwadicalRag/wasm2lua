@@ -391,6 +391,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                     gotos: [],
                     jumpStreamEnabled: false,
                     curJmpID: 0,
+                    usedLabels: {},
                 };
                 this.processInstructionsPass1(field.init, global_init_state);
                 this.write(buf, this.processInstructionsPass2(field.init, global_init_state));
@@ -438,6 +439,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                     gotos: [],
                     jumpStreamEnabled: false,
                     curJmpID: 0,
+                    usedLabels: {},
                 };
                 this.processInstructionsPass1(field.offset, global_init_state);
                 this.write(buf, this.processInstructionsPass2(field.offset, global_init_state));
@@ -590,6 +592,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             gotos: [],
             jumpStreamEnabled: false,
             curJmpID: 0,
+            usedLabels: {},
         };
         state.funcStates.push(fstate);
         state.funcByName.set(funcID, fstate);
@@ -857,7 +860,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                 this.write(buf, `goto ${label} ::jmpstream_${jmpID}:: if __nextjmp > ${jmpID} then goto jmpstream_${jmpID + 1} elseif __nextjmp < ${jmpID} then goto jmpstream_${jmpID - 1} end ::${label}::`);
             }
         }
-        else {
+        else if (state.usedLabels[label]) {
             this.write(buf, `::${label}::`);
         }
     }
@@ -1022,9 +1025,11 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         let targetBlock = state.blocks[state.blocks.length - blocksToExit - 1];
         if (targetBlock) {
             if (targetBlock.blockType == "loop") {
+                state.usedLabels[`${sanitizeIdentifier(targetBlock.id)}_start`] = true;
                 state.gotos.push({ ins: state.insCountPass1, label: `${sanitizeIdentifier(targetBlock.id)}_start` });
             }
             else {
+                state.usedLabels[`${sanitizeIdentifier(targetBlock.id)}_fin`] = true;
                 state.gotos.push({ ins: state.insCountPass1, label: `${sanitizeIdentifier(targetBlock.id)}_fin` });
             }
         }
@@ -1154,7 +1159,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                 case "LoopInstruction": {
                     let blockType = (ins.type == "LoopInstruction") ? "loop" : "block";
                     let block = this.beginBlock([], state, {
-                        id: ins.label.value,
+                        id: `${blockType}_${state.insCountPass1}`,
                         resultType: null,
                         blockType,
                         enterStackLevel: state.stackLevel,
@@ -1173,13 +1178,15 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                 }
                 case "IfInstruction": {
                     let block = this.beginBlock([], state, {
-                        id: `if_${ins.loc.start.line}_${ins.loc.start.column}`,
+                        id: `if_${state.insCountPass1}`,
                         blockType: "if",
                         resultType: null,
                         enterStackLevel: state.stackLevel,
                         insCountStart: state.insCountPass1
                     });
+                    state.usedLabels[`${sanitizeIdentifier(block.id)}_else`] = true;
                     state.gotos.push({ ins: state.insCountPass1, label: `${sanitizeIdentifier(block.id)}_else` });
+                    state.usedLabels[`${sanitizeIdentifier(block.id)}_fin`] = true;
                     state.gotos.push({ ins: state.insCountPass1, label: `${sanitizeIdentifier(block.id)}_fin` });
                     this.processInstructionsPass1(ins.consequent, state);
                     if (ins.alternate.length > 0) {
@@ -1867,11 +1874,11 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                 case "LoopInstruction": {
                     let blockType = (ins.type == "LoopInstruction") ? "loop" : "block";
                     let block = this.beginBlock(buf, state, {
-                        id: ins.label.value,
+                        id: `${blockType}_${state.insCountPass2}`,
                         resultType: (ins.type == "LoopInstruction") ? ins.resulttype : ins.result,
                         blockType,
                         enterStackLevel: state.stackLevel,
-                        insCountStart: state.insCountPass2
+                        insCountStart: state.insCountPass2,
                     });
                     if (block.resultType !== null) {
                         block.resultRegister = this.fn_createTempRegister(buf, state);
@@ -1884,8 +1891,8 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                         this.write(buf, "error('if test nyi')");
                         this.newLine(buf);
                     }
-                    let labelBase = `if_${ins.loc.start.line}_${ins.loc.start.column}`;
-                    let labelBaseSan = sanitizeIdentifier(`if_${ins.loc.start.line}_${ins.loc.start.column}`);
+                    let labelBase = `if_${state.insCountPass2}`;
+                    let labelBaseSan = sanitizeIdentifier(`if_${state.insCountPass2}`);
                     this.write(buf, "if ");
                     this.write(buf, this.getPop(state));
                     if (ins.alternate.length > 0) {
