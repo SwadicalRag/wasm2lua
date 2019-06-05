@@ -2,6 +2,8 @@ export interface VirtualRegister {
     id: number;
     name: string;
 
+    isPhantom: false,
+
     firstRef?: number;
     lastRef?: number;
 
@@ -10,6 +12,18 @@ export interface VirtualRegister {
     // UNUSED
     refs: number;
 };
+
+export interface PhantomRegister {
+    name: "temp";
+
+    isPhantom: true,
+
+    stackEntryCount: number;
+
+    value: string;
+    dependencies: VirtualRegister[];
+};
+
 
 export class VirtualRegisterManager {
     registerCache: VirtualRegister[] = [];
@@ -53,11 +67,13 @@ export class VirtualRegisterManager {
     }
 
     createRegister(name: string) {
-        let reg = {
+        let reg: VirtualRegister = {
             id: this.getNextFreeRegisterID(),
             name,
             refs: 0,
             stackEntryCount: 0,
+
+            isPhantom: false,
         };
 
         this.namedRegisters.set(name,reg);
@@ -72,12 +88,50 @@ export class VirtualRegisterManager {
         return reg;
     }
 
+    createPhantomRegister() {
+        let reg: PhantomRegister = {
+            name: "temp",
+
+            isPhantom: true,
+
+            stackEntryCount: 0,
+
+            value: null,
+            dependencies: [],
+        };
+
+        return reg;
+    }
+
+    realizePhantomRegister(preg: PhantomRegister) {
+        let reg: VirtualRegister = {
+            id: this.getNextFreeRegisterID(),
+            name: "temp",
+            refs: 0,
+            stackEntryCount: preg.stackEntryCount,
+
+            isPhantom: false,
+        };
+
+        this.registers.push(reg);
+        this.registerCache.push(reg);
+
+        this.totalRegisters = Math.max(this.totalRegisters,this.registers.length);
+        this.registers.sort((a,b) => {
+            return a.id - b.id;
+        });
+
+        return reg;
+    }
+
     createTempRegister() {
-        let reg = {
+        let reg: VirtualRegister = {
             id: this.getNextFreeRegisterID(),
             name: "temp",
             refs: 0,
             stackEntryCount: 0,
+
+            isPhantom: false,
         };
 
         this.registers.push(reg);
