@@ -1361,10 +1361,7 @@ export class wasm2lua extends StringCompiler {
         let currentBlock = state.blocks[state.blocks.length - 1];
 
         if(targetBlock) {
-            // TODO: is this right???
-            // shouldn't this be currentBlock.resultType???
-            // why getpeek??
-
+            // loops jump to the start, others jump to the end
             if(targetBlock.blockType == "loop") {
                 this.writeGoto(buf,sanitizeIdentifier(`${targetBlock.id}_start`),state);
             }
@@ -2133,8 +2130,8 @@ export class wasm2lua extends StringCompiler {
                         case "store8":
                         case "store16": 
                         case "store32": {
+                            // target is always mem_0 according to wasm spec
                             let targ = state.modState.memoryAllocations.get(0);
-                            // TODO: is target always 0?
 
                             if(targ) {
                                 let tmp = this.getPop(state);
@@ -2179,8 +2176,8 @@ export class wasm2lua extends StringCompiler {
                         case "load8_u":
                         case "load16_u":
                         case "load32_u": {
+                            // target is always mem_0 according to wasm spec
                             let targ = state.modState.memoryAllocations.get(0);
-                            // TODO: is target always 0?
 
                             if(targ) {
                                 let tempVar = this.fn_createTempRegister(buf,state);
@@ -2247,8 +2244,8 @@ export class wasm2lua extends StringCompiler {
                             break;
                         }
                         case "grow_memory": {
+                            // : target is always mem_0 according to wasm spec
                             let targ = state.modState.memoryAllocations.get(0);
-                            // TODO: is target always 0?
 
                             let tempVar = this.fn_createTempRegister(buf,state);
                             this.write(buf,`${state.regManager.getPhysicalRegisterName(tempVar)} = __MEMORY_GROW__(${targ},__UNSIGNED__(${this.getPop(state)})); `);
@@ -2257,8 +2254,8 @@ export class wasm2lua extends StringCompiler {
                             break;
                         }
                         case "current_memory": {
+                            // : target is always mem_0 according to wasm spec
                             let targ = state.modState.memoryAllocations.get(0);
-                            // TODO: is target always 0?
 
                             let tempVar = this.fn_createTempRegister(buf,state);
                             this.writeLn(buf,`${state.regManager.getPhysicalRegisterName(tempVar)} = ${targ}._page_count;`);
