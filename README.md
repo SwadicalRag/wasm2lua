@@ -2,7 +2,7 @@
 
 ![](https://forthebadge.com/images/badges/powered-by-electricity.svg) ![](https://forthebadge.com/images/badges/made-with-crayons.svg)
 
-![travis ci](https://travis-ci.com/SwadicalRag/wasm2lua.svg?branch=master)
+[![travis ci](https://travis-ci.com/SwadicalRag/wasm2lua.svg?branch=master)](https://travis-ci.com/SwadicalRag/wasm2lua) [![Coverage Status](https://coveralls.io/repos/github/SwadicalRag/wasm2lua/badge.svg?branch=master)](https://coveralls.io/github/SwadicalRag/wasm2lua?branch=master)
 
 Have YOU ever wanted to run C++/C/Rust/javascript/banana/etc. on Lua without using native modules?
 
