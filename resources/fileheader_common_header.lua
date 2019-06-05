@@ -9,25 +9,6 @@ end
 
 local __LONG_INT_CLASS__
 
-if jit and jit.version_num < 20100 then
-    function math.frexp(dbl)
-        local aDbl = math_abs(dbl)
-    
-        if dbl ~= 0 and (aDbl ~= math_huge) then
-            local exp = math_max(-1023,math_floor(math.log(aDbl,2) + 1))
-            local x = aDbl * math_pow(2,-exp)
-    
-            if dbl < 0 then
-                x = -x
-            end
-    
-            return x,exp
-        end
-    
-        return dbl,0
-    end
-end
-
 local setmetatable = setmetatable
 local assert = assert
 local error = error
@@ -52,6 +33,26 @@ local math_pow = math.pow
 local math_sqrt = math.sqrt
 local math_ldexp = math.ldexp
 local math_frexp = math.frexp
+local math_log = math.log
+
+if jit and jit.version_num < 20100 then
+    function math_frexp(dbl)
+        local aDbl = math_abs(dbl)
+    
+        if dbl ~= 0 and (aDbl ~= math_huge) then
+            local exp = math_max(-1023,math_floor(math.log(aDbl,2) + 1))
+            local x = aDbl * math_pow(2,-exp)
+    
+            if dbl < 0 then
+                x = -x
+            end
+    
+            return x,exp
+        end
+    
+        return dbl,0
+    end
+end
 
 local function __TRUNC__(n)
     if n >= 0 then return math_floor(n) end
