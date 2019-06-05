@@ -1,8 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const fs = require("fs");
+const fsExtra = require("fs-extra");
 const cp = require("child_process");
 const _1 = require(".");
+fsExtra.ensureDirSync(__dirname + "/../test/");
 let totalTests = 0;
 let passedTests = 0;
 let files = fs.readdirSync(__dirname + "/../resources/tests/c-testsuite/");

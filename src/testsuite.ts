@@ -1,7 +1,9 @@
 import * as fs from "fs";
+import * as fsExtra from "fs-extra";
 import * as cp from "child_process";
 import { wasm2lua } from ".";
 
+fsExtra.ensureDirSync(__dirname + "/../test/");
 
 let totalTests = 0;
 let passedTests = 0;
