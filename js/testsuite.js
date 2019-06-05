@@ -19,7 +19,7 @@ const ignoredTests = [
     "math.untouched.wat.wasm",
     "string.optimized.wat.wasm",
 ];
-const LUA_PROGRAM = "nilajit";
+const LUA_PROGRAM = "luajit";
 let files = fs.readdirSync(__dirname + "/../resources/tests/c-testsuite/");
 for (let fileName of files) {
     if (fileName.match(/\.c$/)) {
