@@ -2,10 +2,10 @@
 
 args = args or {...}
 
-if jit and jit.opt then
-    -- boost jit limits
-    jit.opt.start("maxsnap=1000","loopunroll=500","maxmcode=2048")
-end
+-- if jit and jit.opt then
+--     -- boost jit limits
+--     jit.opt.start("maxsnap=1000","loopunroll=500","maxmcode=2048")
+-- end
 
 local __LONG_INT_CLASS__
 
