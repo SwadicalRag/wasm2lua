@@ -86,4 +86,7 @@ for (let fileName of files2) {
     }
 }
 console.log(`All done! ${passedTests}/${totalTests} tests passed :)`);
+if (passedTests !== totalTests) {
+    process.exit(-100);
+}
 //# sourceMappingURL=testsuite.js.map
