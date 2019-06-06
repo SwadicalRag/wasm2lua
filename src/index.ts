@@ -216,8 +216,22 @@ export class wasm2lua extends StringCompiler {
         return this.fn_freeRegisterEx(buf,func,reg);
     }
 
-    fn_createTempRegister(buf: string[],func: WASMFuncState) {
+    fn_createTempRegister(buf: string[],func: WASMFuncState,doAssign: boolean) {
+        let oldLen = func.regManager.totalRegisters;
         let reg = func.regManager.createTempRegister();
+        if(oldLen !== func.regManager.totalRegisters) {
+            // a new register was allocated :O
+            this.write(buf,`local ${func.regManager.getPhysicalRegisterName(reg)}`);
+    
+            if(doAssign) {
+                this.write(buf,` = `);
+            }
+            else {
+                this.write(buf,`;`);
+                this.newLine(buf);
+            }
+        }
+
         if(this.registerDebugOutput) {
             this.write(buf,`--[[register ${func.regManager.getPhysicalRegisterName(reg)} (temp) allocated]]`);
         }
@@ -1695,10 +1709,9 @@ export class wasm2lua extends StringCompiler {
                         case "get_global": {
                             let globID = (ins.args[0] as NumberLiteral).value;
 
-                            let globTemp = this.fn_createTempRegister(buf,state);
+                            let globTemp = this.fn_createTempRegister(buf,state,true);
 
-                            this.write(buf,state.regManager.getPhysicalRegisterName(globTemp));
-                            this.write(buf," = __GLOBALS__["+globID+"]");
+                            this.write(buf,"__GLOBALS__["+globID+"]");
                             this.write(buf,";");
                             this.newLine(buf);
 
@@ -1740,10 +1753,8 @@ export class wasm2lua extends StringCompiler {
                             if(state.locals[locID].stackEntryCount > 0) {
                                 // copy to temp var
                                 
-                                let locTemp = this.fn_createTempRegister(buf,state);
+                                let locTemp = this.fn_createTempRegister(buf,state,true);
 
-                                this.write(buf,state.regManager.getPhysicalRegisterName(locTemp));
-                                this.write(buf," = ");
                                 this.write(buf,state.regManager.getPhysicalRegisterName(state.locals[locID]));
                                 this.write(buf,";");
                                 this.newLine(buf);
@@ -1780,10 +1791,8 @@ export class wasm2lua extends StringCompiler {
                             if(state.locals[locID].stackEntryCount > 0) {
                                 // copy to temp var
                                 
-                                let locTemp = this.fn_createTempRegister(buf,state);
+                                let locTemp = this.fn_createTempRegister(buf,state,true);
 
-                                this.write(buf,state.regManager.getPhysicalRegisterName(locTemp));
-                                this.write(buf," = ");
                                 this.write(buf,state.regManager.getPhysicalRegisterName(state.locals[locID]));
                                 this.write(buf,";");
                                 this.newLine(buf);
@@ -1950,7 +1959,7 @@ export class wasm2lua extends StringCompiler {
                             // Freaking ternary op. This is a dumb way to compile this
                             // but it allows us to handle it without adding another temp var.
 
-                            let resultVar = this.fn_createTempRegister(buf,state);
+                            let resultVar = this.fn_createTempRegister(buf,state,false);
                             
                             let popCond = this.getPop(state);
                             let ret1 = this.getPop(state);
@@ -2182,9 +2191,8 @@ export class wasm2lua extends StringCompiler {
                             let targ = state.modState.memoryAllocations.get(0);
 
                             if(targ) {
-                                let tempVar = this.fn_createTempRegister(buf,state);
+                                let tempVar = this.fn_createTempRegister(buf,state,true);
                                 let vname = state.regManager.getPhysicalRegisterName(tempVar);
-                                this.write(buf,`${vname} = `);
                                 let is_narrow_u64_load = (ins.object == "u64" && ins.id != "load");
                                 if (ins.object == "u32" || is_narrow_u64_load) {
                                     if (ins.id.startsWith("load16")) {
@@ -2249,8 +2257,8 @@ export class wasm2lua extends StringCompiler {
                             // : target is always mem_0 according to wasm spec
                             let targ = state.modState.memoryAllocations.get(0);
 
-                            let tempVar = this.fn_createTempRegister(buf,state);
-                            this.write(buf,`${state.regManager.getPhysicalRegisterName(tempVar)} = __MEMORY_GROW__(${targ},__UNSIGNED__(${this.getPop(state)})); `);
+                            let tempVar = this.fn_createTempRegister(buf,state,true);
+                            this.write(buf,`__MEMORY_GROW__(${targ},__UNSIGNED__(${this.getPop(state)}));`);
                             this.write(buf,this.getPushStack(state,tempVar));
                             this.newLine(buf);
                             break;
@@ -2259,8 +2267,8 @@ export class wasm2lua extends StringCompiler {
                             // : target is always mem_0 according to wasm spec
                             let targ = state.modState.memoryAllocations.get(0);
 
-                            let tempVar = this.fn_createTempRegister(buf,state);
-                            this.writeLn(buf,`${state.regManager.getPhysicalRegisterName(tempVar)} = ${targ}._page_count;`);
+                            let tempVar = this.fn_createTempRegister(buf,state,true);
+                            this.writeLn(buf,`${targ}._page_count`);
                             this.writeLn(buf,this.getPushStack(state,tempVar));
                             break;
                         }
@@ -2312,12 +2320,12 @@ export class wasm2lua extends StringCompiler {
                     let fstate = this.getFuncByIndex(state.modState,ins.index);
 
                     if((fstate && fstate.origID == "setjmp") || (ins.index.value == "setjmp")) {
-                        let resultVar = this.fn_createTempRegister(buf,state);
+                        let resultVar = this.fn_createTempRegister(buf,state,true);
                         let jmpBufLoc = this.getPop(state);
 
                         let resVarName = state.regManager.getPhysicalRegisterName(resultVar);
 
-                        this.write(buf,`${resVarName} = {data = {},target = "jmp_${sanitizeIdentifier(ins.loc.start.line)}_${sanitizeIdentifier(ins.loc.start.column)}",result = 0,heapBase = ${this.options.heapBase},unresolved = false};`);
+                        this.write(buf,`{data = {},target = "jmp_${sanitizeIdentifier(ins.loc.start.line)}_${sanitizeIdentifier(ins.loc.start.column)}",result = 0,heapBase = ${this.options.heapBase},unresolved = false};`);
                         this.newLine(buf);
                         let hasVars = this.forEachVarIncludeParams(state,(varName,virtual) => {
                             if(virtual) {
@@ -2343,8 +2351,8 @@ export class wasm2lua extends StringCompiler {
                         this.write(buf,`::jmp_${sanitizeIdentifier(ins.loc.start.line)}_${sanitizeIdentifier(ins.loc.start.column)}::`);
                         this.newLine(buf);
 
-                        let resultVar2 = this.fn_createTempRegister(buf,state);
-                        this.writeLn(buf,`${state.regManager.getPhysicalRegisterName(resultVar2)} = (__setjmp_data__ == ${resVarName}) and __setjmp_data__.result or 0;`);
+                        let resultVar2 = this.fn_createTempRegister(buf,state,true);
+                        this.writeLn(buf,`(__setjmp_data__ == ${resVarName}) and __setjmp_data__.result or 0;`);
 
                         this.fn_freeRegister(buf,state,resultVar);
 
@@ -2406,7 +2414,7 @@ export class wasm2lua extends StringCompiler {
                     });
 
                     if(block.resultType !== null) {
-                        block.resultRegister = this.fn_createTempRegister(buf,state);
+                        block.resultRegister = this.fn_createTempRegister(buf,state,false);
                     }
 
                     this.write(buf,this.processInstructionsPass2(ins.instr,state));
@@ -2444,7 +2452,7 @@ export class wasm2lua extends StringCompiler {
                     });
 
                     if(block.resultType !== null) {
-                        block.resultRegister = this.fn_createTempRegister(buf,state);
+                        block.resultRegister = this.fn_createTempRegister(buf,state,false);
                     }
 
                     this.write(buf,this.processInstructionsPass2(ins.consequent,state));
@@ -2582,8 +2590,9 @@ export class wasm2lua extends StringCompiler {
     writeFunctionCall(state: WASMFuncState, buf: string[], func: string, sig: Signature) {
         let argsReg:VirtualRegister[] = [];
 
+        // TODO: optimise assignment
         for(let i=0;i < sig.results.length;i++) {
-            let reg = this.fn_createTempRegister(buf,state);
+            let reg = this.fn_createTempRegister(buf,state,false);
             argsReg.push(reg);
             this.write(buf,state.regManager.getPhysicalRegisterName(reg));
             if((i+1) !== sig.results.length) {
