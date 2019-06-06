@@ -1224,16 +1224,18 @@ export class wasm2lua extends StringCompiler {
     beginBlock(buf: string[],state: WASMFuncState,block: WASMBlockState,customStart?: string,pass1LabelStore?: boolean) {
         // BLOCK BEGINS MUST BE CLOSED BY BLOCK ENDS!!!!
         state.blocks.push(block);
-        this.writeLabel(buf,`${sanitizeIdentifier(block.id)}_start`,state);
-        if(pass1LabelStore) {
-            state.labels.set(`${sanitizeIdentifier(block.id)}_start`,{ins: state.insCountPass1,id: state.labels.size});
-        }
         if(typeof customStart === "string") {
             this.newLine(buf);
             this.write(buf,customStart);
+            this.write(buf," ");
         } else if ((block.blockType == "loop") && !state.jumpStreamEnabled && !state.hasSetjmp) {
             this.newLine(buf);
             this.write(buf,"while true do");
+            this.write(buf," ");
+        }
+        this.writeLabel(buf,`${sanitizeIdentifier(block.id)}_start`,state);
+        if(pass1LabelStore) {
+            state.labels.set(`${sanitizeIdentifier(block.id)}_start`,{ins: state.insCountPass1,id: state.labels.size});
         }
         this.indent();
         this.newLine(buf);
