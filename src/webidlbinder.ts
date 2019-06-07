@@ -56,9 +56,14 @@ export class WebIDLBinder {
         return this.unquote(arg.rhs.value);
     }
 
-    getWithRefs(arg: webidl.Argument) {
+    getWithRefs(arg: webidl.Argument,noMask?: boolean) {
         if(this.hasExtendedAttribute("Ref",arg.extAttrs)) {
-            return `*${arg.name}`;
+            if(noMask) {
+                return `&${arg.name}`;
+            }
+            else {
+                return `*${arg.name}`;
+            }
         }
         else {
             return arg.name;
@@ -262,7 +267,7 @@ export class WebIDLBinder {
             if(needsType) {
                 this.cppC.write(buf,`${this.idlTypeToCType(args[j].idlType,args[j].extAttrs,maskRef)} `);
             }
-            this.cppC.write(buf,`${refToPtr ? this.getWithRefs(args[j]) : args[j].name}`);
+            this.cppC.write(buf,`${refToPtr ? this.getWithRefs(args[j],!maskRef) : args[j].name}`);
             if((j+1) !== args.length) {
                 this.cppC.write(buf,",");
             }
@@ -627,7 +632,7 @@ export class WebIDLBinder {
         let hasConstructor = false;
 
         if(JsImpl) {
-            this.cppC.write(this.outBufCPP,`class ${Prefix}${node.name};`);
+            this.cppC.writeLn(this.outBufCPP,`class ${Prefix}${node.name};`);
             for(let i=0;i < node.members.length;i++) {
                 let member = node.members[i];
                 if(member.type == "operation") {
@@ -670,7 +675,7 @@ export class WebIDLBinder {
                     this.cppC.write(this.outBufCPP,` `);
 
                     this.cppC.write(this.outBufCPP,`${this.mangleFunctionName(member,node.name,true)}(this`);
-                    this.writeCArgs(this.outBufCPP,member.arguments,false,true,false,false);
+                    this.writeCArgs(this.outBufCPP,member.arguments,false,true,true,false);
                     this.cppC.write(this.outBufCPP,");");
 
                     this.cppC.write(this.outBufCPP," };");
@@ -932,7 +937,7 @@ export class WebIDLBinder {
                 if(member.type == "operation") {
                     this.cppC.write(this.outBufCPP,`${this.idlTypeToCType(member.idlType,node.extAttrs,true)} `);
                     this.cppC.write(this.outBufCPP,`${member.name}(`);
-                    this.writeCArgs(this.outBufCPP,member.arguments,true,false);
+                    this.writeCArgs(this.outBufCPP,member.arguments,true,false,false,false);
                     this.cppC.write(this.outBufCPP,`) {`);
 
                     if(member.idlType.idlType !== "void") {
@@ -941,7 +946,7 @@ export class WebIDLBinder {
                     this.cppC.write(this.outBufCPP,` `);
 
                     this.cppC.write(this.outBufCPP,`${this.mangleFunctionName(member,node.name,true)}(`);
-                    this.writeCArgs(this.outBufCPP,member.arguments,false,false);
+                    this.writeCArgs(this.outBufCPP,member.arguments,false,false,true,false);
                     this.cppC.write(this.outBufCPP,");");
 
                     this.cppC.write(this.outBufCPP," };");
@@ -1020,15 +1025,15 @@ export class WebIDLBinder {
     }
 }
 
-// let infile  = process.argv[2] || (__dirname + "/../test/test.idl");
-// let outfile_lua = process.argv[3] || (__dirname + "/../test/test_bind.lua");
-// let outfile_cpp = process.argv[3] || (__dirname + "/../test/test_bind.cpp");
+let infile  = process.argv[2] || (__dirname + "/../test/test.idl");
+let outfile_lua = process.argv[3] || (__dirname + "/../test/test_bind.lua");
+let outfile_cpp = process.argv[3] || (__dirname + "/../test/test_bind.cpp");
 
-// let idl = fs.readFileSync(infile);
+let idl = fs.readFileSync(infile);
 
-// // console.log(JSON.stringify(ast,null,4));
+// console.log(JSON.stringify(ast,null,4));
 
-// let inst = new WebIDLBinder(idl.toString(),BinderMode.WEBIDL_LUA,true);
-// inst.buildOut()
-// fs.writeFileSync(outfile_lua,inst.outBufLua.join(""));
-// fs.writeFileSync(outfile_cpp,inst.outBufCPP.join(""));
+let inst = new WebIDLBinder(idl.toString(),BinderMode.WEBIDL_CPP,true);
+inst.buildOut()
+fs.writeFileSync(outfile_lua,inst.outBufLua.join(""));
+fs.writeFileSync(outfile_cpp,inst.outBufCPP.join(""));
