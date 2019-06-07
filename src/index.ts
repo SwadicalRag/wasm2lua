@@ -102,6 +102,8 @@ interface WASMFuncState {
     curJmpID: number;
 
     usedLabels: {[labelID: string]: boolean};
+    
+    temps: VirtualRegister[];
 
     stackLevel: number;
     stackData: (string | VirtualRegister | PhantomRegister | false)[];
@@ -115,6 +117,7 @@ interface WASMBlockState {
     insCountStart: number;
     enterStackLevel: number; // used to check if we left a block with an extra item in the stack
     hasClosed?: true;
+    temps: VirtualRegister[];
 }
 
 export interface WASM2LuaOptions {
@@ -217,19 +220,10 @@ export class wasm2lua extends StringCompiler {
     }
 
     fn_createTempRegister(buf: string[],func: WASMFuncState,doAssign: boolean) {
-        let oldLen = func.regManager.totalRegisters;
         let reg = func.regManager.createTempRegister();
-        if(oldLen !== func.regManager.totalRegisters) {
-            // a new register was allocated :O
-            this.write(buf,`local ${func.regManager.getPhysicalRegisterName(reg)}`);
-    
-            if(doAssign) {
-                this.write(buf,` = `);
-            }
-            else {
-                this.write(buf,`;`);
-                this.newLine(buf);
-            }
+
+        if(doAssign) {
+            this.write(buf,`${func.regManager.getPhysicalRegisterName(reg)} = `);
         }
 
         if(this.registerDebugOutput) {
@@ -370,6 +364,14 @@ export class wasm2lua extends StringCompiler {
                 this.write(buf,"(" + lastData.value + ")");
             }
             else {
+                if(lastData.name === "temp") {
+                    if(func.blocks.length !== 0) {
+                        func.blocks[func.blocks.length - 1].temps.push(lastData);
+                    }
+                    else {
+                        func.temps.push(lastData);
+                    }
+                }
                 this.write(buf,func.regManager.getPhysicalRegisterName(lastData));
             }
 
@@ -579,6 +581,7 @@ export class wasm2lua extends StringCompiler {
                     jumpStreamEnabled: false,
                     curJmpID: 0,
                     usedLabels: {},
+                    temps: [],
                 };
 
                 this.processInstructionsPass1(field.init,global_init_state)
@@ -640,6 +643,7 @@ export class wasm2lua extends StringCompiler {
                     jumpStreamEnabled: false,
                     curJmpID: 0,
                     usedLabels: {},
+                    temps: [],
                 };
 
                 this.processInstructionsPass1(field.offset,global_init_state)
@@ -834,6 +838,7 @@ export class wasm2lua extends StringCompiler {
             jumpStreamEnabled: false,
             curJmpID: 0,
             usedLabels: {},
+            temps: [],
         };
 
         state.funcStates.push(fstate);
@@ -1242,10 +1247,17 @@ export class wasm2lua extends StringCompiler {
             this.newLine(buf);
             this.write(buf,customStart);
             this.write(buf," ");
-        } else if ((block.blockType == "loop") && !state.jumpStreamEnabled && !state.hasSetjmp) {
-            this.newLine(buf);
-            this.write(buf,"while true do");
-            this.write(buf," ");
+        }
+        else if(!state.jumpStreamEnabled && !state.hasSetjmp) {
+            if (block.blockType == "loop") {
+                this.newLine(buf);
+                this.write(buf,"while true do ");
+            }
+            else if(block.blockType == "block") {
+                this.write(buf,"do ")
+            }
+
+            // the "do" for if-statements are handled by the caller.
         }
         this.writeLabel(buf,`${sanitizeIdentifier(block.id)}_start`,state);
         if(pass1LabelStore) {
@@ -1323,13 +1335,16 @@ export class wasm2lua extends StringCompiler {
             this.writeLn(buf,this.getPushStack(state,block.resultRegister));
         }
         
-        if ((block.blockType == "loop") && !state.jumpStreamEnabled && !state.hasSetjmp) {
-            this.write(buf,"break");
-            this.newLine(buf);
+        if(!state.jumpStreamEnabled && !state.hasSetjmp) {
+            if (block.blockType == "loop") {
+                this.write(buf,"break");
+                this.newLine(buf);
+            }
             this.outdent(buf);
             this.write(buf,"end");
             this.newLine(buf);
-        } else {
+        }
+        else {
             this.outdent(buf);
         }
         if(pass1LabelStore) {
@@ -1581,6 +1596,7 @@ export class wasm2lua extends StringCompiler {
                         blockType,
                         enterStackLevel: state.stackLevel,
                         insCountStart: state.insCountPass1,
+                        temps: [],
                     },null,true);
 
                     this.processInstructionsPass1(ins.instr,state)
@@ -1602,7 +1618,8 @@ export class wasm2lua extends StringCompiler {
                         blockType: "if",
                         resultType: null,
                         enterStackLevel: state.stackLevel,
-                        insCountStart: state.insCountPass1
+                        insCountStart: state.insCountPass1,
+                        temps: [],
                     });
 
                     state.usedLabels[`${sanitizeIdentifier(block.id)}_else`] = true;
@@ -2411,6 +2428,7 @@ export class wasm2lua extends StringCompiler {
                         blockType,
                         enterStackLevel: state.stackLevel,
                         insCountStart: state.insCountPass2,
+                        temps: [],
                     });
 
                     if(block.resultType !== null) {
@@ -2418,6 +2436,37 @@ export class wasm2lua extends StringCompiler {
                     }
 
                     this.write(buf,this.processInstructionsPass2(ins.instr,state));
+
+                    if(!state.jumpStreamEnabled && !state.hasSetjmp) {
+                        // emit temp register header
+                        if(block.temps.length > 0) {
+                            let buf2 = [];
+
+                            this.indent();
+
+                            this.write(buf2,"local ")
+                            let written = false;
+                            for(let i=0;i < block.temps.length;i++) {
+                                let temp = block.temps[i];
+                                if(temp.id >= (state.funcType ? state.funcType.params.length : 0)) {
+                                    written = true;
+                                    this.write(buf2,state.regManager.getPhysicalRegisterName(temp));
+                                    this.write(buf2,",");
+                                }
+                            }
+                            buf2.pop(); // pop `local ` or `,`
+
+                            if(written) {
+                                this.writeLn(buf2,";");
+
+                                this.outdent();
+
+                                // write header before block body
+                                this.writeEx(buf,buf2.join(""),-1);
+                            }
+                        }
+                    }
+
                     break;
                 }
                 case "IfInstruction": {
@@ -2430,6 +2479,8 @@ export class wasm2lua extends StringCompiler {
                     let labelBase = `if_${state.insCountPass2}`;
                     let labelBaseSan = sanitizeIdentifier(`if_${state.insCountPass2}`);
 
+                    // "do" is written here, and not inside beginBlock
+                    let doPos = this.write(buf,"do ");
                     this.write(buf,"if ");
                     this.write(buf,this.getPop(state));
                     if(ins.alternate.length > 0) {
@@ -2448,7 +2499,8 @@ export class wasm2lua extends StringCompiler {
                         blockType: "if",
                         resultType: ins.result,
                         enterStackLevel: state.stackLevel,
-                        insCountStart: state.insCountPass2
+                        insCountStart: state.insCountPass2,
+                        temps: [],
                     });
 
                     if(block.resultType !== null) {
@@ -2463,6 +2515,36 @@ export class wasm2lua extends StringCompiler {
                         this.startElseSubBlock(buf,block,state);
     
                         this.write(buf,this.processInstructionsPass2(ins.alternate,state));
+                    }
+
+                    if(!state.jumpStreamEnabled && !state.hasSetjmp) {
+                        // emit temp register header
+                        if(block.temps.length > 0) {
+                            let buf2 = [];
+
+                            this.indent();
+
+                            this.write(buf2,"local ")
+                            let written = false;
+                            for(let i=0;i < block.temps.length;i++) {
+                                let temp = block.temps[i];
+                                if(temp.id >= (state.funcType ? state.funcType.params.length : 0)) {
+                                    written = true;
+                                    this.write(buf2,state.regManager.getPhysicalRegisterName(temp));
+                                    this.write(buf2,",");
+                                }
+                            }
+                            buf2.pop(); // pop `local ` or `,`
+
+                            if(written) {
+                                this.writeLn(buf2,";");
+
+                                this.outdent();
+
+                                // write header before block body
+                                this.writeEx(buf,buf2.join(""),doPos + 1);
+                            }
+                        }
                     }
 
                     break;
@@ -2521,6 +2603,39 @@ export class wasm2lua extends StringCompiler {
     processInstructionsPass3(insArr: Instruction[],state: WASMFuncState) {
         // PASS 3: emit register header
         //////////////////////////////////////////////////////////////
+
+        if(!state.jumpStreamEnabled && !state.hasSetjmp) {
+            // using dynamic declaration mode
+            // emit temp register header
+            if(state.temps.length > 0) {
+                let buf2 = [];
+
+                this.indent();
+
+                this.write(buf2,"local ")
+                let written = false;
+                for(let i=0;i < state.temps.length;i++) {
+                    let temp = state.temps[i];
+                    if(temp.id >= (state.funcType ? state.funcType.params.length : 0)) {
+                        written = true;
+                        this.write(buf2,state.regManager.getPhysicalRegisterName(temp));
+                        this.write(buf2,",");
+                    }
+                }
+                buf2.pop(); // pop `local ` or `,`
+
+                if(written) {
+                    this.writeLn(buf2,";");
+
+                    this.outdent();
+
+                    // write header before block body
+                    return buf2.join("");
+                }
+            }
+
+            return "";
+        }
 
         let t_buf: string[] = [];
 
@@ -2711,7 +2826,7 @@ export class wasm2lua extends StringCompiler {
 // // let infile  = process.argv[2] || (__dirname + "/../test/ammo-ex.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
-// let infile  = process.argv[2] || (__dirname + "/../test/teststub.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/ifret.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/test2.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/duktape.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../resources/tests/assemblyscript/string-utf8.optimized.wat.wasm");

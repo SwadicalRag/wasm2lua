@@ -20,15 +20,18 @@ class StringCompiler {
             }
         }
     }
-    newLine(buf) {
-        buf.push("\n" + (("    ").repeat(this.indentLevel)));
+    getNewLine() {
+        return "\n" + (("    ").repeat(this.indentLevel));
     }
-    write(buf, str) { buf.push(str); }
+    newLine(buf) {
+        buf.push(this.getNewLine());
+    }
+    write(buf, str) { return buf.push(str) - 1; }
     writeLn(buf, str) {
         if (str !== "") {
-            buf.push(str);
-            this.newLine(buf);
+            buf.push(str + this.getNewLine());
         }
+        return buf.length - 1;
     }
     writeEx(buf, str, offset) {
         if (offset < 0) {

@@ -23,16 +23,20 @@ export class StringCompiler {
         }
     }
 
-    newLine(buf: string[]) {
-        buf.push("\n" + (("    ").repeat(this.indentLevel)));
+    getNewLine() {
+        return "\n" + (("    ").repeat(this.indentLevel));
     }
 
-    write(buf: string[],str: string) {buf.push(str);}
+    newLine(buf: string[]) {
+        buf.push(this.getNewLine());
+    }
+
+    write(buf: string[],str: string) {return buf.push(str) - 1;}
     writeLn(buf: string[],str: string) {
         if(str !== "") {
-            buf.push(str);
-            this.newLine(buf);
+            buf.push(str + this.getNewLine());
         }
+        return buf.length - 1;
     }
     writeEx(buf: string[],str: string,offset: number) {
         if(offset < 0) {offset += buf.length;}

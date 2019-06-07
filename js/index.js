@@ -99,17 +99,9 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         return this.fn_freeRegisterEx(buf, func, reg);
     }
     fn_createTempRegister(buf, func, doAssign) {
-        let oldLen = func.regManager.totalRegisters;
         let reg = func.regManager.createTempRegister();
-        if (oldLen !== func.regManager.totalRegisters) {
-            this.write(buf, `local ${func.regManager.getPhysicalRegisterName(reg)}`);
-            if (doAssign) {
-                this.write(buf, ` = `);
-            }
-            else {
-                this.write(buf, `;`);
-                this.newLine(buf);
-            }
+        if (doAssign) {
+            this.write(buf, `${func.regManager.getPhysicalRegisterName(reg)} = `);
         }
         if (this.registerDebugOutput) {
             this.write(buf, `--[[register ${func.regManager.getPhysicalRegisterName(reg)} (temp) allocated]]`);
@@ -233,6 +225,14 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                 this.write(buf, "(" + lastData.value + ")");
             }
             else {
+                if (lastData.name === "temp") {
+                    if (func.blocks.length !== 0) {
+                        func.blocks[func.blocks.length - 1].temps.push(lastData);
+                    }
+                    else {
+                        func.temps.push(lastData);
+                    }
+                }
                 this.write(buf, func.regManager.getPhysicalRegisterName(lastData));
             }
             if (this.stackDebugOutput) {
@@ -403,6 +403,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                     jumpStreamEnabled: false,
                     curJmpID: 0,
                     usedLabels: {},
+                    temps: [],
                 };
                 this.processInstructionsPass1(field.init, global_init_state);
                 this.write(buf, this.processInstructionsPass2(field.init, global_init_state));
@@ -451,6 +452,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                     jumpStreamEnabled: false,
                     curJmpID: 0,
                     usedLabels: {},
+                    temps: [],
                 };
                 this.processInstructionsPass1(field.offset, global_init_state);
                 this.write(buf, this.processInstructionsPass2(field.offset, global_init_state));
@@ -604,6 +606,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             jumpStreamEnabled: false,
             curJmpID: 0,
             usedLabels: {},
+            temps: [],
         };
         state.funcStates.push(fstate);
         state.funcByName.set(funcID, fstate);
@@ -906,10 +909,14 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             this.write(buf, customStart);
             this.write(buf, " ");
         }
-        else if ((block.blockType == "loop") && !state.jumpStreamEnabled && !state.hasSetjmp) {
-            this.newLine(buf);
-            this.write(buf, "while true do");
-            this.write(buf, " ");
+        else if (!state.jumpStreamEnabled && !state.hasSetjmp) {
+            if (block.blockType == "loop") {
+                this.newLine(buf);
+                this.write(buf, "while true do ");
+            }
+            else if (block.blockType == "block") {
+                this.write(buf, "do ");
+            }
         }
         this.writeLabel(buf, `${sanitizeIdentifier(block.id)}_start`, state);
         if (pass1LabelStore) {
@@ -976,9 +983,11 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             this.writeLn(buf, "-- BLOCK RET (" + block.blockType + "):");
             this.writeLn(buf, this.getPushStack(state, block.resultRegister));
         }
-        if ((block.blockType == "loop") && !state.jumpStreamEnabled && !state.hasSetjmp) {
-            this.write(buf, "break");
-            this.newLine(buf);
+        if (!state.jumpStreamEnabled && !state.hasSetjmp) {
+            if (block.blockType == "loop") {
+                this.write(buf, "break");
+                this.newLine(buf);
+            }
             this.outdent(buf);
             this.write(buf, "end");
             this.newLine(buf);
@@ -1177,6 +1186,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                         blockType,
                         enterStackLevel: state.stackLevel,
                         insCountStart: state.insCountPass1,
+                        temps: [],
                     }, null, true);
                     this.processInstructionsPass1(ins.instr, state);
                     if (block.blockType === "loop") {
@@ -1195,7 +1205,8 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                         blockType: "if",
                         resultType: null,
                         enterStackLevel: state.stackLevel,
-                        insCountStart: state.insCountPass1
+                        insCountStart: state.insCountPass1,
+                        temps: [],
                     });
                     state.usedLabels[`${sanitizeIdentifier(block.id)}_else`] = true;
                     state.gotos.push({ ins: state.insCountPass1, label: `${sanitizeIdentifier(block.id)}_else` });
@@ -1893,11 +1904,34 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                         blockType,
                         enterStackLevel: state.stackLevel,
                         insCountStart: state.insCountPass2,
+                        temps: [],
                     });
                     if (block.resultType !== null) {
                         block.resultRegister = this.fn_createTempRegister(buf, state, false);
                     }
                     this.write(buf, this.processInstructionsPass2(ins.instr, state));
+                    if (!state.jumpStreamEnabled && !state.hasSetjmp) {
+                        if (block.temps.length > 0) {
+                            let buf2 = [];
+                            this.indent();
+                            this.write(buf2, "local ");
+                            let written = false;
+                            for (let i = 0; i < block.temps.length; i++) {
+                                let temp = block.temps[i];
+                                if (temp.id >= (state.funcType ? state.funcType.params.length : 0)) {
+                                    written = true;
+                                    this.write(buf2, state.regManager.getPhysicalRegisterName(temp));
+                                    this.write(buf2, ",");
+                                }
+                            }
+                            buf2.pop();
+                            if (written) {
+                                this.writeLn(buf2, ";");
+                                this.outdent();
+                                this.writeEx(buf, buf2.join(""), -1);
+                            }
+                        }
+                    }
                     break;
                 }
                 case "IfInstruction": {
@@ -1907,6 +1941,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                     }
                     let labelBase = `if_${state.insCountPass2}`;
                     let labelBaseSan = sanitizeIdentifier(`if_${state.insCountPass2}`);
+                    let doPos = this.write(buf, "do ");
                     this.write(buf, "if ");
                     this.write(buf, this.getPop(state));
                     if (ins.alternate.length > 0) {
@@ -1924,7 +1959,8 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                         blockType: "if",
                         resultType: ins.result,
                         enterStackLevel: state.stackLevel,
-                        insCountStart: state.insCountPass2
+                        insCountStart: state.insCountPass2,
+                        temps: [],
                     });
                     if (block.resultType !== null) {
                         block.resultRegister = this.fn_createTempRegister(buf, state, false);
@@ -1933,6 +1969,28 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                     if (ins.alternate.length > 0) {
                         this.startElseSubBlock(buf, block, state);
                         this.write(buf, this.processInstructionsPass2(ins.alternate, state));
+                    }
+                    if (!state.jumpStreamEnabled && !state.hasSetjmp) {
+                        if (block.temps.length > 0) {
+                            let buf2 = [];
+                            this.indent();
+                            this.write(buf2, "local ");
+                            let written = false;
+                            for (let i = 0; i < block.temps.length; i++) {
+                                let temp = block.temps[i];
+                                if (temp.id >= (state.funcType ? state.funcType.params.length : 0)) {
+                                    written = true;
+                                    this.write(buf2, state.regManager.getPhysicalRegisterName(temp));
+                                    this.write(buf2, ",");
+                                }
+                            }
+                            buf2.pop();
+                            if (written) {
+                                this.writeLn(buf2, ";");
+                                this.outdent();
+                                this.writeEx(buf, buf2.join(""), doPos + 1);
+                            }
+                        }
                     }
                     break;
                 }
@@ -1978,6 +2036,29 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         return buf.join("");
     }
     processInstructionsPass3(insArr, state) {
+        if (!state.jumpStreamEnabled && !state.hasSetjmp) {
+            if (state.temps.length > 0) {
+                let buf2 = [];
+                this.indent();
+                this.write(buf2, "local ");
+                let written = false;
+                for (let i = 0; i < state.temps.length; i++) {
+                    let temp = state.temps[i];
+                    if (temp.id >= (state.funcType ? state.funcType.params.length : 0)) {
+                        written = true;
+                        this.write(buf2, state.regManager.getPhysicalRegisterName(temp));
+                        this.write(buf2, ",");
+                    }
+                }
+                buf2.pop();
+                if (written) {
+                    this.writeLn(buf2, ";");
+                    this.outdent();
+                    return buf2.join("");
+                }
+            }
+            return "";
+        }
         let t_buf = [];
         if (state.regManager.virtualDisabled) {
             this.write(t_buf, "local ");
