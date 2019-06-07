@@ -661,7 +661,7 @@ export class WebIDLBinder {
 
                     this.cppC.write(this.outBufCPP,`${this.idlTypeToCType(member.idlType,node.extAttrs,false)} `);
                     this.cppC.write(this.outBufCPP,`${member.name}(`);
-                    this.writeCArgs(this.outBufCPP,member.arguments,true,false,false,true);
+                    this.writeCArgs(this.outBufCPP,member.arguments,true,false,false,false);
                     this.cppC.write(this.outBufCPP,`) {`);
 
                     if(member.idlType.idlType !== "void") {
