@@ -882,7 +882,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                 if (target.ins > state.insCountPass2) {
                     for (let i = target.rid; i >= 0; i--) {
                         let nextT = state.labelsByIns[i];
-                        if ((nextT[0] - state.insCountPass2) < JMPSTREAM_INS_GAP) {
+                        if ((nextT[0] - state.insCountPass2) < this.options.jmpStreamThreshold) {
                             closestTargetID = i;
                             closestTargetIns = nextT[0];
                             break;
@@ -892,7 +892,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                 else {
                     for (let i = target.rid; i < state.labelsByIns.length; i++) {
                         let nextT = state.labelsByIns[i];
-                        if ((state.insCountPass2 - nextT[0]) < JMPSTREAM_INS_GAP) {
+                        if ((state.insCountPass2 - nextT[0]) < this.options.jmpStreamThreshold) {
                             closestTargetID = i;
                             closestTargetIns = nextT[0];
                             break;
@@ -926,7 +926,8 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         }
         this.writeLabel(buf, `${sanitizeIdentifier(block.id)}_start`, state);
         if (pass1LabelStore) {
-            state.labels.set(`${sanitizeIdentifier(block.id)}_start`, { ins: state.insCountPass1, id: state.labels.size });
+            state.labels.set(`${sanitizeIdentifier(block.id)}_start`, { ins: state.insCountPass1, id: state.labels.size, rid: state.labelsByIns.length });
+            state.labelsByIns.push([state.insCountPass1, `${sanitizeIdentifier(block.id)}_start`]);
         }
         this.indent();
         this.newLine(buf);
@@ -2212,4 +2213,11 @@ wasm2lua.instructionBinOpFuncRemap = {
     max: "__FLOAT__.max"
 };
 exports.wasm2lua = wasm2lua;
+let infile = process.argv[2] || (__dirname + "/../test/teststub.wasm");
+let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
+let compileFlags = process.argv[4] ? process.argv[4].split(",") : null;
+let whitelist = null;
+let wasm = fs.readFileSync(infile);
+let inst = new wasm2lua(wasm, { whitelist, compileFlags, webidl: { idlFilePath: __dirname + "/../test/test.idl" } });
+fs.writeFileSync(outfile, inst.outBuf.join(""));
 //# sourceMappingURL=index.js.map

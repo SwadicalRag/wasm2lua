@@ -1217,7 +1217,7 @@ export class wasm2lua extends StringCompiler {
                     for(let i=target.rid;i >= 0;i--) {
                         let nextT = state.labelsByIns[i];
 
-                        if((nextT[0] - state.insCountPass2) < JMPSTREAM_INS_GAP) {
+                        if((nextT[0] - state.insCountPass2) < this.options.jmpStreamThreshold) {
                             closestTargetID = i;
                             closestTargetIns = nextT[0];
                             break;
@@ -1228,7 +1228,7 @@ export class wasm2lua extends StringCompiler {
                     for(let i=target.rid;i < state.labelsByIns.length;i++) {
                         let nextT = state.labelsByIns[i];
 
-                        if((state.insCountPass2 - nextT[0]) < JMPSTREAM_INS_GAP) {
+                        if((state.insCountPass2 - nextT[0]) < this.options.jmpStreamThreshold) {
                             closestTargetID = i;
                             closestTargetIns = nextT[0];
                             break;
@@ -2743,32 +2743,32 @@ export class wasm2lua extends StringCompiler {
     }
 }
 
-// // Allow custom in/out file while defaulting to swad's meme :)
-// // let infile  = process.argv[2] || (__dirname + "/../test/addTwo.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/ammo-ex.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
-// let infile  = process.argv[2] || (__dirname + "/../test/teststub.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/test2.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/duktape.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../resources/tests/assemblyscript/string-utf8.optimized.wat.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/nbody.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/matrix.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/longjmp.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/mandelbrot.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/testorder.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/testorder2.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/testorder3.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/testorder5.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../test/testswitch.wasm");
-// let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
-// let compileFlags = process.argv[4] ? process.argv[4].split(",") : null;
-// let whitelist = null;
+// Allow custom in/out file while defaulting to swad's meme :)
+// let infile  = process.argv[2] || (__dirname + "/../test/addTwo.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/ammo-ex.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
+let infile  = process.argv[2] || (__dirname + "/../test/teststub.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/test2.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/duktape.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../resources/tests/assemblyscript/string-utf8.optimized.wat.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/nbody.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/matrix.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/longjmp.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/mandelbrot.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/testwasi.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/testorder.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/testorder2.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/testorder3.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/testorder5.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/testswitch.wasm");
+let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
+let compileFlags = process.argv[4] ? process.argv[4].split(",") : null;
+let whitelist = null;
 
-// let wasm = fs.readFileSync(infile);
+let wasm = fs.readFileSync(infile);
 
-// // console.log(JSON.stringify(ast,null,4));
+// console.log(JSON.stringify(ast,null,4));
 
-// let inst = new wasm2lua(wasm, {whitelist,compileFlags,webidl: {idlFilePath: __dirname + "/../test/test.idl"}});
-// fs.writeFileSync(outfile,inst.outBuf.join(""));
+let inst = new wasm2lua(wasm, {whitelist,compileFlags,webidl: {idlFilePath: __dirname + "/../test/test.idl"}});
+fs.writeFileSync(outfile,inst.outBuf.join(""));
