@@ -11,6 +11,12 @@ var BinderMode;
 class SemanticError extends Error {
 }
 exports.SemanticError = SemanticError;
+var ETypeConversion;
+(function (ETypeConversion) {
+    ETypeConversion[ETypeConversion["NONE"] = 0] = "NONE";
+    ETypeConversion[ETypeConversion["CPP_TO_LUA"] = 1] = "CPP_TO_LUA";
+    ETypeConversion[ETypeConversion["LUA_TO_CPP"] = 2] = "LUA_TO_CPP";
+})(ETypeConversion = exports.ETypeConversion || (exports.ETypeConversion = {}));
 class WebIDLBinder {
     constructor(source, mode, addYieldStub) {
         this.source = source;
@@ -203,15 +209,18 @@ class WebIDLBinder {
             }
         }
     }
-    writeLuaArgs(buf, args, needsStartingComma, useTypeConversion) {
+    writeLuaArgs(buf, args, needsStartingComma, typeConversionMode) {
         if (needsStartingComma) {
             if (args.length > 0) {
                 this.luaC.write(buf, ",");
             }
         }
         for (let j = 0; j < args.length; j++) {
-            if (useTypeConversion) {
+            if (typeConversionMode == ETypeConversion.LUA_TO_CPP) {
                 this.convertLuaToCPP_Arg(buf, args[j], j);
+            }
+            else if (typeConversionMode == ETypeConversion.CPP_TO_LUA) {
+                this.convertCPPToLua_Arg(buf, args[j], j);
             }
             else {
                 this.luaC.write(buf, `${args[j].name}`);
@@ -275,6 +284,43 @@ class WebIDLBinder {
         else {
             this.luaC.write(buf, `return ${argName}`);
         }
+    }
+    convertLuaToCPPReturn(buf, argType, argName) {
+        this.luaC.write(buf, `return `);
+        if (argType.idlType == "DOMString") {
+            this.luaC.write(buf, `vm.stringify(${argName})`);
+        }
+        else {
+            this.luaC.write(buf, `${argName}`);
+            if (this.classLookup[argType.idlType]) {
+                this.luaC.write(buf, ".__ptr");
+            }
+            else if (argType.idlType == "boolean") {
+                this.luaC.write(buf, " and 1 or 0");
+            }
+        }
+    }
+    convertCPPToLua_Pre(buf, arg, argID) {
+        if (this.classLookup[arg.idlType.idlType]) {
+            this.luaC.write(buf, `local __arg${argID} = __BINDINGS__.${arg.idlType.idlType}.__cache[arg.name] `);
+            this.luaC.write(buf, `if not __arg${argID} then __arg${argID} = setmetatable({__ptr = __arg${argID}},__BINDINGS__.${arg.idlType.idlType}) __BINDINGS__.${arg.idlType.idlType}.__cache[${arg.name}] = __arg${argID} end `);
+        }
+        else if (arg.idlType.idlType == "DOMString") {
+            this.luaC.write(buf, `local __arg${argID} = vm.readString(${arg.name}) `);
+        }
+    }
+    convertCPPToLua_Arg(buf, arg, argID) {
+        if (this.classLookup[arg.idlType.idlType]) {
+            this.luaC.write(buf, `__arg${argID}`);
+        }
+        else if (arg.idlType.idlType == "DOMString") {
+            this.luaC.write(buf, `__arg${argID}`);
+        }
+        else {
+            this.luaC.write(buf, `${arg.name}`);
+        }
+    }
+    convertCPPToLua_Post(buf, arg, argID) {
     }
     walkInterfaceLua(node) {
         let JsImpl = this.getExtendedAttribute("JSImplementation", node.extAttrs);
@@ -359,7 +405,7 @@ class WebIDLBinder {
                     this.luaC.write(this.outBufLua, `__internal${member.arguments.length}`);
                 }
                 this.luaC.write(this.outBufLua, `(`);
-                this.writeLuaArgs(this.outBufLua, member.arguments, false);
+                this.writeLuaArgs(this.outBufLua, member.arguments, false, ETypeConversion.NONE);
                 this.luaC.write(this.outBufLua, `)`);
                 if (!JsImpl || (node.name == member.name)) {
                     for (let j = 0; j < member.arguments.length; j++) {
@@ -376,7 +422,7 @@ class WebIDLBinder {
                             this.luaC.write(this.outBufLua, ",");
                         }
                     }
-                    this.writeLuaArgs(this.outBufLua, member.arguments, false, true);
+                    this.writeLuaArgs(this.outBufLua, member.arguments, false, ETypeConversion.LUA_TO_CPP);
                     this.luaC.write(this.outBufLua, ");");
                     if (member.name == node.name) {
                         this.luaC.write(this.outBufLua, `__BINDINGS__.${node.name}.__cache[self.__ptr] = self;`);
@@ -395,18 +441,18 @@ class WebIDLBinder {
                 this.luaC.newLine(this.outBufLua);
                 if (JsImpl && (member.name !== node.name)) {
                     this.luaC.write(this.outBufLua, `function __CFUNCS__.${this.mangleFunctionName(member, node.name, true)}(selfPtr`);
-                    this.writeLuaArgs(this.outBufLua, member.arguments, true);
+                    this.writeLuaArgs(this.outBufLua, member.arguments, true, ETypeConversion.NONE);
                     this.luaC.write(this.outBufLua, `)`);
                     for (let j = 0; j < member.arguments.length; j++) {
                         this.convertLuaToCPP_Pre(this.outBufLua, member.arguments[j], j);
                     }
                     this.luaC.write(this.outBufLua, `local self = __BINDINGS__.${node.name}.__cache[selfPtr] local ret = self.${member.name}(self`);
-                    this.writeLuaArgs(this.outBufLua, member.arguments, true, true);
+                    this.writeLuaArgs(this.outBufLua, member.arguments, true, ETypeConversion.CPP_TO_LUA);
                     this.luaC.write(this.outBufLua, `)`);
                     for (let j = 0; j < member.arguments.length; j++) {
                         this.convertLuaToCPP_Post(this.outBufLua, member.arguments[j], j);
                     }
-                    this.convertCPPToLuaReturn(this.outBufLua, member.idlType, "ret");
+                    this.convertLuaToCPPReturn(this.outBufLua, member.idlType, "ret");
                     this.luaC.write(this.outBufLua, " end");
                     this.luaC.newLine(this.outBufLua);
                 }
@@ -621,7 +667,7 @@ class WebIDLBinder {
                     this.luaC.write(this.outBufLua, `__internal${member.arguments.length}`);
                 }
                 this.luaC.write(this.outBufLua, `(`);
-                this.writeLuaArgs(this.outBufLua, member.arguments, false);
+                this.writeLuaArgs(this.outBufLua, member.arguments, false, ETypeConversion.NONE);
                 this.luaC.write(this.outBufLua, `)`);
                 if (JsImpl) {
                     this.luaC.write(this.outBufLua, `error("Unimplemented -> ${node.name}::${member.name}()")`);
@@ -632,7 +678,7 @@ class WebIDLBinder {
                     }
                     this.luaC.write(this.outBufLua, `local ret = `);
                     this.luaC.write(this.outBufLua, `__FUNCS__.${this.mangleFunctionName(member, node.name)}(`);
-                    this.writeLuaArgs(this.outBufLua, member.arguments, false, true);
+                    this.writeLuaArgs(this.outBufLua, member.arguments, false, ETypeConversion.LUA_TO_CPP);
                     this.luaC.write(this.outBufLua, ")");
                     for (let j = 0; j < member.arguments.length; j++) {
                         this.convertLuaToCPP_Post(this.outBufLua, member.arguments[j], j);
@@ -643,18 +689,18 @@ class WebIDLBinder {
                 this.luaC.newLine(this.outBufLua);
                 if (JsImpl) {
                     this.luaC.write(this.outBufLua, `function __CFUNCS__.${this.mangleFunctionName(member, node.name, true)}(`);
-                    this.writeLuaArgs(this.outBufLua, member.arguments, false);
+                    this.writeLuaArgs(this.outBufLua, member.arguments, false, ETypeConversion.NONE);
                     this.luaC.write(this.outBufLua, `)`);
                     for (let j = 0; j < member.arguments.length; j++) {
                         this.convertLuaToCPP_Pre(this.outBufLua, member.arguments[j], j);
                     }
                     this.luaC.write(this.outBufLua, `local ret = __BINDINGS__.${node.name}.${member.name}(`);
-                    this.writeLuaArgs(this.outBufLua, member.arguments, false, true);
+                    this.writeLuaArgs(this.outBufLua, member.arguments, false, ETypeConversion.CPP_TO_LUA);
                     this.luaC.write(this.outBufLua, `)`);
                     for (let j = 0; j < member.arguments.length; j++) {
                         this.convertLuaToCPP_Post(this.outBufLua, member.arguments[j], j);
                     }
-                    this.convertCPPToLuaReturn(this.outBufLua, member.idlType, "ret");
+                    this.convertLuaToCPPReturn(this.outBufLua, member.idlType, "ret");
                     this.luaC.write(this.outBufLua, " end");
                     this.luaC.newLine(this.outBufLua);
                 }
