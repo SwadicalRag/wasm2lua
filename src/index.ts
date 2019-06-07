@@ -2135,6 +2135,9 @@ export class wasm2lua extends StringCompiler {
                             // target is always mem_0 according to wasm spec
                             let targ = state.modState.memoryAllocations.get(0);
 
+                            let loadOffset = (ins.args[0] as NumberLiteral).value;
+                            let loadOffsetStr = loadOffset != 0 ? `+${loadOffset}` : "";
+
                             if(targ) {
                                 let tmp = this.getPop(state);
                                 let tmp2 = this.getPop(state);
@@ -2149,15 +2152,15 @@ export class wasm2lua extends StringCompiler {
                                     else {
                                         this.write(buf,"__MEMORY_WRITE_32__");
                                     }
-                                    this.write(buf,`(${targ},${tmp2}+${(ins.args[0] as NumberLiteral).value},${tmp});`);
+                                    this.write(buf,`(${targ},${tmp2}${loadOffsetStr},${tmp});`);
                                 } else if (ins.object == "u64") {
-                                    this.write(buf,`(${tmp}):${ins.id}(${targ},${tmp2}+${(ins.args[0] as NumberLiteral).value});`);
+                                    this.write(buf,`(${tmp}):${ins.id}(${targ},${tmp2}${loadOffsetStr});`);
                                 } else if (ins.object == "f32") {
                                     this.write(buf,"__MEMORY_WRITE_32F__");
-                                    this.write(buf,`(${targ},${tmp2}+${(ins.args[0] as NumberLiteral).value},${tmp});`);
+                                    this.write(buf,`(${targ},${tmp2}${loadOffsetStr},${tmp});`);
                                 } else if (ins.object == "f64") {
                                     this.write(buf,"__MEMORY_WRITE_64F__");
-                                    this.write(buf,`(${targ},${tmp2}+${(ins.args[0] as NumberLiteral).value},${tmp});`);
+                                    this.write(buf,`(${targ},${tmp2}${loadOffsetStr},${tmp});`);
                                 } else {
                                     this.write(buf,"-- WARNING: UNSUPPORTED MEMORY OP ON TYPE: "+ins.object);
                                 }
@@ -2184,6 +2187,10 @@ export class wasm2lua extends StringCompiler {
                             if(targ) {
                                 let tempVar = this.fn_createTempRegister(buf,state);
                                 let vname = state.regManager.getPhysicalRegisterName(tempVar);
+
+                                let loadOffset = (ins.args[0] as NumberLiteral).value;
+                                let loadOffsetStr = loadOffset != 0 ? `+${loadOffset}` : "";
+
                                 this.write(buf,`${vname} = `);
                                 let is_narrow_u64_load = (ins.object == "u64" && ins.id != "load");
                                 if (ins.object == "u32" || is_narrow_u64_load) {
@@ -2196,7 +2203,7 @@ export class wasm2lua extends StringCompiler {
                                     else {
                                         this.write(buf,"__MEMORY_READ_32__");
                                     }
-                                    this.write(buf,`(${targ},${this.getPop(state)}+${(ins.args[0] as NumberLiteral).value});`);
+                                    this.write(buf,`(${targ},${this.getPop(state)}${loadOffsetStr});`);
                                     if (ins.id.endsWith("_s") && ins.id != "load32_s") {
                                         let shift: number;
                                         if (ins.id == "load8_s") {
@@ -2212,16 +2219,16 @@ export class wasm2lua extends StringCompiler {
                                 } else if (ins.object == "u64") {
                                     // todo rewrite this trash
                                     if (ins.id == "load") {
-                                        this.write(buf,`__LONG_INT__(0,0); ${vname}:${ins.id}(${targ},${this.getPop(state)}+${(ins.args[0] as NumberLiteral).value});`);
+                                        this.write(buf,`__LONG_INT__(0,0); ${vname}:${ins.id}(${targ},${this.getPop(state)}${loadOffsetStr});`);
                                     } else {
                                         throw new Error("narrow u64 loads NYI "+ins.id);
                                     }
                                 } else if (ins.object == "f32") {
                                     this.write(buf,"__MEMORY_READ_32F__");
-                                    this.write(buf,`(${targ},${this.getPop(state)}+${(ins.args[0] as NumberLiteral).value});`);
+                                    this.write(buf,`(${targ},${this.getPop(state)}${loadOffsetStr});`);
                                 } else if (ins.object == "f64") {
                                     this.write(buf,"__MEMORY_READ_64F__");
-                                    this.write(buf,`(${targ},${this.getPop(state)}+${(ins.args[0] as NumberLiteral).value});`);
+                                    this.write(buf,`(${targ},${this.getPop(state)}${loadOffsetStr});`);
                                 } else {
                                     this.write(buf,"0 -- WARNING: UNSUPPORTED MEMORY OP ON TYPE: "+ins.object);
                                     this.newLine(buf);
