@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 ;
+;
 class VirtualRegisterManager {
     constructor() {
         this.registerCache = [];
@@ -41,8 +42,35 @@ class VirtualRegisterManager {
             name,
             refs: 0,
             stackEntryCount: 0,
+            isPhantom: false,
         };
         this.namedRegisters.set(name, reg);
+        this.registers.push(reg);
+        this.registerCache.push(reg);
+        this.totalRegisters = Math.max(this.totalRegisters, this.registers.length);
+        this.registers.sort((a, b) => {
+            return a.id - b.id;
+        });
+        return reg;
+    }
+    createPhantomRegister() {
+        let reg = {
+            name: "temp",
+            isPhantom: true,
+            stackEntryCount: 0,
+            value: null,
+            dependencies: [],
+        };
+        return reg;
+    }
+    realizePhantomRegister(preg) {
+        let reg = {
+            id: this.getNextFreeRegisterID(),
+            name: "temp",
+            refs: 0,
+            stackEntryCount: preg.stackEntryCount,
+            isPhantom: false,
+        };
         this.registers.push(reg);
         this.registerCache.push(reg);
         this.totalRegisters = Math.max(this.totalRegisters, this.registers.length);
@@ -57,6 +85,7 @@ class VirtualRegisterManager {
             name: "temp",
             refs: 0,
             stackEntryCount: 0,
+            isPhantom: false,
         };
         this.registers.push(reg);
         this.registerCache.push(reg);

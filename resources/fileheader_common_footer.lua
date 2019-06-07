@@ -210,7 +210,7 @@ __LONG_INT_CLASS__ = {
             __MEMORY_WRITE_8__(mem,loc,self[1])
         end,
         _div_s = function(a,b)
-            error("divide nyi")
+            error("_div_s nyi")
         end,
         _div_u = function(n,d)
             assert(d[1] ~= 0 or d[2] ~= 0,"divide by zero")
@@ -231,10 +231,12 @@ __LONG_INT_CLASS__ = {
             return q
         end,
         _rem_s = function(a,b)
-            error("divide nyi")
+            -- trash impl, todo fix this
+            local low = a[1] % b[1]
+            return __LONG_INT__(bit_tobit(low), 0)
         end,
         _rem_u = function(a,b)
-            error("divide nyi")
+            error("_rem_u nyi")
         end,
         _lt_u = function(a,b)
             if __UNSIGNED__(a[2]) == __UNSIGNED__(b[2]) then
