@@ -177,18 +177,20 @@ class WebIDLBinder {
         for (let i = 0; i < this.ast.length; i++) {
             this.walkRootType(this.ast[i]);
         }
-        for (let i = 0; i < this.ast.length; i++) {
-            if (this.ast[i].type == "interface") {
-                let int = this.ast[i];
-                if (int.inheritance) {
-                    this.luaC.writeLn(this.outBufLua, `getmetatable(__BINDINGS__.${int.name}).__index = __BINDINGS__.${int.inheritance};`);
-                }
-                else {
-                    let JsImpl = this.getExtendedAttribute("JSImplementation", int.extAttrs) || this.getExtendedAttribute("LuaImplementation", int.extAttrs);
-                    if (JsImpl) {
-                        let jsImplExtends = this.unquote(JsImpl.rhs.value);
-                        if (jsImplExtends !== "") {
-                            this.luaC.writeLn(this.outBufLua, `getmetatable(__BINDINGS__.${int.name}).__index = __BINDINGS__.${jsImplExtends};`);
+        if (this.mode == BinderMode.WEBIDL_LUA) {
+            for (let i = 0; i < this.ast.length; i++) {
+                if (this.ast[i].type == "interface") {
+                    let int = this.ast[i];
+                    if (int.inheritance) {
+                        this.luaC.writeLn(this.outBufLua, `getmetatable(__BINDINGS__.${int.name}).__index = __BINDINGS__.${int.inheritance};`);
+                    }
+                    else {
+                        let JsImpl = this.getExtendedAttribute("JSImplementation", int.extAttrs) || this.getExtendedAttribute("LuaImplementation", int.extAttrs);
+                        if (JsImpl) {
+                            let jsImplExtends = this.unquote(JsImpl.rhs.value);
+                            if (jsImplExtends !== "") {
+                                this.luaC.writeLn(this.outBufLua, `getmetatable(__BINDINGS__.${int.name}).__index = __BINDINGS__.${jsImplExtends};`);
+                            }
                         }
                     }
                 }
