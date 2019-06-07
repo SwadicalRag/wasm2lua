@@ -1,6 +1,6 @@
 {
   "name": "wasm2lua",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "A tool to convert WASM into Lua",
   "main": "js/index.js",
   "scripts": {
