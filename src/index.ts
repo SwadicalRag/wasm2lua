@@ -125,6 +125,7 @@ export interface WASM2LuaOptions {
     pureLua?: boolean;
     libMode?: boolean;
     jmpStreamThreshold?: number;
+    jmpStreamLocalThreshold?: number;
     webidl?: {
         idlFilePath: string,
         mallocName?: string,
@@ -179,6 +180,10 @@ export class wasm2lua extends StringCompiler {
 
         if (typeof options.jmpStreamThreshold !== "number") {
             options.jmpStreamThreshold = 8000;
+        }
+
+        if (typeof options.jmpStreamLocalThreshold !== "number") {
+            options.jmpStreamLocalThreshold = 10;
         }
 
         this.program_ast = decode(program_binary,{
@@ -1217,7 +1222,7 @@ export class wasm2lua extends StringCompiler {
                     for(let i=target.rid;i >= 0;i--) {
                         let nextT = state.labelsByIns[i];
 
-                        if((nextT[0] - state.insCountPass2) < this.options.jmpStreamThreshold) {
+                        if(Math.abs(nextT[0] - state.insCountPass2) < this.options.jmpStreamLocalThreshold) {
                             closestTargetID = i;
                             closestTargetIns = nextT[0];
                             break;
@@ -1228,12 +1233,22 @@ export class wasm2lua extends StringCompiler {
                     for(let i=target.rid;i < state.labelsByIns.length;i++) {
                         let nextT = state.labelsByIns[i];
 
-                        if((state.insCountPass2 - nextT[0]) < this.options.jmpStreamThreshold) {
+                        if(Math.abs(nextT[0] - state.insCountPass2) < this.options.jmpStreamLocalThreshold) {
                             closestTargetID = i;
                             closestTargetIns = nextT[0];
                             break;
                         }
                     }
+                }
+
+                if(closestTargetIns == Infinity) {
+                    let closest = state.labelsByIns.reduce((prev, curr) => {
+                        return (Math.abs(curr[0] - state.insCountPass2) < Math.abs(prev[0] - state.insCountPass2) ? curr : prev);
+                    });
+
+                    closestTargetIns = closest[0];
+                    let labelInfo = state.labels.get(closest[1]);
+                    closestTargetID = labelInfo.rid;
                 }
 
                 if(closestTargetIns == Infinity) {
@@ -2334,7 +2349,7 @@ export class wasm2lua extends StringCompiler {
                                 }
                             }
 
-                            this.endBlock(buf,state,isUnreachable);
+                            this.endBlock(buf,state,false,isUnreachable);
                             break;
                         }
                         case "unreachable": {
@@ -2748,9 +2763,9 @@ export class wasm2lua extends StringCompiler {
 // let infile  = process.argv[2] || (__dirname + "/../test/ammo-ex.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
-let infile  = process.argv[2] || (__dirname + "/../test/teststub.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../test/teststub.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/test2.wasm");
-// let infile  = process.argv[2] || (__dirname + "/../test/duktape.wasm");
+let infile  = process.argv[2] || (__dirname + "/../test/duktape.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../resources/tests/assemblyscript/string-utf8.optimized.wat.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/nbody.wasm");
 // let infile  = process.argv[2] || (__dirname + "/../test/matrix.wasm");

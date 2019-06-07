@@ -56,6 +56,9 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         if (typeof options.jmpStreamThreshold !== "number") {
             options.jmpStreamThreshold = 8000;
         }
+        if (typeof options.jmpStreamLocalThreshold !== "number") {
+            options.jmpStreamLocalThreshold = 10;
+        }
         this.program_ast = wasm_parser_1.decode(program_binary, {});
         this.process();
     }
@@ -882,7 +885,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                 if (target.ins > state.insCountPass2) {
                     for (let i = target.rid; i >= 0; i--) {
                         let nextT = state.labelsByIns[i];
-                        if ((nextT[0] - state.insCountPass2) < this.options.jmpStreamThreshold) {
+                        if (Math.abs(nextT[0] - state.insCountPass2) < this.options.jmpStreamLocalThreshold) {
                             closestTargetID = i;
                             closestTargetIns = nextT[0];
                             break;
@@ -892,12 +895,20 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                 else {
                     for (let i = target.rid; i < state.labelsByIns.length; i++) {
                         let nextT = state.labelsByIns[i];
-                        if ((state.insCountPass2 - nextT[0]) < this.options.jmpStreamThreshold) {
+                        if (Math.abs(nextT[0] - state.insCountPass2) < this.options.jmpStreamLocalThreshold) {
                             closestTargetID = i;
                             closestTargetIns = nextT[0];
                             break;
                         }
                     }
+                }
+                if (closestTargetIns == Infinity) {
+                    let closest = state.labelsByIns.reduce((prev, curr) => {
+                        return (Math.abs(curr[0] - state.insCountPass2) < Math.abs(prev[0] - state.insCountPass2) ? curr : prev);
+                    });
+                    closestTargetIns = closest[0];
+                    let labelInfo = state.labels.get(closest[1]);
+                    closestTargetID = labelInfo.rid;
                 }
                 if (closestTargetIns == Infinity) {
                     console.error("Couldn't resolve jump dest in " + state.id);
@@ -1826,7 +1837,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                                     }
                                 }
                             }
-                            this.endBlock(buf, state, isUnreachable);
+                            this.endBlock(buf, state, false, isUnreachable);
                             break;
                         }
                         case "unreachable": {
@@ -2213,7 +2224,7 @@ wasm2lua.instructionBinOpFuncRemap = {
     max: "__FLOAT__.max"
 };
 exports.wasm2lua = wasm2lua;
-let infile = process.argv[2] || (__dirname + "/../test/teststub.wasm");
+let infile = process.argv[2] || (__dirname + "/../test/duktape.wasm");
 let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
 let compileFlags = process.argv[4] ? process.argv[4].split(",") : null;
 let whitelist = null;
