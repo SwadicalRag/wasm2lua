@@ -53,6 +53,9 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         if (typeof options.heapBase !== "string") {
             options.heapBase = "__GLOBALS__[0]";
         }
+        if (typeof options.jmpStreamThreshold !== "number") {
+            options.jmpStreamThreshold = 8000;
+        }
         this.program_ast = wasm_parser_1.decode(program_binary, {});
         this.process();
     }
@@ -708,7 +711,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         for (let jmpData of state.gotos) {
             let labelSrc = state.labels.get(jmpData.label);
             if (typeof labelSrc !== "undefined") {
-                if (Math.abs(labelSrc.ins - jmpData.ins) > 1500) {
+                if (Math.abs(labelSrc.ins - jmpData.ins) > this.options.jmpStreamThreshold) {
                     state.jumpStreamEnabled = true;
                     state.curJmpID = 0;
                     this.writeLn(buf, "local __nextjmp");
@@ -867,7 +870,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
     writeGoto(buf, label, state) {
         if (state.jumpStreamEnabled) {
             let target = state.labels.get(label);
-            if (Math.abs(target.ins - state.insCountPass2) > 1500) {
+            if (Math.abs(target.ins - state.insCountPass2) > this.options.jmpStreamThreshold) {
                 let closestTargetID;
                 let closestTargetIns = Infinity;
                 for (let key of state.labels.keys()) {

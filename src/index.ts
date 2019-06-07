@@ -123,6 +123,7 @@ export interface WASM2LuaOptions {
     heapBase?: string;
     pureLua?: boolean;
     libMode?: boolean;
+    jmpStreamThreshold?: number;
     webidl?: {
         idlFilePath: string,
         mallocName?: string,
@@ -173,6 +174,10 @@ export class wasm2lua extends StringCompiler {
 
         if (typeof options.heapBase !== "string") {
             options.heapBase = "__GLOBALS__[0]";
+        }
+
+        if (typeof options.jmpStreamThreshold !== "number") {
+            options.jmpStreamThreshold = 8000;
         }
 
         this.program_ast = decode(program_binary,{
@@ -950,7 +955,7 @@ export class wasm2lua extends StringCompiler {
         for(let jmpData of state.gotos) {
             let labelSrc = state.labels.get(jmpData.label);
             if(typeof labelSrc !== "undefined") {
-                if(Math.abs(labelSrc.ins - jmpData.ins) > 1500) {
+                if(Math.abs(labelSrc.ins - jmpData.ins) > this.options.jmpStreamThreshold) {
                     state.jumpStreamEnabled = true;
                     state.curJmpID = 0;
                     this.writeLn(buf,"local __nextjmp");
@@ -1197,7 +1202,7 @@ export class wasm2lua extends StringCompiler {
         if(state.jumpStreamEnabled) {
             let target = state.labels.get(label);
 
-            if(Math.abs(target.ins - state.insCountPass2) > 1500) {
+            if(Math.abs(target.ins - state.insCountPass2) > this.options.jmpStreamThreshold) {
                 let closestTargetID: number;
                 let closestTargetIns = Infinity;
     
