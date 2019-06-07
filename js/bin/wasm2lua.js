@@ -7,7 +7,8 @@ const fsExtra = require("fs-extra");
 const path = require("path");
 const __1 = require("..");
 let infile, outfile;
-program.version("0.1.0")
+let manifest = JSON.parse(fs.readFileSync(__dirname + "/../../package.json").toString());
+program.version(manifest.version)
     .arguments("<in.wasm> <out.lua>")
     .option("--heapBase <__GLOBALS__[0]>", "Specify custom `heapBase` symbol name")
     .option("--freeName <free>", "Specify custom `free` symbol name")

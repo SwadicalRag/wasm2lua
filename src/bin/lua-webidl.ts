@@ -8,7 +8,9 @@ import { WebIDLBinder, BinderMode } from "../webidlbinder";
 
 let infile,outfile,includedHeaders;
 
-program.version("0.1.0")
+let manifest = JSON.parse(fs.readFileSync(__dirname + "/../../package.json").toString());
+
+program.version(manifest.version)
     .arguments("<in.idl> <out> [includedHeaders...]")
     .option("--libmode","Adds a dummy main function to use this as a library (for WASI)")
     .option("--cpp","Runs Lua-WebIDL in C++ mode")
