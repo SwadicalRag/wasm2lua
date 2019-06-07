@@ -628,14 +628,6 @@ export class WebIDLBinder {
 
         if(JsImpl) {
             this.cppC.write(this.outBufCPP,`class ${Prefix}${node.name};`);
-            let jsImplExtends = this.unquote(JsImpl.rhs.value);
-            if(jsImplExtends !== "") {
-                if(this.classPrefixLookup[jsImplExtends]) {
-                    jsImplExtends = `${this.classPrefixLookup[jsImplExtends]}${jsImplExtends}`;
-                }
-                this.cppC.write(this.outBufCPP,` : ${jsImplExtends}`);
-            }
-            this.cppC.writeLn(this.outBufCPP,`;`);
             for(let i=0;i < node.members.length;i++) {
                 let member = node.members[i];
                 if(member.type == "operation") {
@@ -646,7 +638,15 @@ export class WebIDLBinder {
                 }
             }
 
-            this.cppC.writeLn(this.outBufCPP,`class ${Prefix}${node.name} {`);
+            this.cppC.write(this.outBufCPP,`class ${Prefix}${node.name}`);
+            let jsImplExtends = this.unquote(JsImpl.rhs.value);
+            if(jsImplExtends !== "") {
+                if(this.classPrefixLookup[jsImplExtends]) {
+                    jsImplExtends = `${this.classPrefixLookup[jsImplExtends]}${jsImplExtends}`;
+                }
+                this.cppC.write(this.outBufCPP,` : ${jsImplExtends}`);
+            }
+            this.cppC.writeLn(this.outBufCPP,` {`);
             this.cppC.write(this.outBufCPP,`public:`);
             this.cppC.indent();
             this.cppC.newLine(this.outBufCPP);
