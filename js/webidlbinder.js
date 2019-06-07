@@ -569,7 +569,7 @@ class WebIDLBinder {
                     }
                     this.cppC.write(this.outBufCPP, ` `);
                     this.cppC.write(this.outBufCPP, `${this.mangleFunctionName(member, node.name, true)}(this`);
-                    this.writeCArgs(this.outBufCPP, member.arguments, false, true);
+                    this.writeCArgs(this.outBufCPP, member.arguments, false, true, false, false);
                     this.cppC.write(this.outBufCPP, ");");
                     this.cppC.write(this.outBufCPP, " };");
                     this.cppC.newLine(this.outBufCPP);
