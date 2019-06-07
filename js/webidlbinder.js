@@ -177,6 +177,15 @@ class WebIDLBinder {
                 if (int.inheritance) {
                     this.luaC.writeLn(this.outBufLua, `getmetatable(__BINDINGS__.${int.name}).__index = __BINDINGS__.${int.inheritance};`);
                 }
+                else {
+                    let JsImpl = this.getExtendedAttribute("JSImplementation", int.extAttrs) || this.getExtendedAttribute("LuaImplementation", int.extAttrs);
+                    if (JsImpl) {
+                        let jsImplExtends = this.unquote(JsImpl.rhs.value);
+                        if (jsImplExtends !== "") {
+                            this.luaC.writeLn(this.outBufLua, `getmetatable(__BINDINGS__.${int.name}).__index = __BINDINGS__.${jsImplExtends};`);
+                        }
+                    }
+                }
             }
         }
         if (this.addYieldStub) {
@@ -520,7 +529,15 @@ class WebIDLBinder {
         let Prefix = this.unquoteEx(this.getExtendedAttribute("Prefix", node.extAttrs));
         let hasConstructor = false;
         if (JsImpl) {
-            this.cppC.writeLn(this.outBufCPP, `class ${Prefix}${node.name};`);
+            this.cppC.write(this.outBufCPP, `class ${Prefix}${node.name};`);
+            let jsImplExtends = this.unquote(JsImpl.rhs.value);
+            if (jsImplExtends !== "") {
+                if (this.classPrefixLookup[jsImplExtends]) {
+                    jsImplExtends = `${this.classPrefixLookup[jsImplExtends]}${jsImplExtends}`;
+                }
+                this.cppC.write(this.outBufCPP, ` : ${jsImplExtends}`);
+            }
+            this.cppC.writeLn(this.outBufCPP, `;`);
             for (let i = 0; i < node.members.length; i++) {
                 let member = node.members[i];
                 if (member.type == "operation") {
