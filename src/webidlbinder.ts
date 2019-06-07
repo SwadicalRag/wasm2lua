@@ -387,7 +387,7 @@ export class WebIDLBinder {
     }
 
     walkInterfaceLua(node: webidl.InterfaceType) {
-        let JsImpl = this.getExtendedAttribute("JSImplementation",node.extAttrs);
+        let JsImpl = this.getExtendedAttribute("JSImplementation",node.extAttrs) || this.getExtendedAttribute("LuaImplementation",node.extAttrs);
 
         let hasConstructor = false;
 
@@ -610,7 +610,7 @@ export class WebIDLBinder {
     }
 
     walkInterfaceCPP(node: webidl.InterfaceType) {
-        let JsImpl = this.getExtendedAttribute("JSImplementation",node.extAttrs);
+        let JsImpl = this.getExtendedAttribute("JSImplementation",node.extAttrs) || this.getExtendedAttribute("LuaImplementation",node.extAttrs);
         let Prefix = this.unquoteEx(this.getExtendedAttribute("Prefix",node.extAttrs));
 
         let hasConstructor = false;
@@ -748,7 +748,7 @@ export class WebIDLBinder {
     }
 
     walkNamespaceLua(node: webidl.NamespaceType) {
-        let JsImpl = this.getExtendedAttribute("JSImplementation",node.extAttrs);
+        let JsImpl = this.getExtendedAttribute("JSImplementation",node.extAttrs) || this.getExtendedAttribute("LuaImplementation",node.extAttrs);
 
         this.luaC.write(this.outBufLua,`__BINDINGS__.${node.name} = vm.createNamespace()`);
 
@@ -890,7 +890,7 @@ export class WebIDLBinder {
     }
 
     walkNamespaceCPP(node: webidl.NamespaceType) {
-        let JsImpl = this.getExtendedAttribute("JSImplementation",node.extAttrs);
+        let JsImpl = this.getExtendedAttribute("JSImplementation",node.extAttrs) || this.getExtendedAttribute("LuaImplementation",node.extAttrs);
 
         if(JsImpl) {
             for(let i=0;i < node.members.length;i++) {
