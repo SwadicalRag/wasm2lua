@@ -202,7 +202,7 @@ class WebIDLBinder {
             this.cppC.writeLn(this.outBufCPP, `#undef __CFUNC`);
         }
     }
-    writeCArgs(buf, args, needsType, needsStartingComma, refToPtr) {
+    writeCArgs(buf, args, needsType, needsStartingComma, refToPtr, maskRef = true) {
         if (needsStartingComma) {
             if (args.length > 0) {
                 this.cppC.write(buf, ",");
@@ -210,7 +210,7 @@ class WebIDLBinder {
         }
         for (let j = 0; j < args.length; j++) {
             if (needsType) {
-                this.cppC.write(buf, `${this.idlTypeToCType(args[j].idlType, args[j].extAttrs, true)} `);
+                this.cppC.write(buf, `${this.idlTypeToCType(args[j].idlType, args[j].extAttrs, maskRef)} `);
             }
             this.cppC.write(buf, `${refToPtr ? this.getWithRefs(args[j]) : args[j].name}`);
             if ((j + 1) !== args.length) {
@@ -560,9 +560,9 @@ class WebIDLBinder {
                         hasConstructor = true;
                         continue;
                     }
-                    this.cppC.write(this.outBufCPP, `${this.idlTypeToCType(member.idlType, node.extAttrs, true)} `);
+                    this.cppC.write(this.outBufCPP, `${this.idlTypeToCType(member.idlType, node.extAttrs, false)} `);
                     this.cppC.write(this.outBufCPP, `${member.name}(`);
-                    this.writeCArgs(this.outBufCPP, member.arguments, true, false);
+                    this.writeCArgs(this.outBufCPP, member.arguments, true, false, false, true);
                     this.cppC.write(this.outBufCPP, `) {`);
                     if (member.idlType.idlType !== "void") {
                         this.cppC.write(this.outBufCPP, "return");
