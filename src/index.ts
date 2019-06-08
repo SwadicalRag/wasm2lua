@@ -440,8 +440,10 @@ export class wasm2lua extends StringCompiler {
             binder.luaC.outdent();
 
             this.newLine(this.outBuf);
-            this.writeLn(this.outBuf,`local __MALLOC__ = __FUNCS__.${this.modState.funcByNameRaw.get(this.options.webidl.mallocName || "malloc").id}`);
-            this.writeLn(this.outBuf,`local __FREE__ = __FUNCS__.${this.modState.funcByNameRaw.get(this.options.webidl.freeName || "free").id}`);
+            let malloc = this.modState.funcByName.get(this.options.webidl.mallocName || "malloc");
+            let free = this.modState.funcByName.get(this.options.webidl.freeName || "free");
+            this.writeLn(this.outBuf,`local __MALLOC__ = ${malloc ? malloc.id : `function() error "${this.options.webidl.mallocName} is not defined" end`}`);
+            this.writeLn(this.outBuf,`local __FREE__ = ${free ? free.id : `function() error "${this.options.webidl.freeName} is not defined" end`}`);
 
             this.newLine(this.outBuf);
             this.write(this.outBuf,wasm2lua.binderHeader);
