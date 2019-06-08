@@ -2439,12 +2439,12 @@ export class wasm2lua extends StringCompiler {
                     if(ins.alternate.length > 0) {
                         this.write(buf,`==0 then `);
                         this.writeGoto(buf,`${labelBaseSan}_else`,state);
-                        this.write(buf,` end`);
+                        this.write(buf,` end `);
                     }
                     else {
                         this.write(buf,`==0 then `);
                         this.writeGoto(buf,`${labelBaseSan}_fin`,state);
-                        this.write(buf,` end`);
+                        this.write(buf,` end `);
                     }
 
                     let block = this.beginBlock(buf,state,{
