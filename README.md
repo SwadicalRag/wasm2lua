@@ -30,6 +30,7 @@ GOOD NEWS, fam: `wasm2lua` can compile WebAssembly modules to pure Lua (or with 
 # Projects that use `wasm2lua`
 
  - [bullet3-lua](https://github.com/SwadicalRag/bullet3-lua) ([Releases](https://github.com/SwadicalRag/bullet3-lua/releases/), [Demo](https://github.com/SwadicalRag/bullet3-lua/blob/master/test.lua)), built with CMake
+ - [brotli-lua](https://github.com/SwadicalRag/brotli-lua) ([Releases](https://github.com/SwadicalRag/brotli-lua/releases/), [Demo](https://github.com/SwadicalRag/brotli-lua/blob/master/test.lua)), built with CMake
  - [tiny-regex-lua](https://github.com/SwadicalRag/tiny-regex-lua) ([Demo](https://github.com/SwadicalRag/tiny-regex-lua/blob/master/test.lua)), built with a Makefile
 
 ### BONUS: duktape via wasm2lua
