@@ -70,6 +70,7 @@ function sanitizeIdentifier(ident: string|number) {
 interface WASMModuleState {
     funcStates: WASMFuncState[];
     funcByName: Map<string,WASMFuncState>;
+    funcByNameRaw: Map<string,WASMFuncState>;
     memoryAllocations: ArrayMap<string>;
     func_tables: Array< Array< Array<Index> > >;
 
@@ -439,8 +440,8 @@ export class wasm2lua extends StringCompiler {
             binder.luaC.outdent();
 
             this.newLine(this.outBuf);
-            this.writeLn(this.outBuf,`local __MALLOC__ = __FUNCS__.${this.options.webidl.mallocName || "malloc"}`);
-            this.writeLn(this.outBuf,`local __FREE__ = __FUNCS__.${this.options.webidl.freeName || "free"}`);
+            this.writeLn(this.outBuf,`local __MALLOC__ = __FUNCS__.${this.modState.funcByNameRaw.get(this.options.webidl.mallocName || "malloc").id}`);
+            this.writeLn(this.outBuf,`local __FREE__ = __FUNCS__.${this.modState.funcByNameRaw.get(this.options.webidl.freeName || "free").id}`);
 
             this.newLine(this.outBuf);
             this.write(this.outBuf,wasm2lua.binderHeader);
@@ -463,17 +464,20 @@ export class wasm2lua extends StringCompiler {
     // The rule is, an emitting function MUST leave trailing whitespace (i.e. newlines)
     // and an emitting function does NOT have to start with .newLine()
 
+    modState: WASMModuleState;
     processModule(node: Module) {
         let buf = [];
 
         let state: WASMModuleState = {
             funcStates: [],
             funcByName: new Map(),
+            funcByNameRaw: new Map(),
             memoryAllocations: new ArrayMap(),
             func_tables: [],
 
             nextGlobalIndex: 0
         };
+        this.modState = state;
 
         for(let section of node.metadata.sections) {
             this.processModuleMetadataSection(section);
@@ -783,7 +787,7 @@ export class wasm2lua extends StringCompiler {
         return false;
     }
 
-    initFunc(node: Func | {signature: Signature,name: {value: string}}, state: WASMModuleState,renameTo?: string,betterName?: string) {
+    initFunc(node: Func | {signature: Signature,name: {value: string,numeric?: string}}, state: WASMModuleState,renameTo?: string,betterName?: string) {
         let funcType: Signature;
         if(node.signature.type == "Signature") {
             funcType = node.signature;
@@ -797,7 +801,7 @@ export class wasm2lua extends StringCompiler {
             funcID = "func_" + node.name.value;
         }
         else {
-            funcID = "func_" + state.funcStates.length;
+            funcID = "func_u" + state.funcStates.length;
         }
 
         let fstate: WASMFuncState = {
@@ -826,6 +830,11 @@ export class wasm2lua extends StringCompiler {
             curJmpID: 0,
             usedLabels: {},
         };
+
+        if(typeof (node.name as any).numeric === "string") {
+            state.funcByNameRaw.set((node.name as any).numeric,fstate);
+            state.funcByName.set((node.name as any).numeric,fstate);
+        }
 
         state.funcStates.push(fstate);
         state.funcByName.set(funcID,fstate);
@@ -890,8 +899,10 @@ export class wasm2lua extends StringCompiler {
         if(!state) {state = this.initFunc(node,modState);}
 
         if(this.doneFunctions[state.id]) {
-            console.log(`Warning: duplicate WASM function ${state.id} ignored`)
-            return "";
+            // console.log(`Warning: duplicate WASM function ${state.id} ignored`)
+            // return "";
+
+            state.id += "_dup";
         }
         this.doneFunctions[state.id] = true;
 
@@ -2321,7 +2332,7 @@ export class wasm2lua extends StringCompiler {
                     break;
                 }
                 case "CallInstruction": {
-                    let fstate = this.getFuncByIndex(state.modState,ins.index);
+                    let fstate = this.getFuncByIndex(state.modState,ins.numeric || ins.index);
 
                     if((fstate && fstate.origID == "setjmp") || (ins.index.value == "setjmp")) {
                         let resultVar = this.fn_createTempRegister(buf,state);
