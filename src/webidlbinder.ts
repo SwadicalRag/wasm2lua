@@ -185,7 +185,15 @@ export class WebIDLBinder {
             }
         }
 
-        let body = idlType.idlType as string;
+        let body;
+        
+        if(this.hasExtendedAttribute("Size",extAttrs) && (idlType.idlType == "any")) {
+            body = "size_t"
+        }
+        else {
+            body = idlType.idlType as string;
+        }
+
         if(WebIDLBinder.CTypeRenames[body]) {
             body = WebIDLBinder.CTypeRenames[body];
         }

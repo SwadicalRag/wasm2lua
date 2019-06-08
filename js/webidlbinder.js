@@ -144,7 +144,13 @@ class WebIDLBinder {
                 suffixes += "[]";
             }
         }
-        let body = idlType.idlType;
+        let body;
+        if (this.hasExtendedAttribute("Size", extAttrs) && (idlType.idlType == "any")) {
+            body = "size_t";
+        }
+        else {
+            body = idlType.idlType;
+        }
         if (WebIDLBinder.CTypeRenames[body]) {
             body = WebIDLBinder.CTypeRenames[body];
         }
