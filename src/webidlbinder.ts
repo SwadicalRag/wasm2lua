@@ -331,7 +331,7 @@ export class WebIDLBinder {
             // output array operators
             for(let arrTypeNameKey in this.arrayTypes) {
                 let arrType = this.arrayTypes[arrTypeNameKey];
-                let arrTypeName = arrType.idlType as string;
+                let arrTypeName = WebIDLBinder.CTypeRenames[arrType.idlType as string];
 
                 let arrTypeNameAdj = arrTypeName;
                 if(this.classLookup[arrTypeName]) {
@@ -363,7 +363,7 @@ export class WebIDLBinder {
                 this.cppC.writeLn(this.outBufCPP,`};`);
             }
 
-            // output pointer array operators
+            // output pointer array operators (only classes allowed)
             for(let arrTypeNameKey in this.ptrArrayTypes) {
                 let arrType = this.ptrArrayTypes[arrTypeNameKey];
                 let arrTypeName = arrType.idlType as string;
