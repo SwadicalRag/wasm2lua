@@ -3,7 +3,7 @@ const Module = require("module");
 let origRequire = Module.prototype.require;
 Module.prototype.require = function (request) {
     const absPath = Module._resolveFilename(request, this);
-    const filename = path.relative(__dirname, absPath);
+    const filename = path.relative(__dirname, absPath).replace(/\\/g, "/");
     if (filename == "../node_modules/@webassemblyjs/wasm-parser/lib/decoder.js") {
         return require("./../resources/patches/decoder.js");
     }
