@@ -1,7 +1,6 @@
 import "./patches"
 
 import {decode} from "@webassemblyjs/wasm-parser"
-import * as wasmDCE from "@webassemblyjs/dce"
 import * as fs from "fs"
 import { isArray } from "util";
 
@@ -2358,7 +2357,7 @@ export class wasm2lua extends StringCompiler {
                                 }
                             }
 
-                            this.endBlock(buf,state,isUnreachable);
+                            this.endBlock(buf,state,false,isUnreachable);
                             break;
                         }
                         case "unreachable": {
@@ -2798,10 +2797,10 @@ export class wasm2lua extends StringCompiler {
 // // let infile  = process.argv[2] || (__dirname + "/../test/ammo-ex.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/dispersion.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/call_code.wasm");
-// let infile  = process.argv[2] || (__dirname + "/../test/teststub.wasm");
+// // let infile  = process.argv[2] || (__dirname + "/../test/teststub.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/test2.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/duktape.wasm");
-// // let infile  = process.argv[2] || (__dirname + "/../resources/tests/assemblyscript/string-utf8.optimized.wat.wasm");
+// let infile  = process.argv[2] || (__dirname + "/../resources/tests/assemblyscript/array.optimized.wat.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/nbody.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/matrix.wasm");
 // // let infile  = process.argv[2] || (__dirname + "/../test/longjmp.wasm");

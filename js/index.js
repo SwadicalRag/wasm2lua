@@ -1844,7 +1844,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                                     }
                                 }
                             }
-                            this.endBlock(buf, state, isUnreachable);
+                            this.endBlock(buf, state, false, isUnreachable);
                             break;
                         }
                         case "unreachable": {
