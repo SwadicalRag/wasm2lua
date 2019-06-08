@@ -30,6 +30,10 @@ class WebIDLBinder {
         this.classPrefixLookup = {};
         this.arrayTypes = {};
         this.ptrArrayTypes = {};
+        this.specialTypes = {
+            ["DOMString"]: true,
+            ["boolean"]: true,
+        };
         this.ast = webidl.parse(source);
     }
     unquote(arg) {
@@ -56,6 +60,11 @@ class WebIDLBinder {
         else {
             return arg.name;
         }
+    }
+    rawMangle(ident) {
+        return ident.toString().replace(/\s*/g, "").replace(/[^A-Za-z0-9_]/g, (str) => {
+            return `__x${str.charCodeAt(0).toString(16)}`;
+        });
     }
     mangleFunctionName(node, namespace, isImpl) {
         let out = "_webidl_lua_";
@@ -85,9 +94,7 @@ class WebIDLBinder {
     }
     mangleArrayIndexerName(opName, arrTypeName) {
         let out = "_webidl_lua_arr_";
-        arrTypeName = arrTypeName.toString().replace(/\s*/g, "").replace(/[^A-Za-z0-9_]/g, (str) => {
-            return `__x${str.charCodeAt(0).toString(16)}`;
-        });
+        arrTypeName = this.rawMangle(arrTypeName);
         out += arrTypeName;
         out += "_" + opName;
         return out;
@@ -177,23 +184,31 @@ class WebIDLBinder {
                         for (let k = member.arguments.length - 1; k >= 0; k--) {
                             let arrEA = this.getExtendedAttribute("Array", member.arguments[k].extAttrs);
                             if (arrEA) {
-                                this.arrayTypes[this.idlTypeToCType(member.arguments[k].idlType, member.arguments[k].extAttrs, true)] = member.arguments[k].idlType;
+                                this.arrayTypes[member.arguments[k].idlType.idlType] = member.arguments[k].idlType;
                             }
                             else {
                                 arrEA = this.getExtendedAttribute("PointerArray", member.arguments[k].extAttrs);
                                 if (arrEA) {
-                                    this.ptrArrayTypes[this.idlTypeToCType(member.arguments[k].idlType, member.arguments[k].extAttrs, true)] = member.arguments[k].idlType;
+                                    if (!this.classLookup[member.arguments[k].idlType.idlType]) {
+                                        throw new SemanticError(`PointerArrays are unsupported for non-class types like '${member.arguments[k].idlType.idlType}'. Are you sure you defined an interface for this type?`);
+                                    }
+                                    this.ptrArrayTypes[member.arguments[k].idlType.idlType] = member.arguments[k].idlType;
                                 }
                             }
                         }
                         let arrEARet = this.getExtendedAttribute("Array", member.extAttrs);
                         if (arrEARet) {
                             this.arrayTypes[this.idlTypeToCType(member.idlType, member.extAttrs, true)] = member.idlType;
+                            this.arrayTypes[member.idlType.idlType] = member.idlType;
                         }
                         else {
                             arrEARet = this.getExtendedAttribute("PointerArray", member.extAttrs);
                             if (arrEARet) {
+                                if (!this.classLookup[member.idlType.idlType]) {
+                                    throw new SemanticError(`PointerArrays are unsupported for non-class types like '${member.idlType.idlType}'. Are you sure you defined an interface for this type?`);
+                                }
                                 this.ptrArrayTypes[this.idlTypeToCType(member.idlType, member.extAttrs, true)] = member.idlType;
+                                this.ptrArrayTypes[member.idlType.idlType] = member.idlType;
                             }
                         }
                     }
@@ -241,6 +256,105 @@ class WebIDLBinder {
                 }
             }
         }
+        if (this.mode == BinderMode.WEBIDL_CPP) {
+            for (let arrTypeNameKey in this.arrayTypes) {
+                let arrType = this.arrayTypes[arrTypeNameKey];
+                let arrTypeName = arrType.idlType;
+                let arrTypeNameAdj = arrTypeName;
+                if (this.classLookup[arrTypeName]) {
+                    arrTypeNameAdj += "*";
+                }
+                this.cppC.write(this.outBufCPP, `export extern "C" ${arrTypeNameAdj} ${this.mangleArrayIndexerName("get", arrTypeNameKey)}(${arrTypeName} arr[],size_t index) {`);
+                this.cppC.write(this.outBufCPP, `return `);
+                if (this.classLookup[arrTypeName]) {
+                    this.cppC.write(this.outBufCPP, `&`);
+                }
+                this.cppC.write(this.outBufCPP, `arr[index];`);
+                this.cppC.writeLn(this.outBufCPP, `};`);
+                this.cppC.write(this.outBufCPP, `export extern "C" void ${this.mangleArrayIndexerName("set", arrTypeNameKey)}(${arrTypeName} arr[],size_t index,${arrTypeNameAdj} val) {`);
+                this.cppC.write(this.outBufCPP, `arr[index] = `);
+                if (this.classLookup[arrTypeName]) {
+                    this.cppC.write(this.outBufCPP, `*`);
+                }
+                this.cppC.write(this.outBufCPP, `val;`);
+                this.cppC.writeLn(this.outBufCPP, `};`);
+                this.cppC.write(this.outBufCPP, `export extern "C" ${arrTypeName}* ${this.mangleArrayIndexerName("new", arrTypeNameKey)}(size_t len) {`);
+                this.cppC.write(this.outBufCPP, `return new ${arrTypeName}[len];`);
+                this.cppC.writeLn(this.outBufCPP, `};`);
+                this.cppC.write(this.outBufCPP, `export extern "C" void ${this.mangleArrayIndexerName("delete", arrTypeNameKey)}(${arrTypeName} arr[]) {`);
+                this.cppC.write(this.outBufCPP, `delete arr;`);
+                this.cppC.writeLn(this.outBufCPP, `};`);
+            }
+            for (let arrTypeNameKey in this.ptrArrayTypes) {
+                let arrType = this.ptrArrayTypes[arrTypeNameKey];
+                let arrTypeName = arrType.idlType;
+                let arrTypeNameAdj = arrTypeName;
+                if (this.classLookup[arrTypeName]) {
+                    arrTypeNameAdj += "*";
+                }
+                this.cppC.write(this.outBufCPP, `export extern "C" ${arrTypeName}* ${this.mangleArrayIndexerName("get", arrTypeNameKey)}(${arrTypeName}* arr[],size_t index) {`);
+                this.cppC.write(this.outBufCPP, `return arr[index];`);
+                this.cppC.writeLn(this.outBufCPP, `};`);
+                this.cppC.write(this.outBufCPP, `export extern "C" void ${this.mangleArrayIndexerName("set", arrTypeNameKey)}(${arrTypeName}* arr[],size_t index,${arrTypeNameAdj} val) {`);
+                this.cppC.write(this.outBufCPP, `arr[index] = `);
+                this.cppC.write(this.outBufCPP, `val;`);
+                this.cppC.writeLn(this.outBufCPP, `};`);
+                this.cppC.write(this.outBufCPP, `export extern "C" ${arrTypeName}** ${this.mangleArrayIndexerName("new", arrTypeNameKey)}(size_t len) {`);
+                this.cppC.write(this.outBufCPP, `return new ${arrTypeName}[len];`);
+                this.cppC.writeLn(this.outBufCPP, `};`);
+                this.cppC.write(this.outBufCPP, `export extern "C" void ${this.mangleArrayIndexerName("delete", arrTypeNameKey)}(${arrTypeName}* arr[]) {`);
+                this.cppC.write(this.outBufCPP, `delete arr;`);
+                this.cppC.writeLn(this.outBufCPP, `};`);
+            }
+            this.cppC.writeLn(this.outBufCPP, `#undef __CFUNC`);
+        }
+        else if (this.mode == BinderMode.WEBIDL_LUA) {
+            for (let arrTypeNameKey in this.arrayTypes) {
+                this.luaC.write(this.outBufLua, `__BINDER__.arrays.${this.rawMangle(arrTypeNameKey)} = {`);
+                if (this.specialTypes[arrTypeNameKey]) {
+                    if (arrTypeNameKey == "DOMString") {
+                        this.luaC.write(this.outBufLua, `get = function(ptr,idx)`);
+                        this.luaC.write(this.outBufLua, `local val = __FUNCS__.${this.mangleArrayIndexerName("get", arrTypeNameKey)}(ptr,idx)`);
+                        this.luaC.write(this.outBufLua, `return __BINDER__.readString(val) end,`);
+                        this.luaC.write(this.outBufLua, `set = function(ptr,idx,val)`);
+                        this.luaC.write(this.outBufLua, `val = __BINDER__.stringify(val)`);
+                        this.luaC.write(this.outBufLua, `__FUNCS__.${this.mangleArrayIndexerName("set", arrTypeNameKey)}(ptr,idx,val)`);
+                        this.luaC.write(this.outBufLua, `end,`);
+                        this.luaC.write(this.outBufLua, `delete = function(ptr,len)`);
+                        this.luaC.write(this.outBufLua, `for i=1,len or 0 do __BINDER__.freeString(__FUNCS__.${this.mangleArrayIndexerName("get", arrTypeNameKey)}(ptr)) end `);
+                        this.luaC.write(this.outBufLua, `__FUNCS__.${this.mangleArrayIndexerName("delete", arrTypeNameKey)}(ptr)`);
+                        this.luaC.write(this.outBufLua, `end,`);
+                    }
+                    else if (arrTypeNameKey == "boolean") {
+                        this.luaC.write(this.outBufLua, `get = function(ptr,idx)`);
+                        this.luaC.write(this.outBufLua, `local val = __FUNCS__.${this.mangleArrayIndexerName("get", arrTypeNameKey)}(ptr,idx)`);
+                        this.luaC.write(this.outBufLua, `return val ~= 0 end,`);
+                        this.luaC.write(this.outBufLua, `set = function(ptr,idx,val)`);
+                        this.luaC.write(this.outBufLua, `val = val and 1 or 0`);
+                        this.luaC.write(this.outBufLua, `__FUNCS__.${this.mangleArrayIndexerName("set", arrTypeNameKey)}(ptr,idx,val)`);
+                        this.luaC.write(this.outBufLua, `end,`);
+                        this.luaC.write(this.outBufLua, `delete = __FUNCS__.${this.mangleArrayIndexerName("delete", arrTypeNameKey)},`);
+                    }
+                }
+                else {
+                    this.luaC.write(this.outBufLua, `get = __FUNCS__.${this.mangleArrayIndexerName("get", arrTypeNameKey)},`);
+                    this.luaC.write(this.outBufLua, `set = __FUNCS__.${this.mangleArrayIndexerName("set", arrTypeNameKey)},`);
+                    this.luaC.write(this.outBufLua, `delete = __FUNCS__.${this.mangleArrayIndexerName("delete", arrTypeNameKey)},`);
+                }
+                this.luaC.write(this.outBufLua, `new = __FUNCS__.${this.mangleArrayIndexerName("new", arrTypeNameKey)},`);
+                this.luaC.write(this.outBufLua, `isClass = ${this.classLookup[arrTypeNameKey] ? "true" : "false"},`);
+                this.luaC.writeLn(this.outBufLua, `}`);
+            }
+            for (let arrTypeNameKey in this.ptrArrayTypes) {
+                this.luaC.write(this.outBufLua, `__BINDER__.ptrArrays.${this.rawMangle(arrTypeNameKey)} = {`);
+                this.luaC.write(this.outBufLua, `get = __FUNCS__.${this.mangleArrayIndexerName("get", arrTypeNameKey)},`);
+                this.luaC.write(this.outBufLua, `set = __FUNCS__.${this.mangleArrayIndexerName("set", arrTypeNameKey)},`);
+                this.luaC.write(this.outBufLua, `new = __FUNCS__.${this.mangleArrayIndexerName("new", arrTypeNameKey)},`);
+                this.luaC.write(this.outBufLua, `delete = __FUNCS__.${this.mangleArrayIndexerName("delete", arrTypeNameKey)},`);
+                this.luaC.write(this.outBufLua, `isClass = ${this.classLookup[arrTypeNameKey] ? "true" : "false"},`);
+                this.luaC.writeLn(this.outBufLua, `}`);
+            }
+        }
         if (this.addYieldStub) {
             if (this.mode == BinderMode.WEBIDL_LUA) {
                 this.luaC.writeLn(this.outBufLua, "__IMPORTS__.webidl_internal = {main_yield = coroutine.yield}");
@@ -250,61 +364,6 @@ class WebIDLBinder {
                 this.cppC.writeLn(this.outBufCPP, `extern "C" void _webidl_main_yield() __attribute__((__import_module__("webidl_internal"), __import_name__("main_yield")));`);
                 this.cppC.writeLn(this.outBufCPP, `int main() {_webidl_main_yield(); return 0;}`);
             }
-        }
-        if (this.mode == BinderMode.WEBIDL_CPP) {
-            for (let arrTypeNameCPP in this.arrayTypes) {
-                let arrType = this.arrayTypes[arrTypeNameCPP];
-                let arrTypeName = arrType.idlType;
-                let arrTypeNameAdj = arrTypeName;
-                if (this.classLookup[arrTypeName]) {
-                    arrTypeNameAdj += "*";
-                }
-                this.cppC.write(this.outBufCPP, `export extern "C" ${arrTypeNameAdj} ${this.mangleArrayIndexerName("get", arrTypeNameCPP)}(${arrTypeName} arr[],size_t index) {`);
-                this.cppC.write(this.outBufCPP, `return `);
-                if (this.classLookup[arrTypeName]) {
-                    this.cppC.write(this.outBufCPP, `&`);
-                }
-                this.cppC.write(this.outBufCPP, `arr[index];`);
-                this.cppC.writeLn(this.outBufCPP, `};`);
-                this.cppC.write(this.outBufCPP, `export extern "C" void ${this.mangleArrayIndexerName("set", arrTypeNameCPP)}(${arrTypeName} arr[],size_t index,${arrTypeNameAdj} val) {`);
-                this.cppC.write(this.outBufCPP, `arr[index] = `);
-                if (this.classLookup[arrTypeName]) {
-                    this.cppC.write(this.outBufCPP, `*`);
-                }
-                this.cppC.write(this.outBufCPP, `val;`);
-                this.cppC.writeLn(this.outBufCPP, `};`);
-                this.cppC.write(this.outBufCPP, `export extern "C" ${arrTypeName}* ${this.mangleArrayIndexerName("new", arrTypeNameCPP)}(size_t len) {`);
-                this.cppC.write(this.outBufCPP, `return new ${arrTypeName}[len];`);
-                this.cppC.writeLn(this.outBufCPP, `};`);
-                this.cppC.write(this.outBufCPP, `export extern "C" void ${this.mangleArrayIndexerName("delete", arrTypeNameCPP)}(${arrTypeName} arr[]) {`);
-                this.cppC.write(this.outBufCPP, `delete arr;`);
-                this.cppC.writeLn(this.outBufCPP, `};`);
-            }
-            for (let arrTypeNameCPP in this.ptrArrayTypes) {
-                let arrType = this.ptrArrayTypes[arrTypeNameCPP];
-                let arrTypeName = arrType.idlType;
-                let arrTypeNameAdj = arrTypeName;
-                if (this.classLookup[arrTypeName]) {
-                    arrTypeNameAdj += "*";
-                }
-                this.cppC.write(this.outBufCPP, `export extern "C" ${arrTypeName}* ${this.mangleArrayIndexerName("get", arrTypeNameCPP)}(${arrTypeName}* arr[],size_t index) {`);
-                this.cppC.write(this.outBufCPP, `return arr[index];`);
-                this.cppC.writeLn(this.outBufCPP, `};`);
-                this.cppC.write(this.outBufCPP, `export extern "C" void ${this.mangleArrayIndexerName("set", arrTypeNameCPP)}(${arrTypeName}* arr[],size_t index,${arrTypeNameAdj} val) {`);
-                this.cppC.write(this.outBufCPP, `arr[index] = `);
-                if (!this.classLookup[arrTypeName]) {
-                    throw new SemanticError(`PointerArrays are unsupported for non-class types like '${arrTypeNameCPP}'. Are you sure you defined an interface for this type?`);
-                }
-                this.cppC.write(this.outBufCPP, `val;`);
-                this.cppC.writeLn(this.outBufCPP, `};`);
-                this.cppC.write(this.outBufCPP, `export extern "C" ${arrTypeName}** ${this.mangleArrayIndexerName("new", arrTypeNameCPP)}(size_t len) {`);
-                this.cppC.write(this.outBufCPP, `return new ${arrTypeName}[len];`);
-                this.cppC.writeLn(this.outBufCPP, `};`);
-                this.cppC.write(this.outBufCPP, `export extern "C" void ${this.mangleArrayIndexerName("delete", arrTypeNameCPP)}(${arrTypeName}* arr[]) {`);
-                this.cppC.write(this.outBufCPP, `delete arr;`);
-                this.cppC.writeLn(this.outBufCPP, `};`);
-            }
-            this.cppC.writeLn(this.outBufCPP, `#undef __CFUNC`);
         }
     }
     writeCArgs(buf, args, needsType, needsStartingComma, refToPtr, maskRef = true) {
@@ -363,11 +422,29 @@ class WebIDLBinder {
         }
     }
     convertLuaToCPP_Pre(buf, arg, argID) {
+        if (this.getExtendedAttribute("Array", arg.extAttrs)) {
+            this.luaC.write(buf, `local __arg${argID} =`);
+            this.luaC.write(buf, `__BINDER__.luaToWasmArrayInternal(__BINDER__.arrays.${this.rawMangle(arg.idlType.idlType)},${arg.name})`);
+            return;
+        }
+        else if (this.getExtendedAttribute("PointerArray", arg.extAttrs)) {
+            this.luaC.write(buf, `local __arg${argID} =`);
+            this.luaC.write(buf, `__BINDER__.luaToWasmArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(arg.idlType.idlType)},${arg.name})`);
+            return;
+        }
         if (arg.idlType.idlType == "DOMString") {
             this.luaC.write(buf, `local __arg${argID} = __BINDER__.stringify(${arg.name})`);
         }
     }
     convertLuaToCPP_Arg(buf, arg, argID) {
+        if (this.getExtendedAttribute("Array", arg.extAttrs)) {
+            this.luaC.write(buf, `__arg${argID}`);
+            return;
+        }
+        else if (this.getExtendedAttribute("PointerArray", arg.extAttrs)) {
+            this.luaC.write(buf, `__arg${argID}`);
+            return;
+        }
         if (arg.idlType.idlType == "DOMString") {
             this.luaC.write(buf, `__arg${argID}`);
         }
@@ -382,11 +459,27 @@ class WebIDLBinder {
         }
     }
     convertLuaToCPP_Post(buf, arg, argID) {
+        if (this.getExtendedAttribute("Array", arg.extAttrs)) {
+            this.luaC.write(buf, `__BINDER__.arrays.${this.rawMangle(arg.idlType.idlType)}.delete(__arg${argID},#${arg.name})`);
+            return;
+        }
+        else if (this.getExtendedAttribute("PointerArray", arg.extAttrs)) {
+            this.luaC.write(buf, `__BINDER__.ptrArrays.${this.rawMangle(arg.idlType.idlType)}.delete(__arg${argID})`);
+            return;
+        }
         if (arg.idlType.idlType == "DOMString") {
             this.luaC.write(buf, `__BINDER__.freeString(__arg${argID})`);
         }
     }
-    convertCPPToLuaReturn(buf, argType, argName) {
+    convertCPPToLuaReturn(buf, argType, extAttrs, argName) {
+        if (this.getExtendedAttribute("Array", extAttrs)) {
+            this.luaC.write(buf, `return __BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.arrays.${this.rawMangle(argType.idlType)},${argName})`);
+            return;
+        }
+        else if (this.getExtendedAttribute("PointerArray", extAttrs)) {
+            this.luaC.write(buf, `return __BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(argType.idlType)},${argName})`);
+            return;
+        }
         if (this.classLookup[argType.idlType]) {
             this.luaC.write(buf, `local __obj = __BINDINGS__.${argType.idlType}.__cache[${argName}] `);
             this.luaC.write(buf, `if not __obj then __obj = setmetatable({__ptr = ${argName}},__BINDINGS__.${argType.idlType}) __BINDINGS__.${argType.idlType}.__cache[${argName}] = __obj end `);
@@ -399,8 +492,16 @@ class WebIDLBinder {
             this.luaC.write(buf, `return ${argName}`);
         }
     }
-    convertLuaToCPPReturn(buf, argType, argName) {
+    convertLuaToCPPReturn(buf, argType, extAttrs, argName) {
         this.luaC.write(buf, `return `);
+        if (this.getExtendedAttribute("Array", extAttrs)) {
+            this.luaC.write(buf, `__BINDER__.luaToWasmArrayInternal(__BINDER__.arrays.${this.rawMangle(argType.idlType)},${argName})`);
+            return;
+        }
+        else if (this.getExtendedAttribute("PointerArray", extAttrs)) {
+            this.luaC.write(buf, `__BINDER__.luaToWasmArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(argType.idlType)},${argName})`);
+            return;
+        }
         if (argType.idlType == "DOMString") {
             this.luaC.write(buf, `__BINDER__.stringify(${argName})`);
         }
@@ -415,6 +516,12 @@ class WebIDLBinder {
         }
     }
     convertCPPToLua_Pre(buf, arg, argID) {
+        if (this.getExtendedAttribute("Array", arg.extAttrs)) {
+            return;
+        }
+        else if (this.getExtendedAttribute("PointerArray", arg.extAttrs)) {
+            return;
+        }
         if (this.classLookup[arg.idlType.idlType]) {
             this.luaC.write(buf, `local __arg${argID} = __BINDINGS__.${arg.idlType.idlType}.__cache[arg.name] `);
             this.luaC.write(buf, `if not __arg${argID} then __arg${argID} = setmetatable({__ptr = __arg${argID}},__BINDINGS__.${arg.idlType.idlType}) __BINDINGS__.${arg.idlType.idlType}.__cache[${arg.name}] = __arg${argID} end `);
@@ -424,6 +531,14 @@ class WebIDLBinder {
         }
     }
     convertCPPToLua_Arg(buf, arg, argID) {
+        if (this.getExtendedAttribute("Array", arg.extAttrs)) {
+            this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.arrays.${this.rawMangle(arg.idlType.idlType)},${arg.name})`);
+            return;
+        }
+        else if (this.getExtendedAttribute("PointerArray", arg.extAttrs)) {
+            this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(arg.idlType.idlType)},${arg.name})`);
+            return;
+        }
         if (this.classLookup[arg.idlType.idlType]) {
             this.luaC.write(buf, `__arg${argID}`);
         }
@@ -435,6 +550,12 @@ class WebIDLBinder {
         }
     }
     convertCPPToLua_Post(buf, arg, argID) {
+        if (this.getExtendedAttribute("Array", arg.extAttrs)) {
+            return;
+        }
+        else if (this.getExtendedAttribute("PointerArray", arg.extAttrs)) {
+            return;
+        }
     }
     walkInterfaceLua(node) {
         let JsImpl = this.getExtendedAttribute("JSImplementation", node.extAttrs) || this.getExtendedAttribute("LuaImplementation", node.extAttrs);
@@ -545,7 +666,7 @@ class WebIDLBinder {
                         this.convertLuaToCPP_Post(this.outBufLua, member.arguments[j], j);
                     }
                     if (member.name !== node.name) {
-                        this.convertCPPToLuaReturn(this.outBufLua, member.idlType, "ret");
+                        this.convertCPPToLuaReturn(this.outBufLua, member.idlType, member.extAttrs, "ret");
                     }
                 }
                 else {
@@ -566,7 +687,7 @@ class WebIDLBinder {
                     for (let j = 0; j < member.arguments.length; j++) {
                         this.convertLuaToCPP_Post(this.outBufLua, member.arguments[j], j);
                     }
-                    this.convertLuaToCPPReturn(this.outBufLua, member.idlType, "ret");
+                    this.convertLuaToCPPReturn(this.outBufLua, member.idlType, member.extAttrs, "ret");
                     this.luaC.write(this.outBufLua, " end");
                     this.luaC.newLine(this.outBufLua);
                 }
@@ -574,14 +695,14 @@ class WebIDLBinder {
             else if (member.type == "attribute") {
                 this.luaC.write(this.outBufLua, `function __BINDINGS__.${node.name}.__specialIndex.${member.name}(self,k) `);
                 this.luaC.write(this.outBufLua, `local ret = __FUNCS__.${this.mangleIndexerName(member, node.name, false)}(self.__ptr)`);
-                this.convertCPPToLuaReturn(this.outBufLua, member.idlType, "ret");
+                this.convertCPPToLuaReturn(this.outBufLua, member.idlType, member.extAttrs, "ret");
                 this.luaC.writeLn(this.outBufLua, ` end`);
                 this.luaC.write(this.outBufLua, `function __BINDINGS__.${node.name}.__specialNewIndex.${member.name}(self,k,v) `);
-                this.convertLuaToCPP_Pre(this.outBufLua, { name: "v", idlType: member.idlType }, 0);
+                this.convertLuaToCPP_Pre(this.outBufLua, { name: "v", idlType: member.idlType, extAttrs: member.extAttrs }, 0);
                 this.luaC.write(this.outBufLua, `__FUNCS__.${this.mangleIndexerName(member, node.name, true)}(self.__ptr,`);
-                this.convertLuaToCPP_Arg(this.outBufLua, { name: "v", idlType: member.idlType }, 0);
+                this.convertLuaToCPP_Arg(this.outBufLua, { name: "v", idlType: member.idlType, extAttrs: member.extAttrs }, 0);
                 this.luaC.write(this.outBufLua, `)`);
-                this.convertLuaToCPP_Post(this.outBufLua, { name: "v", idlType: member.idlType }, 0);
+                this.convertLuaToCPP_Post(this.outBufLua, { name: "v", idlType: member.idlType, extAttrs: member.extAttrs }, 0);
                 this.luaC.writeLn(this.outBufLua, ` end`);
             }
         }
@@ -805,7 +926,7 @@ class WebIDLBinder {
                     for (let j = 0; j < member.arguments.length; j++) {
                         this.convertLuaToCPP_Post(this.outBufLua, member.arguments[j], j);
                     }
-                    this.convertCPPToLuaReturn(this.outBufLua, member.idlType, "ret");
+                    this.convertCPPToLuaReturn(this.outBufLua, member.idlType, member.extAttrs, "ret");
                 }
                 this.luaC.write(this.outBufLua, " end");
                 this.luaC.newLine(this.outBufLua);
@@ -822,7 +943,7 @@ class WebIDLBinder {
                     for (let j = 0; j < member.arguments.length; j++) {
                         this.convertLuaToCPP_Post(this.outBufLua, member.arguments[j], j);
                     }
-                    this.convertLuaToCPPReturn(this.outBufLua, member.idlType, "ret");
+                    this.convertLuaToCPPReturn(this.outBufLua, member.idlType, member.extAttrs, "ret");
                     this.luaC.write(this.outBufLua, " end");
                     this.luaC.newLine(this.outBufLua);
                 }
@@ -830,14 +951,14 @@ class WebIDLBinder {
             else if (member.type == "attribute") {
                 this.luaC.write(this.outBufLua, `function __BINDINGS__.${node.name}.__specialIndex.${member.name}(self,k) `);
                 this.luaC.write(this.outBufLua, `local ret = __FUNCS__.${this.mangleIndexerName(member, node.name, false)}()`);
-                this.convertCPPToLuaReturn(this.outBufLua, member.idlType, "ret");
+                this.convertCPPToLuaReturn(this.outBufLua, member.idlType, member.extAttrs, "ret");
                 this.luaC.writeLn(this.outBufLua, ` end`);
                 this.luaC.write(this.outBufLua, `function __BINDINGS__.${node.name}.__specialNewIndex.${member.name}(self,k,v) `);
-                this.convertLuaToCPP_Pre(this.outBufLua, { name: "v", idlType: member.idlType }, 0);
+                this.convertLuaToCPP_Pre(this.outBufLua, { name: "v", idlType: member.idlType, extAttrs: member.extAttrs }, 0);
                 this.luaC.write(this.outBufLua, `__FUNCS__.${this.mangleIndexerName(member, node.name, true)}(`);
-                this.convertLuaToCPP_Arg(this.outBufLua, { name: "v", idlType: member.idlType }, 0);
+                this.convertLuaToCPP_Arg(this.outBufLua, { name: "v", idlType: member.idlType, extAttrs: member.extAttrs }, 0);
                 this.luaC.write(this.outBufLua, `)`);
-                this.convertLuaToCPP_Post(this.outBufLua, { name: "v", idlType: member.idlType }, 0);
+                this.convertLuaToCPP_Post(this.outBufLua, { name: "v", idlType: member.idlType, extAttrs: member.extAttrs }, 0);
                 this.luaC.writeLn(this.outBufLua, ` end`);
             }
         }

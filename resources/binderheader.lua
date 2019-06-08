@@ -1,5 +1,3 @@
-local __BINDER__ = {}
-
 local rawget = rawget
 local rawset = rawset
 
@@ -101,4 +99,78 @@ function __BINDER__.createNamespace()
     end
 
     return setmetatable({},meta)
+end
+
+function __BINDER__.ptrToClass(ptr,classBase)
+    if type(ptr) == "number" then
+        if not classBase.__cache[ptr] then
+            classBase.__cache[ptr] = setmetatable({__ptr = ptr},classBase)
+        end
+        
+        return classBase.__cache[ptr]
+    else
+        return ptr
+    end
+end
+
+function __BINDER__.luaToWasmArrayInternal(interface,tbl)
+    local wasmPtr = interface.new(#tbl)
+
+    if interface.isClass then
+        for i=1,#tbl do
+            interface.set(wasmPtr,i-1,tbl[i].__ptr)
+        end
+    else
+        for i=1,#tbl do
+            interface.set(wasmPtr,i-1,tbl[i])
+        end
+    end
+
+    return wasmPtr
+end
+
+function __BINDER__.wasmToWrappedLuaArrayInternal(interface,wasmPtr,len)
+    local out = {__ptr = wasmPtr}
+
+    if interface.isClass then
+        setmetatable(out,{
+            __index = function(self,idx)
+                assert(type(idx) == "number","Array indexer must be a number")
+                return __BINDER__.ptrToClass(interface.get(wasmPtr,i-1))
+            end,
+            __newindex = function(self,idx,val)
+                assert(type(idx) == "number","Array indexer must be a number")
+                __BINDER__.ptrToClass(interface.set(wasmPtr,i-1,val.__ptr))
+            end,
+        })
+    else
+        setmetatable(out,{
+            __index = function(self,idx)
+                assert(type(idx) == "number","Array indexer must be a number")
+                return interface.get(wasmPtr,i-1)
+            end,
+            __newindex = function(self,idx,val)
+                assert(type(idx) == "number","Array indexer must be a number")
+                __BINDER__.ptrToClass(interface.set(wasmPtr,i-1,val))
+            end,
+        })
+    end
+
+    return out
+end
+
+function __BINDER__.wasmToLuaArrayInternal(interface,wasmPtr,len)
+    local out = {}
+
+    if interface.isClass then
+        for i=1,len do
+            out[i] = __BINDER__.ptrToClass(interface.get(wasmPtr,i-1))
+        end
+    else
+        for i=1,len do
+            out[i] = interface.get(wasmPtr,i-1)
+        end
+    end
+
+    return out
 end

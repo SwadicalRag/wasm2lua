@@ -82,6 +82,7 @@ local __SETJMP_STATES__ = setmetatable({},{__mode="k"})
 local __FUNCS__ = {}
 local __EXPORTS__ = {}
 local __BINDINGS__ = {}
+local __BINDER__ = {arrays = {},ptrArrays = {}}
 
 local module = {
     imports = __IMPORTS__,
@@ -89,6 +90,7 @@ local module = {
     globals = __GLOBALS__,
     funcs = __FUNCS__,
     bindings = __BINDINGS__,
+    binder = __BINDER__,
 }
 
 function module.setImports(imp)
