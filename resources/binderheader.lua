@@ -130,6 +130,12 @@ function __BINDER__.luaToWasmArrayInternal(interface,tbl)
 end
 
 function __BINDER__.wasmToWrappedLuaArrayConvertInternal(out,interface,wasmPtr)
+    if getmetatable(out) then return end
+
+    for i=1,#out do
+        out[i] = nil
+    end
+
     if interface.isClass then
         setmetatable(out,{
             __index = function(self,idx)

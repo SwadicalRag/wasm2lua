@@ -291,7 +291,7 @@ interface Program extends BaseNode {
 interface Identifier extends BaseNode {
   type: "Identifier",
   value: string,
-  raw?: string
+  raw?: string,
 }
 
 interface BlockInstruction extends BaseNode {
@@ -306,6 +306,7 @@ interface CallInstruction extends BaseNode {
   type: "CallInstruction",
   id: string,
   index: Index,
+  numeric: Index,
   instrArgs?: Array<Expression>
 }
 

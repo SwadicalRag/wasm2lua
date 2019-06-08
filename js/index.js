@@ -288,8 +288,10 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             binder.buildOut();
             binder.luaC.outdent();
             this.newLine(this.outBuf);
-            this.writeLn(this.outBuf, `local __MALLOC__ = __FUNCS__.${this.options.webidl.mallocName || "malloc"}`);
-            this.writeLn(this.outBuf, `local __FREE__ = __FUNCS__.${this.options.webidl.freeName || "free"}`);
+            let malloc = this.modState.funcByName.get(this.options.webidl.mallocName || "malloc");
+            let free = this.modState.funcByName.get(this.options.webidl.freeName || "free");
+            this.writeLn(this.outBuf, `local __MALLOC__ = ${malloc ? malloc.id : `function() error "${this.options.webidl.mallocName} is not defined" end`}`);
+            this.writeLn(this.outBuf, `local __FREE__ = ${free ? free.id : `function() error "${this.options.webidl.freeName} is not defined" end`}`);
             this.newLine(this.outBuf);
             this.write(this.outBuf, wasm2lua.binderHeader);
             this.newLine(this.outBuf);
@@ -309,10 +311,12 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         let state = {
             funcStates: [],
             funcByName: new Map(),
+            funcByNameRaw: new Map(),
             memoryAllocations: new arraymap_1.ArrayMap(),
             func_tables: [],
             nextGlobalIndex: 0
         };
+        this.modState = state;
         for (let section of node.metadata.sections) {
             this.processModuleMetadataSection(section);
         }
@@ -569,7 +573,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             funcID = "func_" + node.name.value;
         }
         else {
-            funcID = "func_" + state.funcStates.length;
+            funcID = "func_u" + state.funcStates.length;
         }
         let fstate = {
             id: renameTo ? renameTo : "__FUNCS__." + sanitizeIdentifier(funcID),
@@ -597,8 +601,21 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             curJmpID: 0,
             usedLabels: {},
         };
+        if (typeof node.name.numeric === "string") {
+            state.funcByNameRaw.set(node.name.numeric, fstate);
+            state.funcByName.set(node.name.numeric, fstate);
+        }
         state.funcStates.push(fstate);
         state.funcByName.set(funcID, fstate);
+        if (this.doneFunctions[fstate.id]) {
+            if (typeof node.name.numeric === "string") {
+                fstate.id += "_" + node.name.numeric;
+            }
+            else {
+                fstate.id += "_dup";
+            }
+        }
+        this.doneFunctions[fstate.id] = true;
         return fstate;
     }
     forEachVar(state, cb) {
@@ -649,15 +666,10 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             this.write(buf, "-- WARNING: Function type signature read failed (2)");
             this.newLine(buf);
         }
-        let state = modState.funcByName.get(typeof node.name.value === "string" ? node.name.value : "func_u" + modState.funcStates.length);
+        let state = modState.funcByName.get(node.name.numeric || (typeof node.name.value === "string" ? node.name.value : "func_u" + modState.funcStates.length));
         if (!state) {
             state = this.initFunc(node, modState);
         }
-        if (this.doneFunctions[state.id]) {
-            console.log(`Warning: duplicate WASM function ${state.id} ignored`);
-            return "";
-        }
-        this.doneFunctions[state.id] = true;
         state.stackLevel = 1;
         this.getAllFuncCallsTo(node.body, state, "setjmp", state.setJmps);
         state.hasSetjmp = state.setJmps.length > 0;
@@ -1815,7 +1827,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                     break;
                 }
                 case "CallInstruction": {
-                    let fstate = this.getFuncByIndex(state.modState, ins.index);
+                    let fstate = this.getFuncByIndex(state.modState, ins.numeric || ins.index);
                     if ((fstate && fstate.origID == "setjmp") || (ins.index.value == "setjmp")) {
                         let resultVar = this.fn_createTempRegister(buf, state);
                         let jmpBufLoc = this.getPop(state);
