@@ -2032,7 +2032,9 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         if (state.regManager.virtualDisabled) {
             this.write(t_buf, "local ");
             let seen = {};
+            let len = 0;
             for (let i = (state.funcType ? state.funcType.params.length : 0); i < state.regManager.registerCache.length; i++) {
+                len++;
                 let reg = state.regManager.registerCache[i];
                 let name = state.regManager.getPhysicalRegisterName(reg);
                 if (seen[name]) {
@@ -2045,6 +2047,13 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             if (t_buf.pop() !== ",") {
                 return "";
             }
+            this.write(t_buf, " = ");
+            for (let i = 0; i < len; i++) {
+                this.write(t_buf, "0");
+                if ((i + 1) !== len) {
+                    this.write(t_buf, ",");
+                }
+            }
             this.write(t_buf, ";");
             this.newLine(t_buf);
             return t_buf.join("");
@@ -2053,7 +2062,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             if (state.regManager.totalRegisters > virtualregistermanager_1.VirtualRegisterManager.MAX_REG) {
                 this.write(t_buf, "local vreg = {");
                 for (let i = virtualregistermanager_1.VirtualRegisterManager.MAX_REG; i < state.regManager.totalRegisters; i++) {
-                    this.write(t_buf, `nil,`);
+                    this.write(t_buf, `0,`);
                 }
                 this.writeLn(t_buf, "}");
             }
@@ -2067,6 +2076,21 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                 }
                 else {
                     this.write(t_buf, `reg${i}`);
+                    if (i !== (state.regManager.totalRegisters - 1)) {
+                        this.write(t_buf, ",");
+                    }
+                }
+            }
+            this.write(t_buf, " = ");
+            for (let i = (state.funcType ? state.funcType.params.length : 0); i < state.regManager.totalRegisters; i++) {
+                if (i >= virtualregistermanager_1.VirtualRegisterManager.MAX_REG) {
+                    if (t_buf[t_buf.length - 1] == ",") {
+                        t_buf.pop();
+                    }
+                    break;
+                }
+                else {
+                    this.write(t_buf, `0`);
                     if (i !== (state.regManager.totalRegisters - 1)) {
                         this.write(t_buf, ",");
                     }

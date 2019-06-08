@@ -18,6 +18,8 @@ program.version(manifest.version)
     .option("-b, --bindings <bindings.idl>", "Generates Lua-WebIDL bindings from the specified file")
     .option("--libmode", "Adds a dummy main function to use this as a library (for WASI)")
     .option("--jmpstreamThreshold <n>", "Specify jump size of n(opcodes) as the threshold for enabling jmpstream")
+    .option("--oSize <O0 / Os / Oz>", "size reduction factor")
+    .option("--oSpeed <O0 / O1 / O2>", "speed optimisation factor")
     .action(function (inf, outf) {
     if ((typeof inf === "string") && (typeof outf === "string")) {
         if ((inf.trim() !== "") && (outf.trim() !== "")) {
@@ -55,6 +57,12 @@ if (program.pureLua) {
 }
 if (program.libmode) {
     conf.libMode = program.libmode;
+}
+if (program.oSize) {
+    conf.optimizeSizeFlag = program.oSize;
+}
+if (program.oSpeed) {
+    conf.optimizeSpeedFlag = program.oSpeed;
 }
 if (program.jmpstreamThreshold) {
     conf.jmpStreamThreshold = parseInt(program.jmpstreamThreshold);
