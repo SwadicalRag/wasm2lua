@@ -1,8 +1,11 @@
 import "./patches"
 
 import {decode} from "@webassemblyjs/wasm-parser"
+import * as wasmDCE from "@webassemblyjs/dce"
 import * as fs from "fs"
 import { isArray } from "util";
+
+const binaryen = require("binaryen");
 
 import {ArrayMap} from "./arraymap"
 import { VirtualRegisterManager, VirtualRegister, PhantomRegister } from "./virtualregistermanager";
@@ -125,6 +128,8 @@ export interface WASM2LuaOptions {
     pureLua?: boolean;
     libMode?: boolean;
     jmpStreamThreshold?: number;
+    optimizeSpeedFlag?: string;
+    optimizeSizeFlag?: string;
     webidl?: {
         idlFilePath: string,
         mallocName?: string,
@@ -181,7 +186,45 @@ export class wasm2lua extends StringCompiler {
             options.jmpStreamThreshold = 8000;
         }
 
-        this.program_ast = decode(program_binary,{
+        if (typeof options.optimizeSizeFlag === "string") {
+            switch(options.optimizeSizeFlag) {
+                case "Oz": {
+                    binaryen.getShrinkLevel(2);
+                    break;
+                }
+                case "Os": {
+                    binaryen.getShrinkLevel(1);
+                    break;
+                }
+                default: {
+                    binaryen.getShrinkLevel(0);
+                    break;
+                }
+            }
+        }
+
+        if (typeof options.optimizeSpeedFlag === "string") {
+            switch(options.optimizeSizeFlag) {
+                case "O2": {
+                    binaryen.setOptimizeLevel(2);
+                    break;
+                }
+                case "O1": {
+                    binaryen.setOptimizeLevel(1);
+                    break;
+                }
+                default: {
+                    binaryen.setOptimizeLevel(0);
+                    break;
+                }
+            }
+        }
+
+        let mod2 = binaryen.readBinary(program_binary);
+        mod2.optimize();
+        this.program_binary = mod2.emitBinary()
+
+        this.program_ast = decode(this.program_binary,{
             // dump: true,
         });
 

@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 require("./patches");
 const wasm_parser_1 = require("@webassemblyjs/wasm-parser");
 const fs = require("fs");
+const binaryen = require("binaryen");
 const arraymap_1 = require("./arraymap");
 const virtualregistermanager_1 = require("./virtualregistermanager");
 const stringcompiler_1 = require("./stringcompiler");
@@ -56,7 +57,42 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         if (typeof options.jmpStreamThreshold !== "number") {
             options.jmpStreamThreshold = 8000;
         }
-        this.program_ast = wasm_parser_1.decode(program_binary, {});
+        if (typeof options.optimizeSizeFlag === "string") {
+            switch (options.optimizeSizeFlag) {
+                case "Oz": {
+                    binaryen.getShrinkLevel(2);
+                    break;
+                }
+                case "Os": {
+                    binaryen.getShrinkLevel(1);
+                    break;
+                }
+                default: {
+                    binaryen.getShrinkLevel(0);
+                    break;
+                }
+            }
+        }
+        if (typeof options.optimizeSpeedFlag === "string") {
+            switch (options.optimizeSizeFlag) {
+                case "O2": {
+                    binaryen.setOptimizeLevel(2);
+                    break;
+                }
+                case "O1": {
+                    binaryen.setOptimizeLevel(1);
+                    break;
+                }
+                default: {
+                    binaryen.setOptimizeLevel(0);
+                    break;
+                }
+            }
+        }
+        let mod2 = binaryen.readBinary(program_binary);
+        mod2.optimize();
+        this.program_binary = mod2.emitBinary();
+        this.program_ast = wasm_parser_1.decode(this.program_binary, {});
         this.process();
     }
     get fileHeader() {

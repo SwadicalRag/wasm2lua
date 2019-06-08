@@ -7,7 +7,15 @@
     "test": "node js/testsuite.js",
     "build": "tsc -p ."
   },
-  "keywords": ["wasm","lua","compiler","transpiler","wasi","luajit","webassembly"],
+  "keywords": [
+    "wasm",
+    "lua",
+    "compiler",
+    "transpiler",
+    "wasi",
+    "luajit",
+    "webassembly"
+  ],
   "author": {
     "name": "swadical",
     "url": "https://glua.team"
@@ -29,6 +37,7 @@
   },
   "dependencies": {
     "@webassemblyjs/wasm-parser": "^1.8.5",
+    "binaryen": "^84.0.0",
     "colors": "^1.3.3",
     "commander": "^2.20.0",
     "fs-extra": "^8.0.1",
