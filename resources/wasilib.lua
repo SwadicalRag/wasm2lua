@@ -85,6 +85,38 @@ return function(memory)
         return __WASI_ESUCCESS
     end
 
+    function WASI.fd_read(fd,iovec,iovec_len,out_count)
+        local len_read = 0
+        local len_total = 0
+
+        -- only stdio supported
+        if fd == 0 then
+            local str = ""
+            for i = 1,iovec_len do
+                local ptr = memory:read32(iovec)
+                local len = memory:read32(iovec+4)
+
+                for j=ptr,ptr+len-1 do
+                    if #str >= len then break end
+
+                    local read = io.read(1)
+                    if read == nil then break end
+                    
+                    len_read = len_read + 1
+                    memory:write8(j,read:byte())
+                end
+
+                iovec = iovec + 8
+            end
+        else
+            return __WASI_EBADF
+        end
+
+        memory:write32(out_count,len_read)
+
+        return __WASI_ESUCCESS
+    end
+
     function WASI.environ_sizes_get(out_count, out_size)
         -- unsupported
         --print("environ_sizes_get",out_count,out_size)
