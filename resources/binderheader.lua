@@ -1,13 +1,13 @@
-local vm = {}
+local __BINDER__ = {}
 
 local rawget = rawget
 local rawset = rawset
 
-function vm.freeString(ptr)
+function __BINDER__.freeString(ptr)
     __FREE__(ptr)
 end
 
-function vm.readString(ptr)
+function __BINDER__.readString(ptr)
     local out = {}
 
     local i = 0
@@ -25,7 +25,7 @@ function vm.readString(ptr)
     return table.concat(out,"")
 end
 
-function vm.stringify(str)
+function __BINDER__.stringify(str)
     local ptr = __MALLOC__(#str + 1)
 
     for i=1,#str do
@@ -36,7 +36,7 @@ function vm.stringify(str)
     return ptr
 end
 
-function vm.createClass(tbl,tblName)
+function __BINDER__.createClass(tbl,tblName)
     tbl.__cache = {}
     tbl.__specialIndex = {}
     tbl.__specialNewIndex = {}
@@ -73,7 +73,7 @@ function vm.createClass(tbl,tblName)
     end
 end
 
-function vm.createNamespace()
+function __BINDER__.createNamespace()
     local meta = {}
     meta.__specialIndex = {}
     meta.__specialNewIndex = {}

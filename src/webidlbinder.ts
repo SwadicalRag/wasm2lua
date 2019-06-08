@@ -442,7 +442,7 @@ export class WebIDLBinder {
 
     convertLuaToCPP_Pre(buf: string[],arg: {name: string,idlType: webidl.IDLTypeDescription} | webidl.Argument,argID: number) {
         if(arg.idlType.idlType == "DOMString") {
-            this.luaC.write(buf,`local __arg${argID} = vm.stringify(${arg.name})`);
+            this.luaC.write(buf,`local __arg${argID} = __BINDER__.stringify(${arg.name})`);
         }
     }
 
@@ -463,7 +463,7 @@ export class WebIDLBinder {
 
     convertLuaToCPP_Post(buf: string[],arg: {name: string,idlType: webidl.IDLTypeDescription} | webidl.Argument,argID: number) {
         if(arg.idlType.idlType == "DOMString") {
-            this.luaC.write(buf,`vm.freeString(__arg${argID})`);
+            this.luaC.write(buf,`__BINDER__.freeString(__arg${argID})`);
         }
     }
 
@@ -475,7 +475,7 @@ export class WebIDLBinder {
         }
         else if(argType.idlType == "DOMString") {
             // null terminated only :(
-            this.luaC.write(buf,`return vm.readString(${argName})`);
+            this.luaC.write(buf,`return __BINDER__.readString(${argName})`);
         }
         else {
             this.luaC.write(buf,`return ${argName}`);
@@ -485,7 +485,7 @@ export class WebIDLBinder {
     convertLuaToCPPReturn(buf: string[],argType: webidl.IDLTypeDescription,argName: string) {
         this.luaC.write(buf,`return `);
         if(argType.idlType == "DOMString") {
-            this.luaC.write(buf,`vm.stringify(${argName})`);
+            this.luaC.write(buf,`__BINDER__.stringify(${argName})`);
         }
         else {
             this.luaC.write(buf,`${argName}`);
@@ -505,7 +505,7 @@ export class WebIDLBinder {
         }
         else if(arg.idlType.idlType == "DOMString") {
             // null terminated only :(
-            this.luaC.write(buf,`local __arg${argID} = vm.readString(${arg.name}) `);
+            this.luaC.write(buf,`local __arg${argID} = __BINDER__.readString(${arg.name}) `);
         }
     }
 
@@ -531,7 +531,7 @@ export class WebIDLBinder {
 
         let hasConstructor = false;
 
-        this.luaC.writeLn(this.outBufLua,`__BINDINGS__.${node.name} = {} vm.createClass(__BINDINGS__.${node.name},"${node.name}")`);
+        this.luaC.writeLn(this.outBufLua,`__BINDINGS__.${node.name} = {} __BINDER__.createClass(__BINDINGS__.${node.name},"${node.name}")`);
 
         let funcSig: {[ident: string]: number[]} = {};
         for(let i=0;i < node.members.length;i++) {
@@ -898,7 +898,7 @@ export class WebIDLBinder {
     walkNamespaceLua(node: webidl.NamespaceType) {
         let JsImpl = this.getExtendedAttribute("JSImplementation",node.extAttrs) || this.getExtendedAttribute("LuaImplementation",node.extAttrs);
 
-        this.luaC.write(this.outBufLua,`__BINDINGS__.${node.name} = vm.createNamespace()`);
+        this.luaC.write(this.outBufLua,`__BINDINGS__.${node.name} = __BINDER__.createNamespace()`);
 
         this.luaC.indent(); this.luaC.newLine(this.outBufLua);
 

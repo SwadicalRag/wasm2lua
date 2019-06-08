@@ -364,7 +364,7 @@ class WebIDLBinder {
     }
     convertLuaToCPP_Pre(buf, arg, argID) {
         if (arg.idlType.idlType == "DOMString") {
-            this.luaC.write(buf, `local __arg${argID} = vm.stringify(${arg.name})`);
+            this.luaC.write(buf, `local __arg${argID} = __BINDER__.stringify(${arg.name})`);
         }
     }
     convertLuaToCPP_Arg(buf, arg, argID) {
@@ -383,7 +383,7 @@ class WebIDLBinder {
     }
     convertLuaToCPP_Post(buf, arg, argID) {
         if (arg.idlType.idlType == "DOMString") {
-            this.luaC.write(buf, `vm.freeString(__arg${argID})`);
+            this.luaC.write(buf, `__BINDER__.freeString(__arg${argID})`);
         }
     }
     convertCPPToLuaReturn(buf, argType, argName) {
@@ -393,7 +393,7 @@ class WebIDLBinder {
             this.luaC.write(buf, "return __obj");
         }
         else if (argType.idlType == "DOMString") {
-            this.luaC.write(buf, `return vm.readString(${argName})`);
+            this.luaC.write(buf, `return __BINDER__.readString(${argName})`);
         }
         else {
             this.luaC.write(buf, `return ${argName}`);
@@ -402,7 +402,7 @@ class WebIDLBinder {
     convertLuaToCPPReturn(buf, argType, argName) {
         this.luaC.write(buf, `return `);
         if (argType.idlType == "DOMString") {
-            this.luaC.write(buf, `vm.stringify(${argName})`);
+            this.luaC.write(buf, `__BINDER__.stringify(${argName})`);
         }
         else {
             this.luaC.write(buf, `${argName}`);
@@ -420,7 +420,7 @@ class WebIDLBinder {
             this.luaC.write(buf, `if not __arg${argID} then __arg${argID} = setmetatable({__ptr = __arg${argID}},__BINDINGS__.${arg.idlType.idlType}) __BINDINGS__.${arg.idlType.idlType}.__cache[${arg.name}] = __arg${argID} end `);
         }
         else if (arg.idlType.idlType == "DOMString") {
-            this.luaC.write(buf, `local __arg${argID} = vm.readString(${arg.name}) `);
+            this.luaC.write(buf, `local __arg${argID} = __BINDER__.readString(${arg.name}) `);
         }
     }
     convertCPPToLua_Arg(buf, arg, argID) {
@@ -439,7 +439,7 @@ class WebIDLBinder {
     walkInterfaceLua(node) {
         let JsImpl = this.getExtendedAttribute("JSImplementation", node.extAttrs) || this.getExtendedAttribute("LuaImplementation", node.extAttrs);
         let hasConstructor = false;
-        this.luaC.writeLn(this.outBufLua, `__BINDINGS__.${node.name} = {} vm.createClass(__BINDINGS__.${node.name},"${node.name}")`);
+        this.luaC.writeLn(this.outBufLua, `__BINDINGS__.${node.name} = {} __BINDER__.createClass(__BINDINGS__.${node.name},"${node.name}")`);
         let funcSig = {};
         for (let i = 0; i < node.members.length; i++) {
             let member = node.members[i];
@@ -765,7 +765,7 @@ class WebIDLBinder {
     }
     walkNamespaceLua(node) {
         let JsImpl = this.getExtendedAttribute("JSImplementation", node.extAttrs) || this.getExtendedAttribute("LuaImplementation", node.extAttrs);
-        this.luaC.write(this.outBufLua, `__BINDINGS__.${node.name} = vm.createNamespace()`);
+        this.luaC.write(this.outBufLua, `__BINDINGS__.${node.name} = __BINDER__.createNamespace()`);
         this.luaC.indent();
         this.luaC.newLine(this.outBufLua);
         let funcSig = {};
