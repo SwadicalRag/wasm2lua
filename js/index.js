@@ -607,6 +607,15 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         }
         state.funcStates.push(fstate);
         state.funcByName.set(funcID, fstate);
+        if (this.doneFunctions[fstate.id]) {
+            if (typeof node.name.numeric === "string") {
+                fstate.id += "_" + node.name.numeric;
+            }
+            else {
+                fstate.id += "_dup";
+            }
+        }
+        this.doneFunctions[fstate.id] = true;
         return fstate;
     }
     forEachVar(state, cb) {
@@ -657,14 +666,10 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             this.write(buf, "-- WARNING: Function type signature read failed (2)");
             this.newLine(buf);
         }
-        let state = modState.funcByName.get(typeof node.name.value === "string" ? node.name.value : "func_u" + modState.funcStates.length);
+        let state = modState.funcByName.get(node.name.numeric || (typeof node.name.value === "string" ? node.name.value : "func_u" + modState.funcStates.length));
         if (!state) {
             state = this.initFunc(node, modState);
         }
-        if (this.doneFunctions[state.id]) {
-            state.id += "_dup";
-        }
-        this.doneFunctions[state.id] = true;
         state.stackLevel = 1;
         this.getAllFuncCallsTo(node.body, state, "setjmp", state.setJmps);
         state.hasSetjmp = state.setJmps.length > 0;
