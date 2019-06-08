@@ -162,6 +162,25 @@ class WebIDLBinder {
         }
         return `${prefixes} ${body} ${suffixes}`.replace(/\s+/g, " ").trim();
     }
+    idlTypeToCTypeLite(idlType, extAttrs) {
+        let body;
+        if (this.hasExtendedAttribute("Size", extAttrs) && (idlType.idlType == "any")) {
+            body = "size_t";
+        }
+        else if (this.hasExtendedAttribute("ArrayLength", extAttrs) && (idlType.idlType == "any")) {
+            body = "size_t";
+        }
+        else {
+            body = idlType.idlType;
+        }
+        if (WebIDLBinder.CTypeRenames[body]) {
+            body = WebIDLBinder.CTypeRenames[body];
+        }
+        else if (this.classPrefixLookup[body]) {
+            body = this.classPrefixLookup[body] + body;
+        }
+        return body;
+    }
     buildOut() {
         if (this.mode == BinderMode.WEBIDL_LUA) {
             this.luaC.writeLn(this.outBufLua, "local __CFUNCS__ = {}");
@@ -186,7 +205,7 @@ class WebIDLBinder {
         }
         for (let i = 0; i < this.ast.length; i++) {
             let node = this.ast[i];
-            if (node.type == "interface") {
+            if ((node.type == "interface") || (node.type == "namespace")) {
                 let JsImpl = this.getExtendedAttribute("JSImplementation", node.extAttrs) || this.getExtendedAttribute("LuaImplementation", node.extAttrs);
                 for (let j = 0; j < node.members.length; j++) {
                     let member = node.members[j];
@@ -194,7 +213,7 @@ class WebIDLBinder {
                         for (let k = member.arguments.length - 1; k >= 0; k--) {
                             let arrEA = this.getExtendedAttribute("Array", member.arguments[k].extAttrs);
                             if (arrEA) {
-                                this.arrayTypes[member.arguments[k].idlType.idlType] = member.arguments[k].idlType;
+                                this.arrayTypes[this.idlTypeToCTypeLite(member.arguments[k].idlType, member.arguments[k].extAttrs)] = member.arguments[k].idlType;
                                 if (this.getExtendedAttribute("ArrayLength", member.extAttrs) && JsImpl) {
                                     throw new SemanticError("ArrayLength extended attribute is incompatible with functions implemented in Lua");
                                 }
@@ -205,14 +224,13 @@ class WebIDLBinder {
                                     if (!this.classLookup[member.arguments[k].idlType.idlType]) {
                                         throw new SemanticError(`PointerArrays are unsupported for non-class types like '${member.arguments[k].idlType.idlType}'. Are you sure you defined an interface for this type?`);
                                     }
-                                    this.ptrArrayTypes[member.arguments[k].idlType.idlType] = member.arguments[k].idlType;
+                                    this.ptrArrayTypes[this.idlTypeToCTypeLite(member.arguments[k].idlType, member.arguments[k].extAttrs)] = member.arguments[k].idlType;
                                 }
                             }
                         }
                         let arrEARet = this.getExtendedAttribute("Array", member.extAttrs);
                         if (arrEARet) {
-                            this.arrayTypes[this.idlTypeToCType(member.idlType, member.extAttrs, true)] = member.idlType;
-                            this.arrayTypes[member.idlType.idlType] = member.idlType;
+                            this.arrayTypes[this.idlTypeToCTypeLite(member.idlType, member.extAttrs)] = member.idlType;
                             if (this.getExtendedAttribute("ArrayLength", member.extAttrs)) {
                                 throw new SemanticError("ArrayLength extended attribute is incompatible with return types");
                             }
@@ -223,8 +241,7 @@ class WebIDLBinder {
                                 if (!this.classLookup[member.idlType.idlType]) {
                                     throw new SemanticError(`PointerArrays are unsupported for non-class types like '${member.idlType.idlType}'. Are you sure you defined an interface for this type?`);
                                 }
-                                this.ptrArrayTypes[this.idlTypeToCType(member.idlType, member.extAttrs, true)] = member.idlType;
-                                this.ptrArrayTypes[member.idlType.idlType] = member.idlType;
+                                this.ptrArrayTypes[this.idlTypeToCTypeLite(member.idlType, member.extAttrs)] = member.idlType;
                             }
                         }
                     }
