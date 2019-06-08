@@ -622,11 +622,11 @@ export class WebIDLBinder {
         }
         else {
             if(this.getExtendedAttribute("Array",arg.extAttrs)) {
-                this.luaC.write(buf,`__BINDER__.wasmToWrappedLuaArrayConvertInternal(${arg.name},__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType,arg.extAttrs))})`);
+                this.luaC.write(buf,`__BINDER__.wasmToWrappedLuaArrayConvertInternal(${arg.name},__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType,arg.extAttrs))},__arg${argID})`);
                 return
             }
             else if(this.getExtendedAttribute("PointerArray",arg.extAttrs)) {
-                this.luaC.write(buf,`__BINDER__.wasmToWrappedLuaArrayConvertInternal(${arg.name},__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType,arg.extAttrs))})`);
+                this.luaC.write(buf,`__BINDER__.wasmToWrappedLuaArrayConvertInternal(${arg.name},__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType,arg.extAttrs))},__arg${argID})`);
                 return
             }
         }
