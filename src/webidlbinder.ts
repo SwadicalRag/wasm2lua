@@ -190,6 +190,9 @@ export class WebIDLBinder {
         if(this.hasExtendedAttribute("Size",extAttrs) && (idlType.idlType == "any")) {
             body = "size_t"
         }
+        else if(this.hasExtendedAttribute("ArrayLength",extAttrs) && (idlType.idlType == "any")) {
+            body = "size_t"
+        }
         else {
             body = idlType.idlType as string;
         }
@@ -235,6 +238,7 @@ export class WebIDLBinder {
         for(let i=0;i < this.ast.length;i++) {
             let node = this.ast[i];
             if(node.type == "interface") {
+                let JsImpl = this.getExtendedAttribute("JSImplementation",node.extAttrs) || this.getExtendedAttribute("LuaImplementation",node.extAttrs);
                 for(let j=0;j < node.members.length;j++) {
                     let member = node.members[j];
                     if(member.type == "operation") {
@@ -243,6 +247,10 @@ export class WebIDLBinder {
                             if(arrEA) {
                                 // this.arrayTypes[this.idlTypeToCType(member.arguments[k].idlType,member.arguments[k].extAttrs,true)] = member.arguments[k].idlType;
                                 this.arrayTypes[member.arguments[k].idlType.idlType as string] = member.arguments[k].idlType;
+
+                                if(this.getExtendedAttribute("ArrayLength",member.extAttrs) && JsImpl) {
+                                    throw new SemanticError("ArrayLength extended attribute is incompatible with functions implemented in Lua");
+                                }
                             }
                             else {
                                 arrEA = this.getExtendedAttribute("PointerArray",member.arguments[k].extAttrs);
@@ -261,6 +269,10 @@ export class WebIDLBinder {
                         if(arrEARet) {
                             this.arrayTypes[this.idlTypeToCType(member.idlType,member.extAttrs,true)] = member.idlType;
                             this.arrayTypes[member.idlType.idlType as string] = member.idlType;
+
+                            if(this.getExtendedAttribute("ArrayLength",member.extAttrs)) {
+                                throw new SemanticError("ArrayLength extended attribute is incompatible with return types");
+                            }
                         }
                         else {
                             arrEARet = this.getExtendedAttribute("PointerArray",member.extAttrs);
@@ -485,6 +497,8 @@ export class WebIDLBinder {
         }
 
         for(let j=0;j < args.length;j++) {
+            let skipWrite = false;
+
             if(typeConversionMode == ETypeConversion.LUA_TO_CPP) {
                 this.convertLuaToCPP_Arg(buf,args[j],j);
             }
@@ -492,12 +506,20 @@ export class WebIDLBinder {
                 this.convertCPPToLua_Arg(buf,args[j],j);
             }
             else {
-                this.luaC.write(buf,`${args[j].name}`);
+                if(this.getExtendedAttribute("ArrayLength",args[j].extAttrs)) {
+                    skipWrite = true;
+                }
+                else {
+                    this.luaC.write(buf,`${args[j].name}`);
+                }
             }
-            if((j+1) !== args.length) {
+
+            if(!skipWrite) {
                 this.luaC.write(buf,",");
             }
         }
+
+        if(buf[buf.length - 1] == ",") {buf.pop();}
     }
 
     walkRootType(node: webidl.IDLRootType) {
@@ -537,13 +559,21 @@ export class WebIDLBinder {
     }
 
     convertLuaToCPP_Arg(buf: string[],arg: {name: string,idlType: webidl.IDLTypeDescription,extAttrs: webidl.ExtendedAttributes[]} | webidl.Argument,argID: number) {
-        if(this.getExtendedAttribute("Array",arg.extAttrs)) {
+        let arrAttr = this.getExtendedAttribute("Array",arg.extAttrs) || this.getExtendedAttribute("PointerArray",arg.extAttrs);
+        if(arrAttr) {
             this.luaC.write(buf,`__arg${argID}`);
             return
         }
-        else if(this.getExtendedAttribute("PointerArray",arg.extAttrs)) {
-            this.luaC.write(buf,`__arg${argID}`);
-            return
+        else {
+            let lenAttr = this.getExtendedAttribute("ArrayLength",arg.extAttrs);
+            if(lenAttr) {
+                let arrVarName = this.unquote(lenAttr.rhs.value);
+                if(arrVarName == "") {
+                    throw new SemanticError("ArrayLength attribute needs parameter 'Array name'");
+                }
+                this.luaC.write(buf,`#${arrVarName}`);
+                return
+            }
         }
 
         if(arg.idlType.idlType == "DOMString") {
