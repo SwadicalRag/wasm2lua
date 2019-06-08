@@ -466,12 +466,12 @@ class WebIDLBinder {
     convertLuaToCPP_Pre(buf, arg, argID) {
         if (this.getExtendedAttribute("Array", arg.extAttrs)) {
             this.luaC.write(buf, `local __arg${argID} =`);
-            this.luaC.write(buf, `__BINDER__.luaToWasmArrayInternal(__BINDER__.arrays.${this.rawMangle(arg.idlType.idlType)},${arg.name})`);
+            this.luaC.write(buf, `__BINDER__.luaToWasmArrayInternal(__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))},${arg.name})`);
             return;
         }
         else if (this.getExtendedAttribute("PointerArray", arg.extAttrs)) {
             this.luaC.write(buf, `local __arg${argID} =`);
-            this.luaC.write(buf, `__BINDER__.luaToWasmArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(arg.idlType.idlType)},${arg.name})`);
+            this.luaC.write(buf, `__BINDER__.luaToWasmArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))},${arg.name})`);
             return;
         }
         if (arg.idlType.idlType == "DOMString") {
@@ -511,21 +511,21 @@ class WebIDLBinder {
     convertLuaToCPP_Post(buf, arg, argID) {
         if (!this.getExtendedAttribute("ConvertInputArray", arg.extAttrs)) {
             if (this.getExtendedAttribute("Array", arg.extAttrs)) {
-                this.luaC.write(buf, `__BINDER__.arrays.${this.rawMangle(arg.idlType.idlType)}.delete(__arg${argID},#${arg.name})`);
+                this.luaC.write(buf, `__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))}.delete(__arg${argID},#${arg.name})`);
                 return;
             }
             else if (this.getExtendedAttribute("PointerArray", arg.extAttrs)) {
-                this.luaC.write(buf, `__BINDER__.ptrArrays.${this.rawMangle(arg.idlType.idlType)}.delete(__arg${argID})`);
+                this.luaC.write(buf, `__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))}.delete(__arg${argID})`);
                 return;
             }
         }
         else {
             if (this.getExtendedAttribute("Array", arg.extAttrs)) {
-                this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayConvertInternal(${arg.name},__BINDER__.arrays.${this.rawMangle(arg.idlType.idlType)})`);
+                this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayConvertInternal(${arg.name},__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))})`);
                 return;
             }
             else if (this.getExtendedAttribute("PointerArray", arg.extAttrs)) {
-                this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayConvertInternal(${arg.name},__BINDER__.ptrArrays.${this.rawMangle(arg.idlType.idlType)})`);
+                this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayConvertInternal(${arg.name},__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))})`);
                 return;
             }
         }
@@ -535,11 +535,11 @@ class WebIDLBinder {
     }
     convertCPPToLuaReturn(buf, argType, extAttrs, argName) {
         if (this.getExtendedAttribute("Array", extAttrs)) {
-            this.luaC.write(buf, `return __BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.arrays.${this.rawMangle(argType.idlType)},${argName})`);
+            this.luaC.write(buf, `return __BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(argType, extAttrs))},${argName})`);
             return;
         }
         else if (this.getExtendedAttribute("PointerArray", extAttrs)) {
-            this.luaC.write(buf, `return __BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(argType.idlType)},${argName})`);
+            this.luaC.write(buf, `return __BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(argType, extAttrs))},${argName})`);
             return;
         }
         if (this.classLookup[argType.idlType]) {
@@ -557,11 +557,11 @@ class WebIDLBinder {
     convertLuaToCPPReturn(buf, argType, extAttrs, argName) {
         this.luaC.write(buf, `return `);
         if (this.getExtendedAttribute("Array", extAttrs)) {
-            this.luaC.write(buf, `__BINDER__.luaToWasmArrayInternal(__BINDER__.arrays.${this.rawMangle(argType.idlType)},${argName})`);
+            this.luaC.write(buf, `__BINDER__.luaToWasmArrayInternal(__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(argType, extAttrs))},${argName})`);
             return;
         }
         else if (this.getExtendedAttribute("PointerArray", extAttrs)) {
-            this.luaC.write(buf, `__BINDER__.luaToWasmArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(argType.idlType)},${argName})`);
+            this.luaC.write(buf, `__BINDER__.luaToWasmArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(argType, extAttrs))},${argName})`);
             return;
         }
         if (argType.idlType == "DOMString") {
@@ -594,11 +594,11 @@ class WebIDLBinder {
     }
     convertCPPToLua_Arg(buf, arg, argID) {
         if (this.getExtendedAttribute("Array", arg.extAttrs)) {
-            this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.arrays.${this.rawMangle(arg.idlType.idlType)},${arg.name})`);
+            this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))},${arg.name})`);
             return;
         }
         else if (this.getExtendedAttribute("PointerArray", arg.extAttrs)) {
-            this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(arg.idlType.idlType)},${arg.name})`);
+            this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))},${arg.name})`);
             return;
         }
         if (this.classLookup[arg.idlType.idlType]) {
