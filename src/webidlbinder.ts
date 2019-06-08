@@ -28,6 +28,8 @@ export class WebIDLBinder {
     ast: webidl.IDLRootType[];
     classLookup: {[n: string]: boolean} = {};
     classPrefixLookup: {[n: string]: string} = {};
+    arrayTypes: {[type: string]: webidl.IDLTypeDescription} = {};
+    ptrArrayTypes: {[type: string]: webidl.IDLTypeDescription} = {};
 
     static CTypeRenames: {[type: string]: string} = {
         ["DOMString"]: "char*",
@@ -104,6 +106,24 @@ export class WebIDLBinder {
         }
 
         return out;
+    }
+
+    mangleArrayIndexerName(opName: "get" | "set" | "new" | "delete",arrTypeName: string) {
+        let out = "_webidl_lua_arr_";
+
+        arrTypeName = arrTypeName.toString().replace(/\s*/g,"").replace(/[^A-Za-z0-9_]/g,(str) => {
+            return `__x${str.charCodeAt(0).toString(16)}`;
+        });
+
+        out += arrTypeName;
+
+        out += "_" + opName;
+
+        return out;
+    }
+
+    mangleArrayIndexerNameEx(opName: "get" | "set" | "new" | "delete",idlType: webidl.IDLTypeDescription,extAttrs: webidl.ExtendedAttributes[] = []) {
+        return this.mangleArrayIndexerName(opName,this.idlTypeToCType(idlType,extAttrs,true));
     }
 
     getExtendedAttribute(attribute: string,extAttrs: webidl.ExtendedAttributes[]) {
@@ -194,6 +214,41 @@ export class WebIDLBinder {
             }
         }
 
+        // record all array types
+        for(let i=0;i < this.ast.length;i++) {
+            let node = this.ast[i];
+            if(node.type == "interface") {
+                for(let j=0;j < node.members.length;j++) {
+                    let member = node.members[j];
+                    if(member.type == "operation") {
+                        for(let k=member.arguments.length-1;k >= 0;k--) {
+                            let arrEA = this.getExtendedAttribute("Array",member.arguments[k].extAttrs);
+                            if(arrEA) {
+                                this.arrayTypes[this.idlTypeToCType(member.arguments[k].idlType,member.arguments[k].extAttrs,true)] = member.arguments[k].idlType;
+                            }
+                            else {
+                                arrEA = this.getExtendedAttribute("PointerArray",member.arguments[k].extAttrs);
+                                if(arrEA) {
+                                    this.ptrArrayTypes[this.idlTypeToCType(member.arguments[k].idlType,member.arguments[k].extAttrs,true)] = member.arguments[k].idlType;
+                                }
+                            }
+                        }
+
+                        let arrEARet = this.getExtendedAttribute("Array",member.extAttrs);
+                        if(arrEARet) {
+                            this.arrayTypes[this.idlTypeToCType(member.idlType,member.extAttrs,true)] = member.idlType;
+                        }
+                        else {
+                            arrEARet = this.getExtendedAttribute("PointerArray",member.extAttrs);
+                            if(arrEARet) {
+                                this.ptrArrayTypes[this.idlTypeToCType(member.idlType,member.extAttrs,true)] = member.idlType;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // separate out "optional" args into different functions
         for(let i=0;i < this.ast.length;i++) {
             let node = this.ast[i];
@@ -255,6 +310,72 @@ export class WebIDLBinder {
         }
 
         if(this.mode == BinderMode.WEBIDL_CPP) {
+            // output array operators
+            for(let arrTypeNameCPP in this.arrayTypes) {
+                let arrType = this.arrayTypes[arrTypeNameCPP];
+                let arrTypeName = arrType.idlType as string;
+
+                let arrTypeNameAdj = arrTypeName;
+                if(this.classLookup[arrTypeName]) {
+                    arrTypeNameAdj += "*";
+                }
+
+                this.cppC.write(this.outBufCPP,`export extern "C" ${arrTypeNameAdj} ${this.mangleArrayIndexerName("get",arrTypeNameCPP)}(${arrTypeName} arr[],size_t index) {`);
+                this.cppC.write(this.outBufCPP,`return `);
+                if(this.classLookup[arrTypeName]) {
+                    this.cppC.write(this.outBufCPP,`&`);
+                }
+                this.cppC.write(this.outBufCPP,`arr[index];`);
+                this.cppC.writeLn(this.outBufCPP,`};`);
+
+                this.cppC.write(this.outBufCPP,`export extern "C" void ${this.mangleArrayIndexerName("set",arrTypeNameCPP)}(${arrTypeName} arr[],size_t index,${arrTypeNameAdj} val) {`);
+                this.cppC.write(this.outBufCPP,`arr[index] = `);
+                if(this.classLookup[arrTypeName]) {
+                    this.cppC.write(this.outBufCPP,`*`);
+                }
+                this.cppC.write(this.outBufCPP,`val;`);
+                this.cppC.writeLn(this.outBufCPP,`};`);
+
+                this.cppC.write(this.outBufCPP,`export extern "C" ${arrTypeName}* ${this.mangleArrayIndexerName("new",arrTypeNameCPP)}(size_t len) {`);
+                this.cppC.write(this.outBufCPP,`return new ${arrTypeName}[len];`);
+                this.cppC.writeLn(this.outBufCPP,`};`);
+
+                this.cppC.write(this.outBufCPP,`export extern "C" void ${this.mangleArrayIndexerName("delete",arrTypeNameCPP)}(${arrTypeName} arr[]) {`);
+                this.cppC.write(this.outBufCPP,`delete arr;`);
+                this.cppC.writeLn(this.outBufCPP,`};`);
+            }
+
+            // output pointer array operators
+            for(let arrTypeNameCPP in this.ptrArrayTypes) {
+                let arrType = this.ptrArrayTypes[arrTypeNameCPP];
+                let arrTypeName = arrType.idlType as string;
+
+                let arrTypeNameAdj = arrTypeName;
+                if(this.classLookup[arrTypeName]) {
+                    arrTypeNameAdj += "*";
+                }
+
+                this.cppC.write(this.outBufCPP,`export extern "C" ${arrTypeName}* ${this.mangleArrayIndexerName("get",arrTypeNameCPP)}(${arrTypeName}* arr[],size_t index) {`);
+                this.cppC.write(this.outBufCPP,`return arr[index];`);
+                this.cppC.writeLn(this.outBufCPP,`};`);
+
+                this.cppC.write(this.outBufCPP,`export extern "C" void ${this.mangleArrayIndexerName("set",arrTypeNameCPP)}(${arrTypeName}* arr[],size_t index,${arrTypeNameAdj} val) {`);
+                this.cppC.write(this.outBufCPP,`arr[index] = `);
+                if(!this.classLookup[arrTypeName]) {
+                    throw new SemanticError(`PointerArrays are unsupported for non-class types like '${arrTypeNameCPP}'. Are you sure you defined an interface for this type?`);
+                }
+                this.cppC.write(this.outBufCPP,`val;`);
+                this.cppC.writeLn(this.outBufCPP,`};`);
+
+                this.cppC.write(this.outBufCPP,`export extern "C" ${arrTypeName}** ${this.mangleArrayIndexerName("new",arrTypeNameCPP)}(size_t len) {`);
+                this.cppC.write(this.outBufCPP,`return new ${arrTypeName}[len];`);
+                this.cppC.writeLn(this.outBufCPP,`};`);
+
+                this.cppC.write(this.outBufCPP,`export extern "C" void ${this.mangleArrayIndexerName("delete",arrTypeNameCPP)}(${arrTypeName}* arr[]) {`);
+                this.cppC.write(this.outBufCPP,`delete arr;`);
+                this.cppC.writeLn(this.outBufCPP,`};`);
+            }
+
             this.cppC.writeLn(this.outBufCPP,`#undef __CFUNC`);
         }
     }
