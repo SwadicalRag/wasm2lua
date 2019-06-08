@@ -509,13 +509,25 @@ class WebIDLBinder {
         }
     }
     convertLuaToCPP_Post(buf, arg, argID) {
-        if (this.getExtendedAttribute("Array", arg.extAttrs)) {
-            this.luaC.write(buf, `__BINDER__.arrays.${this.rawMangle(arg.idlType.idlType)}.delete(__arg${argID},#${arg.name})`);
-            return;
+        if (!this.getExtendedAttribute("ConvertInputArray", arg.extAttrs)) {
+            if (this.getExtendedAttribute("Array", arg.extAttrs)) {
+                this.luaC.write(buf, `__BINDER__.arrays.${this.rawMangle(arg.idlType.idlType)}.delete(__arg${argID},#${arg.name})`);
+                return;
+            }
+            else if (this.getExtendedAttribute("PointerArray", arg.extAttrs)) {
+                this.luaC.write(buf, `__BINDER__.ptrArrays.${this.rawMangle(arg.idlType.idlType)}.delete(__arg${argID})`);
+                return;
+            }
         }
-        else if (this.getExtendedAttribute("PointerArray", arg.extAttrs)) {
-            this.luaC.write(buf, `__BINDER__.ptrArrays.${this.rawMangle(arg.idlType.idlType)}.delete(__arg${argID})`);
-            return;
+        else {
+            if (this.getExtendedAttribute("Array", arg.extAttrs)) {
+                this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayConvertInternal(${arg.name},__BINDER__.arrays.${this.rawMangle(arg.idlType.idlType)})`);
+                return;
+            }
+            else if (this.getExtendedAttribute("PointerArray", arg.extAttrs)) {
+                this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayConvertInternal(${arg.name},__BINDER__.ptrArrays.${this.rawMangle(arg.idlType.idlType)})`);
+                return;
+            }
         }
         if (arg.idlType.idlType == "DOMString") {
             this.luaC.write(buf, `__BINDER__.freeString(__arg${argID})`);

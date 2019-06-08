@@ -129,34 +129,36 @@ function __BINDER__.luaToWasmArrayInternal(interface,tbl)
     return wasmPtr
 end
 
-function __BINDER__.wasmToWrappedLuaArrayInternal(interface,wasmPtr,len)
-    local out = {__ptr = wasmPtr}
-
+function __BINDER__.wasmToWrappedLuaArrayConvertInternal(out,interface,wasmPtr)
     if interface.isClass then
         setmetatable(out,{
             __index = function(self,idx)
                 assert(type(idx) == "number","Array indexer must be a number")
-                return __BINDER__.ptrToClass(interface.get(wasmPtr,i-1))
+                return __BINDER__.ptrToClass(interface.get(wasmPtr,idx-1))
             end,
             __newindex = function(self,idx,val)
                 assert(type(idx) == "number","Array indexer must be a number")
-                __BINDER__.ptrToClass(interface.set(wasmPtr,i-1,val.__ptr))
+                interface.set(wasmPtr,idx-1,val.__ptr)
             end,
         })
     else
         setmetatable(out,{
             __index = function(self,idx)
                 assert(type(idx) == "number","Array indexer must be a number")
-                return interface.get(wasmPtr,i-1)
+                return interface.get(wasmPtr,idx-1)
             end,
             __newindex = function(self,idx,val)
                 assert(type(idx) == "number","Array indexer must be a number")
-                __BINDER__.ptrToClass(interface.set(wasmPtr,i-1,val))
+                interface.set(wasmPtr,idx-1,val)
             end,
         })
     end
 
     return out
+end
+
+function __BINDER__.wasmToWrappedLuaArrayInternal(interface,wasmPtr)
+    return __BINDER__.wasmToWrappedLuaArrayConvertInternal({},interface,wasmPtr,len)
 end
 
 function __BINDER__.wasmToLuaArrayInternal(interface,wasmPtr,len)
