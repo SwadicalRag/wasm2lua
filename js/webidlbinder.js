@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const webidl = require("webidl2");
 const stringcompiler_1 = require("./stringcompiler");
+const fs = require("fs");
 var BinderMode;
 (function (BinderMode) {
     BinderMode[BinderMode["WEBIDL_NONE"] = -1] = "WEBIDL_NONE";
@@ -290,6 +291,18 @@ class WebIDLBinder {
             }
         }
         if (this.mode == BinderMode.WEBIDL_CPP) {
+            this.cppC.write(this.outBufCPP, `template <typename T> struct _LuaArray {`);
+            this.cppC.indent();
+            this.cppC.newLine(this.outBufCPP);
+            this.cppC.writeLn(this.outBufCPP, `public:`);
+            this.cppC.writeLn(this.outBufCPP, `_LuaArray(size_t inLen) : totalLen(inLen), len(inLen) {array = new T[inLen];};`);
+            this.cppC.writeLn(this.outBufCPP, `~_LuaArray() {delete[] array;};`);
+            this.cppC.writeLn(this.outBufCPP, `size_t totalLen = 0;`);
+            this.cppC.writeLn(this.outBufCPP, `size_t len = 0;`);
+            this.cppC.write(this.outBufCPP, `T* array;`);
+            this.cppC.newLine(this.outBufCPP);
+            this.cppC.outdent(this.outBufCPP);
+            this.cppC.writeLn(this.outBufCPP, `};`);
             for (let arrTypeNameKey in this.arrayTypes) {
                 let arrType = this.arrayTypes[arrTypeNameKey];
                 let arrTypeName = WebIDLBinder.CTypeRenames[arrType.idlType];
@@ -297,46 +310,48 @@ class WebIDLBinder {
                 if (this.classLookup[arrTypeName]) {
                     arrTypeNameAdj += "*";
                 }
-                this.cppC.write(this.outBufCPP, `export extern "C" ${arrTypeNameAdj} ${this.mangleArrayIndexerName("get", arrTypeNameKey)}(${arrTypeName} arr[],size_t index) {`);
+                this.cppC.write(this.outBufCPP, `export extern "C" ${arrTypeNameAdj} ${this.mangleArrayIndexerName("get", arrTypeNameKey)}(_LuaArray<${arrTypeName}>* arr,size_t index) {`);
                 this.cppC.write(this.outBufCPP, `return `);
                 if (this.classLookup[arrTypeName]) {
                     this.cppC.write(this.outBufCPP, `&`);
                 }
-                this.cppC.write(this.outBufCPP, `arr[index];`);
+                this.cppC.write(this.outBufCPP, `arr->array[index];`);
                 this.cppC.writeLn(this.outBufCPP, `};`);
-                this.cppC.write(this.outBufCPP, `export extern "C" void ${this.mangleArrayIndexerName("set", arrTypeNameKey)}(${arrTypeName} arr[],size_t index,${arrTypeNameAdj} val) {`);
-                this.cppC.write(this.outBufCPP, `arr[index] = `);
+                this.cppC.write(this.outBufCPP, `export extern "C" void ${this.mangleArrayIndexerName("set", arrTypeNameKey)}(_LuaArray<${arrTypeName}>* arr,size_t index,${arrTypeNameAdj} val) {`);
+                this.cppC.write(this.outBufCPP, `arr->array[index] = `);
                 if (this.classLookup[arrTypeName]) {
                     this.cppC.write(this.outBufCPP, `*`);
                 }
                 this.cppC.write(this.outBufCPP, `val;`);
                 this.cppC.writeLn(this.outBufCPP, `};`);
-                this.cppC.write(this.outBufCPP, `export extern "C" ${arrTypeName}* ${this.mangleArrayIndexerName("new", arrTypeNameKey)}(size_t len) {`);
-                this.cppC.write(this.outBufCPP, `return new ${arrTypeName}[len];`);
+                this.cppC.write(this.outBufCPP, `export extern "C" _LuaArray<${arrTypeName}>* ${this.mangleArrayIndexerName("new", arrTypeNameKey)}(size_t len) {`);
+                this.cppC.write(this.outBufCPP, `return new _LuaArray<${arrTypeName}>(len);`);
                 this.cppC.writeLn(this.outBufCPP, `};`);
-                this.cppC.write(this.outBufCPP, `export extern "C" void ${this.mangleArrayIndexerName("delete", arrTypeNameKey)}(${arrTypeName} arr[]) {`);
+                this.cppC.write(this.outBufCPP, `export extern "C" void ${this.mangleArrayIndexerName("delete", arrTypeNameKey)}(_LuaArray<${arrTypeName}>* arr) {`);
                 this.cppC.write(this.outBufCPP, `delete arr;`);
+                this.cppC.writeLn(this.outBufCPP, `};`);
+                this.cppC.write(this.outBufCPP, `export extern "C" size_t ${this.mangleArrayIndexerName("len", arrTypeNameKey)}(_LuaArray<${arrTypeName}>* arr) {`);
+                this.cppC.write(this.outBufCPP, `return arr->len;`);
                 this.cppC.writeLn(this.outBufCPP, `};`);
             }
             for (let arrTypeNameKey in this.ptrArrayTypes) {
                 let arrType = this.ptrArrayTypes[arrTypeNameKey];
                 let arrTypeName = arrType.idlType;
-                let arrTypeNameAdj = arrTypeName;
-                if (this.classLookup[arrTypeName]) {
-                    arrTypeNameAdj += "*";
-                }
-                this.cppC.write(this.outBufCPP, `export extern "C" ${arrTypeName}* ${this.mangleArrayIndexerName("get", arrTypeNameKey)}(${arrTypeName}* arr[],size_t index) {`);
-                this.cppC.write(this.outBufCPP, `return arr[index];`);
+                this.cppC.write(this.outBufCPP, `export extern "C" ${arrTypeName}* ${this.mangleArrayIndexerName("get", arrTypeNameKey)}(_LuaArray<${arrTypeName}*>* arr,size_t index) {`);
+                this.cppC.write(this.outBufCPP, `return arr->array[index];`);
                 this.cppC.writeLn(this.outBufCPP, `};`);
-                this.cppC.write(this.outBufCPP, `export extern "C" void ${this.mangleArrayIndexerName("set", arrTypeNameKey)}(${arrTypeName}* arr[],size_t index,${arrTypeNameAdj} val) {`);
-                this.cppC.write(this.outBufCPP, `arr[index] = `);
+                this.cppC.write(this.outBufCPP, `export extern "C" void ${this.mangleArrayIndexerName("set", arrTypeNameKey)}(_LuaArray<${arrTypeName}*>* arr,size_t index,${arrTypeName}* val) {`);
+                this.cppC.write(this.outBufCPP, `arr->array[index] = `);
                 this.cppC.write(this.outBufCPP, `val;`);
                 this.cppC.writeLn(this.outBufCPP, `};`);
-                this.cppC.write(this.outBufCPP, `export extern "C" ${arrTypeName}** ${this.mangleArrayIndexerName("new", arrTypeNameKey)}(size_t len) {`);
-                this.cppC.write(this.outBufCPP, `return new ${arrTypeName}[len];`);
+                this.cppC.write(this.outBufCPP, `export extern "C" _LuaArray<${arrTypeName}*>* ${this.mangleArrayIndexerName("new", arrTypeNameKey)}(size_t len) {`);
+                this.cppC.write(this.outBufCPP, `return new _LuaArray<${arrTypeName}*>(len);`);
                 this.cppC.writeLn(this.outBufCPP, `};`);
-                this.cppC.write(this.outBufCPP, `export extern "C" void ${this.mangleArrayIndexerName("delete", arrTypeNameKey)}(${arrTypeName}* arr[]) {`);
+                this.cppC.write(this.outBufCPP, `export extern "C" void ${this.mangleArrayIndexerName("delete", arrTypeNameKey)}(_LuaArray<${arrTypeName}*>* arr) {`);
                 this.cppC.write(this.outBufCPP, `delete arr;`);
+                this.cppC.writeLn(this.outBufCPP, `};`);
+                this.cppC.write(this.outBufCPP, `export extern "C" size_t ${this.mangleArrayIndexerName("len", arrTypeNameKey)}(_LuaArray<${arrTypeName}*>* arr) {`);
+                this.cppC.write(this.outBufCPP, `return arr->len;`);
                 this.cppC.writeLn(this.outBufCPP, `};`);
             }
             this.cppC.writeLn(this.outBufCPP, `#undef __CFUNC`);
@@ -1185,4 +1200,12 @@ WebIDLBinder.CTypeRenames = {
     ["VoidPtr"]: "void*",
 };
 exports.WebIDLBinder = WebIDLBinder;
+let infile = process.argv[2] || (__dirname + "/../test/test.idl");
+let outfile_lua = process.argv[3] || (__dirname + "/../test/test_bind.lua");
+let outfile_cpp = process.argv[3] || (__dirname + "/../test/test_bind.cpp");
+let idl = fs.readFileSync(infile);
+let inst = new WebIDLBinder(idl.toString(), BinderMode.WEBIDL_CPP, true);
+inst.buildOut();
+fs.writeFileSync(outfile_lua, inst.outBufLua.join(""));
+fs.writeFileSync(outfile_cpp, inst.outBufCPP.join(""));
 //# sourceMappingURL=webidlbinder.js.map
