@@ -478,6 +478,7 @@ export class WebIDLBinder {
                     this.luaC.write(this.outBufLua,`delete = __EXPORTS__.${this.mangleArrayIndexerName("delete",arrTypeNameKey)},`)
                 }
                 this.luaC.write(this.outBufLua,`new = __EXPORTS__.${this.mangleArrayIndexerName("new",arrTypeNameKey)},`)
+                this.luaC.write(this.outBufLua,`len = __EXPORTS__.${this.mangleArrayIndexerName("len",arrTypeNameKey)},`)
                 this.luaC.write(this.outBufLua,`isClass = ${this.classLookup[arrTypeNameKey] ? "true" : "false"},`)
                 this.luaC.writeLn(this.outBufLua,`}`);
             }
@@ -488,6 +489,7 @@ export class WebIDLBinder {
                 this.luaC.write(this.outBufLua,`set = __EXPORTS__.${this.mangleArrayIndexerName("set",arrTypeNameKey)},`)
                 this.luaC.write(this.outBufLua,`new = __EXPORTS__.${this.mangleArrayIndexerName("new",arrTypeNameKey)},`)
                 this.luaC.write(this.outBufLua,`delete = __EXPORTS__.${this.mangleArrayIndexerName("delete",arrTypeNameKey)},`)
+                this.luaC.write(this.outBufLua,`len = __EXPORTS__.${this.mangleArrayIndexerName("len",arrTypeNameKey)},`)
                 this.luaC.write(this.outBufLua,`isClass = ${this.classLookup[arrTypeNameKey] ? "true" : "false"},`)
                 this.luaC.writeLn(this.outBufLua,`}`);
             }

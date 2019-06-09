@@ -130,8 +130,11 @@ function __BINDER__.luaToWasmArrayInternal(interface,tbl)
 end
 
 function __BINDER__.wasmToWrappedLuaArrayConvertInternal(out,interface,wasmPtr)
+    -- don't convert a table with a metatable
+    -- (it may already be converted or we'll be in for undefined behaviour)
     if getmetatable(out) then return end
 
+    -- nil out all the keys so that __index is usable
     for i=1,#out do
         out[i] = nil
     end
@@ -146,6 +149,9 @@ function __BINDER__.wasmToWrappedLuaArrayConvertInternal(out,interface,wasmPtr)
                 assert(type(idx) == "number","Array indexer must be a number")
                 interface.set(wasmPtr,idx-1,val.__ptr)
             end,
+            __len = function(self)
+                return interface.len(wasmPtr)
+            end,
         })
     else
         setmetatable(out,{
@@ -157,6 +163,9 @@ function __BINDER__.wasmToWrappedLuaArrayConvertInternal(out,interface,wasmPtr)
                 assert(type(idx) == "number","Array indexer must be a number")
                 interface.set(wasmPtr,idx-1,val)
             end,
+            __len = function(self)
+                return interface.len(wasmPtr)
+            end,
         })
     end
 
@@ -167,8 +176,10 @@ function __BINDER__.wasmToWrappedLuaArrayInternal(interface,wasmPtr)
     return __BINDER__.wasmToWrappedLuaArrayConvertInternal({},interface,wasmPtr,len)
 end
 
-function __BINDER__.wasmToLuaArrayInternal(interface,wasmPtr,len)
+function __BINDER__.wasmToLuaArrayInternal(interface,wasmPtr)
     local out = {}
+
+    local len = interface.len(wasmPtr)
 
     if interface.isClass then
         for i=1,len do
