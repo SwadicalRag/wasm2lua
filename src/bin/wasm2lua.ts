@@ -5,6 +5,7 @@ import * as fs from "fs"
 import * as fsExtra from "fs-extra"
 import * as path from "path"
 import { wasm2lua, WASM2LuaOptions } from "..";
+import { scrypt } from "crypto";
 
 let infile,outfile;
 
@@ -17,6 +18,7 @@ program.version(manifest.version)
     .option("--mallocName <malloc>","Specify custom `malloc` symbol name")
     .option("--pureLua","Compiles without using `ffi`")
     .option("-m, --minify","Generates a minified Lua file")
+    .option("--discardExportSymbols","Enhances minification by discarding symbols of exported functions")
     .option("-b, --bindings <bindings.idl>","Generates Lua-WebIDL bindings from the specified file")
     .option("--libmode","Adds a dummy main function to use this as a library (for WASI)")
     .option("--jmpstreamThreshold <n>","Specify jump size of n(opcodes) as the threshold for enabling jmpstream")
@@ -84,6 +86,10 @@ if(program.maxPhantomNesting) {
     if(!conf.maxPhantomNesting || isNaN(conf.maxPhantomNesting)) {
         conf.maxPhantomNesting = null;
     }
+}
+
+if(program.minify) {
+    conf.minify = program.discardExportSymbols ? 2 : 1;
 }
 
 let inst = new wasm2lua(fs.readFileSync(infile),conf)

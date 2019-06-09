@@ -2,12 +2,13 @@ import "./patches"
 
 import {decode} from "@webassemblyjs/wasm-parser"
 import * as fs from "fs"
-import { isArray } from "util";
+import { isArray, print } from "util";
 
 import {ArrayMap} from "./arraymap"
 import { VirtualRegisterManager, VirtualRegister, PhantomRegister } from "./virtualregistermanager";
 import { StringCompiler } from "./stringcompiler";
 import { WebIDLBinder, BinderMode } from "./webidlbinder";
+import { WSAEHOSTDOWN } from "constants";
 
 /* TODO CORRECTNESS:
     - Be extra careful with conversions from floats -> ints. The bit library's rounding behavior is undefined.
@@ -67,12 +68,66 @@ function sanitizeIdentifier(ident: string|number) {
     });
 }
 
+const idMapStart = ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_").split("");
+const idMapChunk = ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890_").split("");
+const reservedIdents = [
+    "if","then","elseif","else","end",
+    "do","while","repeat","until",
+    "return","break","goto",
+    "and","or","not",
+    "function",
+    "for","in",
+    "local","nil","true","false",
+
+    // glua
+    "continue",
+];
+
+function numToIdent(num) {
+    num = Math.abs(num);
+    num++;
+
+    let out = "";
+
+    out += idMapStart[(num-1) % idMapStart.length];
+    if(num > idMapStart.length) {
+        num = Math.floor((num-1) / idMapStart.length);
+
+        do {
+            let rem = (num - 1) % idMapChunk.length;
+            let nextChar = idMapChunk[rem];
+            out += nextChar;
+            num = Math.floor((num - 1) / idMapChunk.length);
+        }
+        while (num > 0);
+    }
+
+    return out;
+}
+
+function initIdentGenerator() {
+    let num = 0;
+
+    return () => {
+        while (true) {
+            let nextIdent = numToIdent(num++);
+
+            if(reservedIdents.indexOf(nextIdent) === -1) {return nextIdent;}
+        }
+    }
+}
+
 interface WASMModuleState {
     funcStates: WASMFuncState[];
+    funcMinificationLookup: Map<string,string>;
+    exportMinificationLookup: Map<string,string>;
     funcByName: Map<string,WASMFuncState>;
     funcByNameRaw: Map<string,WASMFuncState>;
     memoryAllocations: ArrayMap<string>;
     func_tables: Array< Array< Array<Index> > >;
+
+    funcIdentGen: () => string;
+    exportIdentGen: () => string;
 
     nextGlobalIndex: number;
 }
@@ -126,6 +181,7 @@ export interface WASM2LuaOptions {
     libMode?: boolean;
     jmpStreamThreshold?: number;
     maxPhantomNesting?: number;
+    minify?: 0 | 1 | 2;
     webidl?: {
         idlFilePath: string,
         mallocName?: string,
@@ -184,6 +240,10 @@ export class wasm2lua extends StringCompiler {
 
         if (typeof options.maxPhantomNesting !== "number") {
             options.maxPhantomNesting = 10;
+        }
+
+        if (typeof options.minify !== "number") {
+            options.minify = 0;
         }
 
         this.program_ast = decode(program_binary,{
@@ -459,6 +519,17 @@ export class wasm2lua extends StringCompiler {
 
             let binder = new WebIDLBinder(idl.toString(),BinderMode.WEBIDL_LUA,this.options.libMode);
 
+            if(this.options.minify >= 2) {
+                binder.setSymbolResolver((symName: string) => {
+                    if(this.modState.exportMinificationLookup.get(symName)) {
+                        return `__EXPORTS__.${this.modState.exportMinificationLookup.get(symName)}`;
+                    }
+                    else {
+                        return `__EXPORTS__.${symName}`;
+                    }
+                })
+            }
+
             binder.luaC.indent();
             binder.buildOut();
             binder.luaC.outdent();
@@ -498,8 +569,13 @@ export class wasm2lua extends StringCompiler {
             funcStates: [],
             funcByName: new Map(),
             funcByNameRaw: new Map(),
+            funcMinificationLookup: new Map(),
+            exportMinificationLookup: new Map(),
             memoryAllocations: new ArrayMap(),
             func_tables: [],
+
+            funcIdentGen: initIdentGenerator(),
+            exportIdentGen: initIdentGenerator(),
 
             nextGlobalIndex: 0
         };
@@ -768,7 +844,12 @@ export class wasm2lua extends StringCompiler {
             }
         }
         if(this.importedWASI) {
-            this.writeLn(buf,"module.exports._start()");
+            if(this.options.minify >= 2) {
+                this.writeLn(buf,`__EXPORTS__.${state.exportMinificationLookup.get("_start") || "_start"}()`);
+            }
+            else {
+                this.writeLn(buf,`__EXPORTS__._start()`);
+            }
         }
         this.outdent(buf);
         this.write(buf,"end");
@@ -830,8 +911,24 @@ export class wasm2lua extends StringCompiler {
             funcID = "func_u" + state.funcStates.length;
         }
 
+        let sanIdent = sanitizeIdentifier(funcID);
+        
+        if(this.options.minify >= 1) {
+            if(!renameTo) {
+                let minIdent = state.funcMinificationLookup.get(sanIdent);
+                if(!minIdent) {
+                    minIdent = state.funcIdentGen();
+                    state.funcMinificationLookup.set(sanIdent,minIdent);
+                }
+
+                sanIdent = minIdent;
+            }
+        }
+
+        renameTo = renameTo || "__FUNCS__." + sanIdent
+
         let fstate: WASMFuncState = {
-            id: renameTo ? renameTo : "__FUNCS__."+sanitizeIdentifier(funcID),
+            id: renameTo,
             origID: betterName || funcID,
             regManager: new VirtualRegisterManager(),
             registersToBeFreed: [],
@@ -2678,9 +2775,23 @@ export class wasm2lua extends StringCompiler {
     processModuleExport(node: ModuleExport,modState: WASMModuleState) {
         let buf = [];
 
-        this.write(buf,"__EXPORTS__[\"");
-        this.write(buf,node.name)
-        this.write(buf,"\"] = ");
+        if(this.options.minify >= 2) {
+            let minIdent = modState.exportMinificationLookup.get(node.name);
+
+            if(!minIdent) {
+                minIdent = modState.exportIdentGen();
+                modState.exportMinificationLookup.set(node.name,minIdent);
+            }
+            
+            this.write(buf,"__EXPORTS__.");
+            this.write(buf,minIdent);
+            this.write(buf," = ");
+        }
+        else {
+            this.write(buf,"__EXPORTS__[\"");
+            this.write(buf,node.name)
+            this.write(buf,"\"] = ");
+        }
 
         switch(node.descr.exportType) {
             case "Func": {

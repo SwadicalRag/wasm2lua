@@ -51,6 +51,11 @@ export class WebIDLBinder {
         this.ast = webidl.parse(source);
     }
 
+    symbolResolver = (symName: string) => {return symName;};
+    setSymbolResolver(fn: (symName: string) => string) {
+        this.symbolResolver = fn;
+    }
+
     unquote(arg: string | string[]) {
         if(Array.isArray(arg)) {arg = arg.join("");}
 
@@ -474,50 +479,50 @@ export class WebIDLBinder {
                 if(this.specialTypes[arrTypeNameKey]) {
                     if(arrTypeNameKey == "DOMString") {
                         this.luaC.write(this.outBufLua,`get = function(ptr,idx)`)
-                        this.luaC.write(this.outBufLua,`local val = __EXPORTS__.${this.mangleArrayIndexerName("get",arrTypeNameKey)}(ptr,idx)`)
+                        this.luaC.write(this.outBufLua,`local val = ${this.symbolResolver(this.mangleArrayIndexerName("get",arrTypeNameKey))}(ptr,idx)`)
                         this.luaC.write(this.outBufLua,`return __BINDER__.readString(val) end,`)
                         
                         this.luaC.write(this.outBufLua,`set = function(ptr,idx,val)`)
                         this.luaC.write(this.outBufLua,`val = __BINDER__.stringify(val)`)
-                        this.luaC.write(this.outBufLua,`__EXPORTS__.${this.mangleArrayIndexerName("set",arrTypeNameKey)}(ptr,idx,val)`)
+                        this.luaC.write(this.outBufLua,`${this.symbolResolver(this.mangleArrayIndexerName("set",arrTypeNameKey))}(ptr,idx,val)`)
                         this.luaC.write(this.outBufLua,`end,`)
                         
                         this.luaC.write(this.outBufLua,`delete = function(ptr,len)`)
-                        this.luaC.write(this.outBufLua,`for i=1,len or 0 do __BINDER__.freeString(__EXPORTS__.${this.mangleArrayIndexerName("get",arrTypeNameKey)}(ptr)) end `)
-                        this.luaC.write(this.outBufLua,`__EXPORTS__.${this.mangleArrayIndexerName("delete",arrTypeNameKey)}(ptr)`)
+                        this.luaC.write(this.outBufLua,`for i=1,len or 0 do __BINDER__.freeString(${this.symbolResolver(this.mangleArrayIndexerName("get",arrTypeNameKey))}(ptr)) end `)
+                        this.luaC.write(this.outBufLua,`${this.symbolResolver(this.mangleArrayIndexerName("delete",arrTypeNameKey))}(ptr)`)
                         this.luaC.write(this.outBufLua,`end,`)
                     }
                     else if(arrTypeNameKey == "boolean") {
                         this.luaC.write(this.outBufLua,`get = function(ptr,idx)`)
-                        this.luaC.write(this.outBufLua,`local val = __EXPORTS__.${this.mangleArrayIndexerName("get",arrTypeNameKey)}(ptr,idx)`)
+                        this.luaC.write(this.outBufLua,`local val = ${this.symbolResolver(this.mangleArrayIndexerName("get",arrTypeNameKey))}(ptr,idx)`)
                         this.luaC.write(this.outBufLua,`return val ~= 0 end,`)
                         
                         this.luaC.write(this.outBufLua,`set = function(ptr,idx,val)`)
                         this.luaC.write(this.outBufLua,`val = val and 1 or 0`)
-                        this.luaC.write(this.outBufLua,`__EXPORTS__.${this.mangleArrayIndexerName("set",arrTypeNameKey)}(ptr,idx,val)`)
+                        this.luaC.write(this.outBufLua,`${this.symbolResolver(this.mangleArrayIndexerName("set",arrTypeNameKey))}(ptr,idx,val)`)
                         this.luaC.write(this.outBufLua,`end,`)
 
-                        this.luaC.write(this.outBufLua,`delete = __EXPORTS__.${this.mangleArrayIndexerName("delete",arrTypeNameKey)},`)
+                        this.luaC.write(this.outBufLua,`delete = ${this.symbolResolver(this.mangleArrayIndexerName("delete",arrTypeNameKey))},`)
                     }
                 }
                 else {
-                    this.luaC.write(this.outBufLua,`get = __EXPORTS__.${this.mangleArrayIndexerName("get",arrTypeNameKey)},`)
-                    this.luaC.write(this.outBufLua,`set = __EXPORTS__.${this.mangleArrayIndexerName("set",arrTypeNameKey)},`)
-                    this.luaC.write(this.outBufLua,`delete = __EXPORTS__.${this.mangleArrayIndexerName("delete",arrTypeNameKey)},`)
+                    this.luaC.write(this.outBufLua,`get = ${this.symbolResolver(this.mangleArrayIndexerName("get",arrTypeNameKey))},`)
+                    this.luaC.write(this.outBufLua,`set = ${this.symbolResolver(this.mangleArrayIndexerName("set",arrTypeNameKey))},`)
+                    this.luaC.write(this.outBufLua,`delete = ${this.symbolResolver(this.mangleArrayIndexerName("delete",arrTypeNameKey))},`)
                 }
-                this.luaC.write(this.outBufLua,`new = __EXPORTS__.${this.mangleArrayIndexerName("new",arrTypeNameKey)},`)
-                this.luaC.write(this.outBufLua,`len = __EXPORTS__.${this.mangleArrayIndexerName("len",arrTypeNameKey)},`)
+                this.luaC.write(this.outBufLua,`new = ${this.symbolResolver(this.mangleArrayIndexerName("new",arrTypeNameKey))},`)
+                this.luaC.write(this.outBufLua,`len = ${this.symbolResolver(this.mangleArrayIndexerName("len",arrTypeNameKey))},`)
                 this.luaC.write(this.outBufLua,`isClass = ${this.classLookup[arrTypeNameKey] ? "true" : "false"},`)
                 this.luaC.writeLn(this.outBufLua,`}`);
             }
             // output pointer array operators
             for(let arrTypeNameKey in this.ptrArrayTypes) {
                 this.luaC.write(this.outBufLua,`__BINDER__.ptrArrays.${this.rawMangle(arrTypeNameKey)} = {`)
-                this.luaC.write(this.outBufLua,`get = __EXPORTS__.${this.mangleArrayIndexerName("get",arrTypeNameKey)},`)
-                this.luaC.write(this.outBufLua,`set = __EXPORTS__.${this.mangleArrayIndexerName("set",arrTypeNameKey)},`)
-                this.luaC.write(this.outBufLua,`new = __EXPORTS__.${this.mangleArrayIndexerName("new",arrTypeNameKey)},`)
-                this.luaC.write(this.outBufLua,`delete = __EXPORTS__.${this.mangleArrayIndexerName("delete",arrTypeNameKey)},`)
-                this.luaC.write(this.outBufLua,`len = __EXPORTS__.${this.mangleArrayIndexerName("len",arrTypeNameKey)},`)
+                this.luaC.write(this.outBufLua,`get = ${this.symbolResolver(this.mangleArrayIndexerName("get",arrTypeNameKey))},`)
+                this.luaC.write(this.outBufLua,`set = ${this.symbolResolver(this.mangleArrayIndexerName("set",arrTypeNameKey))},`)
+                this.luaC.write(this.outBufLua,`new = ${this.symbolResolver(this.mangleArrayIndexerName("new",arrTypeNameKey))},`)
+                this.luaC.write(this.outBufLua,`delete = ${this.symbolResolver(this.mangleArrayIndexerName("delete",arrTypeNameKey))},`)
+                this.luaC.write(this.outBufLua,`len = ${this.symbolResolver(this.mangleArrayIndexerName("len",arrTypeNameKey))},`)
                 this.luaC.write(this.outBufLua,`isClass = ${this.classLookup[arrTypeNameKey] ? "true" : "false"},`)
                 this.luaC.writeLn(this.outBufLua,`}`);
             }
@@ -1009,11 +1014,11 @@ export class WebIDLBinder {
 
                     if(member.name == node.name) {
                         this.luaC.write(this.outBufLua,`self.__ptr = `);
-                        this.luaC.write(this.outBufLua,`__EXPORTS__.${this.mangleFunctionName(member,node.name)}(`);
+                        this.luaC.write(this.outBufLua,`${this.symbolResolver(this.mangleFunctionName(member,node.name))}(`);
                     }
                     else {
                         this.luaC.write(this.outBufLua,`local ret = `);
-                        this.luaC.write(this.outBufLua,`__EXPORTS__.${this.mangleFunctionName(member,node.name)}(self.__ptr`);
+                        this.luaC.write(this.outBufLua,`${this.symbolResolver(this.mangleFunctionName(member,node.name))}(self.__ptr`);
                         if(member.arguments.length > 0) {
                             this.luaC.write(this.outBufLua,",");
                         }
@@ -1066,13 +1071,13 @@ export class WebIDLBinder {
             }
             else if(member.type == "attribute") {
                 this.luaC.write(this.outBufLua,`function __BINDINGS__.${node.name}.__specialIndex.${member.name}(self,k) `);
-                this.luaC.write(this.outBufLua,`local ret = __EXPORTS__.${this.mangleIndexerName(member,node.name,false)}(self.__ptr)`);
+                this.luaC.write(this.outBufLua,`local ret = ${this.symbolResolver(this.mangleIndexerName(member,node.name,false))}(self.__ptr)`);
                 this.convertCPPToLuaReturn(this.outBufLua,member.idlType,member.extAttrs,"ret");
                 this.luaC.writeLn(this.outBufLua,` end`);
 
                 this.luaC.write(this.outBufLua,`function __BINDINGS__.${node.name}.__specialNewIndex.${member.name}(self,k,v) `);
                 this.convertLuaToCPP_Pre(this.outBufLua,{name: "v",idlType: member.idlType,extAttrs: member.extAttrs},0);
-                this.luaC.write(this.outBufLua,`__EXPORTS__.${this.mangleIndexerName(member,node.name,true)}(self.__ptr,`);
+                this.luaC.write(this.outBufLua,`${this.symbolResolver(this.mangleIndexerName(member,node.name,true))}(self.__ptr,`);
                 this.convertLuaToCPP_Arg(this.outBufLua,{name: "v",idlType: member.idlType,extAttrs: member.extAttrs},0);
                 this.luaC.write(this.outBufLua,`)`);
                 this.convertLuaToCPP_Post(this.outBufLua,{name: "v",idlType: member.idlType,extAttrs: member.extAttrs},0);
@@ -1318,7 +1323,7 @@ export class WebIDLBinder {
                     }
 
                     this.luaC.write(this.outBufLua,`local ret = `);
-                    this.luaC.write(this.outBufLua,`__EXPORTS__.${this.mangleFunctionName(member,node.name)}(`);
+                    this.luaC.write(this.outBufLua,`${this.symbolResolver(this.mangleFunctionName(member,node.name))}(`);
 
                     this.writeLuaArgs(this.outBufLua,member.arguments,false,ETypeConversion.LUA_TO_CPP);
                     this.luaC.write(this.outBufLua,")");
@@ -1358,14 +1363,14 @@ export class WebIDLBinder {
             }
             else if(member.type == "attribute") {
                 this.luaC.write(this.outBufLua,`function __BINDINGS__.${node.name}.__specialIndex.${member.name}(self,k) `);
-                this.luaC.write(this.outBufLua,`local ret = __EXPORTS__.${this.mangleIndexerName(member,node.name,false)}()`);
+                this.luaC.write(this.outBufLua,`local ret = ${this.symbolResolver(this.mangleIndexerName(member,node.name,false))}()`);
                 this.convertCPPToLuaReturn(this.outBufLua,member.idlType,member.extAttrs,"ret");
                 this.luaC.writeLn(this.outBufLua,` end`);
 
                 this.luaC.write(this.outBufLua,`function __BINDINGS__.${node.name}.__specialNewIndex.${member.name}(self,k,v) `);
                 if(!member.readonly || this.hasExtendedAttribute("OverrideCanWrite",member.extAttrs)) {
                     this.convertLuaToCPP_Pre(this.outBufLua,{name: "v",idlType: member.idlType,extAttrs: member.extAttrs},0);
-                    this.luaC.write(this.outBufLua,`__EXPORTS__.${this.mangleIndexerName(member,node.name,true)}(`);
+                    this.luaC.write(this.outBufLua,`${this.symbolResolver(this.mangleIndexerName(member,node.name,true))}(`);
                     this.convertLuaToCPP_Arg(this.outBufLua,{name: "v",idlType: member.idlType,extAttrs: member.extAttrs},0);
                     this.luaC.write(this.outBufLua,`)`);
                     this.convertLuaToCPP_Post(this.outBufLua,{name: "v",idlType: member.idlType,extAttrs: member.extAttrs},0);
