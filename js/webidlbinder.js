@@ -146,6 +146,15 @@ class WebIDLBinder {
         else if (this.hasExtendedAttribute("ArrayLengthRef", extAttrs) && (idlType.idlType == "any")) {
             body = "size_t*";
         }
+        else if (this.hasExtendedAttribute("Enum", extAttrs) && (idlType.idlType == "any")) {
+            let enAttr = this.getExtendedAttribute("Enum", extAttrs);
+            if (enAttr && enAttr.rhs) {
+                body = this.unquote(enAttr.rhs.value);
+            }
+            else {
+                throw new SemanticError("Enum attribute needs a value (enum name)");
+            }
+        }
         else {
             body = idlType.idlType;
         }
@@ -173,6 +182,15 @@ class WebIDLBinder {
         }
         else if (this.hasExtendedAttribute("ArrayLengthRef", extAttrs) && (idlType.idlType == "any")) {
             body = "psize_t";
+        }
+        else if (this.hasExtendedAttribute("Enum", extAttrs) && (idlType.idlType == "any")) {
+            let enAttr = this.getExtendedAttribute("Enum", extAttrs);
+            if (enAttr && enAttr.rhs) {
+                body = "enum_" + this.unquote(enAttr.rhs.value);
+            }
+            else {
+                throw new SemanticError("Enum attribute needs a value (enum name)");
+            }
         }
         else {
             body = idlType.idlType;
@@ -535,18 +553,36 @@ class WebIDLBinder {
         }
     }
     convertLuaToCPP_Pre(buf, arg, argID) {
+        if (this.getExtendedAttribute("ArrayLengthRef", arg.extAttrs)) {
+            return;
+        }
+        else if (this.getExtendedAttribute("ArrayLength", arg.extAttrs)) {
+            return;
+        }
         if (this.getExtendedAttribute("Array", arg.extAttrs)) {
+            this.luaC.write(buf, `assert(type(${arg.name}) == "table","Parameter ${arg.name} (${argID + 1}) must be a table")`);
             this.luaC.write(buf, `local __arg${argID} =`);
             this.luaC.write(buf, `__BINDER__.luaToWasmArrayInternal(__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))},${arg.name})`);
             return;
         }
         else if (this.getExtendedAttribute("PointerArray", arg.extAttrs)) {
+            this.luaC.write(buf, `assert(type(${arg.name}) == "table","Parameter ${arg.name} (${argID + 1}) must be a table")`);
             this.luaC.write(buf, `local __arg${argID} =`);
             this.luaC.write(buf, `__BINDER__.luaToWasmArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))},${arg.name})`);
             return;
         }
         if (arg.idlType.idlType == "DOMString") {
+            this.luaC.write(buf, `assert(type(${arg.name}) == "string","Parameter ${arg.name} (${argID + 1}) must be a string")`);
             this.luaC.write(buf, `local __arg${argID} = __BINDER__.stringify(${arg.name})`);
+        }
+        else if (arg.idlType.idlType == "boolean") {
+            this.luaC.write(buf, `assert(type(${arg.name}) == "boolean","Parameter ${arg.name} (${argID + 1}) must be a boolean")`);
+        }
+        else if (this.classLookup[arg.idlType.idlType]) {
+            this.luaC.write(buf, `assert((type(${arg.name}) == "table") and (getmetatable(${arg.name}) == __BINDINGS__.${arg.idlType.idlType}),"Parameter ${arg.name} (${argID + 1}) must be a ${arg.idlType.idlType}")`);
+        }
+        else {
+            this.luaC.write(buf, `assert(type(${arg.name}) == "number","Parameter ${arg.name} (${argID + 1}) must be a number")`);
         }
     }
     convertLuaToCPP_Arg(buf, arg, argID) {
@@ -618,6 +654,30 @@ class WebIDLBinder {
         }
     }
     convertLuaToCPPReturn(buf, argType, extAttrs, argName) {
+        if (this.getExtendedAttribute("ArrayLengthRef", extAttrs)) {
+            return;
+        }
+        else if (this.getExtendedAttribute("ArrayLength", extAttrs)) {
+            return;
+        }
+        if (this.getExtendedAttribute("Array", extAttrs)) {
+            this.luaC.write(buf, `assert(type(${argName}) == "table","Return value ${argName} must be a table")`);
+        }
+        else if (this.getExtendedAttribute("PointerArray", extAttrs)) {
+            this.luaC.write(buf, `assert(type(${argName}) == "table","Return value ${argName} must be a table")`);
+        }
+        else if (argType.idlType == "DOMString") {
+            this.luaC.write(buf, `assert(type(${argName}) == "string","Return value ${argName} must be a string")`);
+        }
+        else if (argType.idlType == "boolean") {
+            this.luaC.write(buf, `assert(type(${argName}) == "boolean","Return value ${argName} must be a boolean")`);
+        }
+        else if (this.classLookup[argType.idlType]) {
+            this.luaC.write(buf, `assert((type(${argName}) == "table") and (getmetatable(${argName}) == __BINDINGS__.${argType.idlType}),"Return ${argName} must be an instance of ${argType.idlType}")`);
+        }
+        else {
+            this.luaC.write(buf, `assert(type(${argName}) == "number","Return value ${argName} must be a number")`);
+        }
         this.luaC.write(buf, `return `);
         if (this.getExtendedAttribute("Array", extAttrs)) {
             this.luaC.write(buf, `__BINDER__.luaToWasmArrayInternal(__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(argType, extAttrs))},${argName})`);
@@ -1082,11 +1142,16 @@ class WebIDLBinder {
                 this.convertCPPToLuaReturn(this.outBufLua, member.idlType, member.extAttrs, "ret");
                 this.luaC.writeLn(this.outBufLua, ` end`);
                 this.luaC.write(this.outBufLua, `function __BINDINGS__.${node.name}.__specialNewIndex.${member.name}(self,k,v) `);
-                this.convertLuaToCPP_Pre(this.outBufLua, { name: "v", idlType: member.idlType, extAttrs: member.extAttrs }, 0);
-                this.luaC.write(this.outBufLua, `__EXPORTS__.${this.mangleIndexerName(member, node.name, true)}(`);
-                this.convertLuaToCPP_Arg(this.outBufLua, { name: "v", idlType: member.idlType, extAttrs: member.extAttrs }, 0);
-                this.luaC.write(this.outBufLua, `)`);
-                this.convertLuaToCPP_Post(this.outBufLua, { name: "v", idlType: member.idlType, extAttrs: member.extAttrs }, 0);
+                if (!member.readonly || this.hasExtendedAttribute("OverrideCanWrite", member.extAttrs)) {
+                    this.convertLuaToCPP_Pre(this.outBufLua, { name: "v", idlType: member.idlType, extAttrs: member.extAttrs }, 0);
+                    this.luaC.write(this.outBufLua, `__EXPORTS__.${this.mangleIndexerName(member, node.name, true)}(`);
+                    this.convertLuaToCPP_Arg(this.outBufLua, { name: "v", idlType: member.idlType, extAttrs: member.extAttrs }, 0);
+                    this.luaC.write(this.outBufLua, `)`);
+                    this.convertLuaToCPP_Post(this.outBufLua, { name: "v", idlType: member.idlType, extAttrs: member.extAttrs }, 0);
+                }
+                else {
+                    this.luaC.write(this.outBufLua, `error("Cannot modify read-only attribute ${node.name}::${member.name}")`);
+                }
                 this.luaC.writeLn(this.outBufLua, ` end`);
             }
         }
@@ -1216,19 +1281,21 @@ class WebIDLBinder {
                     }
                     this.cppC.write(this.outBufCPP, `; `);
                     this.cppC.writeLn(this.outBufCPP, `};`);
-                    this.cppC.write(this.outBufCPP, `export extern "C" void ${this.mangleIndexerName(member, node.name, true)}(${node.name}* self,${this.idlTypeToCType(member.idlType, member.extAttrs, true)} val) {`);
-                    if (node.name === "global") {
-                        this.cppC.write(this.outBufCPP, `${member.name}`);
+                    if (!member.readonly || this.hasExtendedAttribute("OverrideCanWrite", member.extAttrs)) {
+                        this.cppC.write(this.outBufCPP, `export extern "C" void ${this.mangleIndexerName(member, node.name, true)}(${node.name}* self,${this.idlTypeToCType(member.idlType, member.extAttrs, true)} val) {`);
+                        if (node.name === "global") {
+                            this.cppC.write(this.outBufCPP, `${member.name}`);
+                        }
+                        else {
+                            this.cppC.write(this.outBufCPP, `${node.name}::${member.name}`);
+                        }
+                        this.cppC.write(this.outBufCPP, ` = `);
+                        if (this.hasExtendedAttribute("Value", member.extAttrs)) {
+                            this.cppC.write(this.outBufCPP, "*");
+                        }
+                        this.cppC.write(this.outBufCPP, `val;`);
+                        this.cppC.writeLn(this.outBufCPP, `};`);
                     }
-                    else {
-                        this.cppC.write(this.outBufCPP, `${node.name}::${member.name}`);
-                    }
-                    this.cppC.write(this.outBufCPP, ` = `);
-                    if (this.hasExtendedAttribute("Value", member.extAttrs)) {
-                        this.cppC.write(this.outBufCPP, "*");
-                    }
-                    this.cppC.write(this.outBufCPP, `val;`);
-                    this.cppC.writeLn(this.outBufCPP, `};`);
                 }
             }
         }
