@@ -73,7 +73,7 @@ local function __MODULO_U__(a,b)
 end
 
 -- Multiply two 32 bit integers without busting due to precision loss on overflow
-local function __MULTIPLY_CORRECT__(a,b)
+local function __IMUL__(a,b)
     local a_low = bit_band(a,65535)
     local b_low = bit_band(b,65535)
 

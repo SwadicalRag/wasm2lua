@@ -1424,7 +1424,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                                 }
                                 else if (ins.object == "i32") {
                                     if (ins.id == "mul") {
-                                        resultVar.value = `__MULTIPLY_CORRECT__(${tmp2},${tmp})`;
+                                        resultVar.value = `__IMUL__(${tmp2},${tmp})`;
                                     }
                                     else {
                                         resultVar.value = `bit_tobit(${tmp2} ${op} ${tmp})`;

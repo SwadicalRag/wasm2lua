@@ -1883,7 +1883,7 @@ export class wasm2lua extends StringCompiler {
                             } else if (ins.object=="i32") {
                                 if (ins.id == "mul") {
                                     // used to hide this behind a flag, but correctness is probably the best policy here
-                                    resultVar.value = `__MULTIPLY_CORRECT__(${tmp2},${tmp})`
+                                    resultVar.value = `__IMUL__(${tmp2},${tmp})`
                                 } else {
                                     resultVar.value = `bit_tobit(${tmp2} ${op} ${tmp})`
                                 }
