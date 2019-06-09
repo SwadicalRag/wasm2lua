@@ -112,6 +112,79 @@ local __FLOAT__ = {
     end
 }
 
+-- Multiply and divide code adapted from 
+    -- https://github.com/BixData/lua-long/ which is adapted from
+    -- https://github.com/dcodeIO/long.js which is adapted from
+    -- https://github.com/google/closure-library
+
+function __LONG_INT_DIVIDE__(n,d,signed)
+
+    assert(d[1] ~= 0 or d[2] ~= 0,"divide by zero")
+
+    if n[1] == 0 and n[2] == 0 then
+        return __LONG_INT__(0,0), __LONG_INT__(d[1],d[2])
+    end
+
+    local approx, rem
+    if signed then
+        -- This section is only relevant for signed longs and is derived from the
+        -- closure library as a whole.
+        if n[2] == -2147483648 and n[1] == 0 then
+            -- corner cases for minimum value
+            if (d[1] == 1 and d[2] == 0) or (d[1] == -1 and d[2] == -1) then
+                -- abs(divisor) == 1
+                -- recall that -MIN_VALUE == MIN_VALUE
+                return MIN_VALUE, __LONG_INT__(0,0)
+            elseif d[2] == -2147483648 and d[1] == 0 then
+                return __LONG_INT__(1,0), __LONG_INT__(0,0)
+            else
+                error("fuck it - todo")
+                -- At this point, we have |other| >= 2, so |this/other| < |MIN_VALUE|.
+                --[[local halfSelf = self:shr(1) -- SIGNED SHIFT
+                approx = halfSelf:div(divisor):shl(1)
+                if approx:eq(Long.ZERO) then
+                    if divisor:isNegative() then return Long.ONE else return Long.NEG_ONE end
+                else
+                    rem = self:sub(divisor:mul(approx))
+                    res = approx:add(rem:div(divisor))
+                    return res
+                end]]
+            end
+        elseif d[2] == -2147483648 and d[1] == 0 then
+            return __LONG_INT__(0,0), __LONG_INT__(d[1],d[2])
+        end
+
+        -- if either argument is negative, fix it
+        -- todo get rid of recursive acll
+        if n[2] < 0 then
+            if d[2] < 0 then
+                -- -n, -d
+                return __LONG_INT_DIVIDE__(-n,-d,signed)
+            end
+            -- -n, +d
+            return -__LONG_INT_DIVIDE__(-n,d,signed)
+        elseif d[2] < 0 then
+            -- +n, -d
+            return -__LONG_INT_DIVIDE__(n,-d,signed)
+        end
+    else
+        -- The algorithm below has not been made for unsigned longs. It's therefore
+        -- required to take special care of the MSB prior to running it.
+        --[[if signed then
+            d = d:toUnsigned() -- pretty sure this is no-op
+        end]]
+        if d:_gt_u(n) then
+            return __LONG_INT__(0,0), error("remainder")
+        end
+        if d:_gt_u(n:_shr_u(1)) then -- 15 >>> 1 = 7  with divisor = 8  true (WTF?)
+            return __LONG_INT__(1,0), error("remainder")
+        end
+    end
+
+    local res = __LONG_INT__(0,0)
+
+end
+
 __LONG_INT_CLASS__ = {
     __tostring = function(self)
         return "__LONG_INT__(" .. self[1] .. "," .. self[2] .. ")"
@@ -127,7 +200,6 @@ __LONG_INT_CLASS__ = {
         return __LONG_INT__( bit_tobit(low), bit_tobit(high) )
     end,
     __mul = function(a,b)
-        -- adapted from https://github.com/dcodeIO/long.js
         -- I feel like this is excessive but I'm going to
         -- defer to the better wizard here.
 
@@ -213,9 +285,11 @@ __LONG_INT_CLASS__ = {
             error("_div_s nyi")
         end,
         _div_u = function(n,d)
-            assert(d[1] ~= 0 or d[2] ~= 0,"divide by zero")
+            error("nyi")
+            --assert(d[1] ~= 0 or d[2] ~= 0,"divide by zero")
 
-            local q = __LONG_INT__(0,0)
+
+            --[[local q = __LONG_INT__(0,0)
             local r = __LONG_INT__(0,0)
 
             for i = 63,0,-1 do
@@ -228,12 +302,13 @@ __LONG_INT_CLASS__ = {
                 end
             end
 
-            return q
+            return q]]
         end,
         _rem_s = function(a,b)
             -- trash impl, todo fix this
-            local low = a[1] % b[1]
-            return __LONG_INT__(bit_tobit(low), 0)
+            --[[local low = a[1] % b[1]
+            return __LONG_INT__(bit_tobit(low), 0)]]
+            error("nyi")
         end,
         _rem_u = function(a,b)
             error("_rem_u nyi")
