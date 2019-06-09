@@ -51,7 +51,7 @@ export class WebIDLBinder {
         this.ast = webidl.parse(source);
     }
 
-    symbolResolver = (symName: string) => {return symName;};
+    symbolResolver = (symName: string) => {return `__EXPORTS__.${symName}`;};
     setSymbolResolver(fn: (symName: string) => string) {
         this.symbolResolver = fn;
     }

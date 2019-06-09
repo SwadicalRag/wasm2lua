@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import "../patches"
+
 import * as program from "commander"
 import * as fs from "fs"
 import * as fsExtra from "fs-extra"
@@ -17,7 +19,7 @@ program.version(manifest.version)
     .option("--freeName <free>","Specify custom `free` symbol name")
     .option("--mallocName <malloc>","Specify custom `malloc` symbol name")
     .option("--pureLua","Compiles without using `ffi`")
-    .option("-m, --minify","Generates a minified Lua file")
+    .option("-m, --minify <n>","Generates a minified Lua file (levels go from 0 to 3)")
     .option("--discardExportSymbols","Enhances minification by discarding symbols of exported functions")
     .option("-b, --bindings <bindings.idl>","Generates Lua-WebIDL bindings from the specified file")
     .option("--libmode","Adds a dummy main function to use this as a library (for WASI)")
@@ -89,7 +91,10 @@ if(program.maxPhantomNesting) {
 }
 
 if(program.minify) {
-    conf.minify = program.discardExportSymbols ? 2 : 1;
+    conf.minify = Math.min(Math.max(parseInt(program.minify || 0),0),2) as (0 | 1 | 2 | 3);
+    if(isNaN(conf.minify)) {
+        conf.minify = null;
+    }
 }
 
 let inst = new wasm2lua(fs.readFileSync(infile),conf)

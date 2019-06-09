@@ -12,6 +12,7 @@ GOOD NEWS, fam: `wasm2lua` can compile WebAssembly modules to pure Lua (or with 
 
  - The generated code is heavily dependent upon the LuaJIT bit library
  - Some of `@webassemblyjs`'s libraries are monkey patched at runtime
+ - `luamin` is monkey patched at runtime
  - The WASI API is still under heavy development
  - Emscripten is NOT supported out of the box. You will need to compile things via the WASI ecosystem.
 

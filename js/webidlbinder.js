@@ -34,7 +34,7 @@ class WebIDLBinder {
             ["DOMString"]: true,
             ["boolean"]: true,
         };
-        this.symbolResolver = (symName) => { return symName; };
+        this.symbolResolver = (symName) => { return `__EXPORTS__.${symName}`; };
         this.ast = webidl.parse(source);
     }
     setSymbolResolver(fn) {

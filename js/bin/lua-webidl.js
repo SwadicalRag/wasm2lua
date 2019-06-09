@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+require("../patches");
 const program = require("commander");
 const fs = require("fs");
 const fsExtra = require("fs-extra");

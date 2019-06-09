@@ -345,7 +345,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         if (this.options.webidl) {
             let idl = fs.readFileSync(this.options.webidl.idlFilePath);
             let binder = new webidlbinder_1.WebIDLBinder(idl.toString(), webidlbinder_1.BinderMode.WEBIDL_LUA, this.options.libMode);
-            if (this.options.minify >= 2) {
+            if (this.options.minify >= 3) {
                 binder.setSymbolResolver((symName) => {
                     if (this.modState.exportMinificationLookup.get(symName)) {
                         return `__EXPORTS__.${this.modState.exportMinificationLookup.get(symName)}`;
@@ -604,7 +604,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             }
         }
         if (this.importedWASI) {
-            if (this.options.minify >= 2) {
+            if (this.options.minify >= 3) {
                 this.writeLn(buf, `__EXPORTS__.${state.exportMinificationLookup.get("_start") || "_start"}()`);
             }
             else {
@@ -656,12 +656,13 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             funcID = "func_u" + state.funcStates.length;
         }
         let sanIdent = sanitizeIdentifier(funcID);
-        if (this.options.minify >= 1) {
+        if (this.options.minify >= 2) {
             if (!renameTo) {
-                let minIdent = state.funcMinificationLookup.get(sanIdent);
+                let uniqueID = node.name.numeric || funcID;
+                let minIdent = state.funcMinificationLookup.get(uniqueID);
                 if (!minIdent) {
                     minIdent = state.funcIdentGen();
-                    state.funcMinificationLookup.set(sanIdent, minIdent);
+                    state.funcMinificationLookup.set(uniqueID, minIdent);
                 }
                 sanIdent = minIdent;
             }
@@ -808,6 +809,11 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             throw new Error("TODO " + node.signature.type);
         }
         this.write(buf, ")");
+        if ((this.options.minify >= 2) && (node.name.numeric)) {
+            this.write(buf, `--[[`);
+            this.write(buf, modState.funcMinificationLookup.get(node.name.numeric));
+            this.write(buf, `]]`);
+        }
         this.indent();
         this.newLine(buf);
         this.writeLn(buf, FUNC_VAR_HEADER);
@@ -2177,7 +2183,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
     }
     processModuleExport(node, modState) {
         let buf = [];
-        if (this.options.minify >= 2) {
+        if (this.options.minify >= 3) {
             let minIdent = modState.exportMinificationLookup.get(node.name);
             if (!minIdent) {
                 minIdent = modState.exportIdentGen();
