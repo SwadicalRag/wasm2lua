@@ -2,7 +2,8 @@ ffi = require("ffi")
 
 local dir = debug.getinfo(1, "S").source:sub(2):match("(.*/)")
 
-dofile(dir..TEST_FILE)
+local MODULE = dofile(dir..TEST_FILE)
+MODULE.init()
 
 local function checkResults(expected,results)
     if #expected ~= #results then
@@ -21,7 +22,7 @@ local function checkResults(expected,results)
 end
 
 local function invoke(func,args)
-    return {__MODULES__.UNKNOWN[func](unpack(args))}
+    return {MODULE.exports[func](unpack(args))}
 end
 
 local function runTest(num,func,args,expected)
