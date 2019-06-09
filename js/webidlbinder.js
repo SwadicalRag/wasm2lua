@@ -601,7 +601,7 @@ class WebIDLBinder {
             this.luaC.write(buf, `assert(type(${arg.name}) == "boolean","Parameter ${arg.name} (${argID + 1}) must be a boolean")`);
         }
         else if (this.classLookup[arg.idlType.idlType]) {
-            this.luaC.write(buf, `assert((type(${arg.name}) == "table") and (getmetatable(${arg.name}) == __BINDINGS__.${arg.idlType.idlType}),"Parameter ${arg.name} (${argID + 1}) must be a ${arg.idlType.idlType}")`);
+            this.luaC.write(buf, `assert((type(${arg.name}) == "table") and __BINDER__.isClassInstance(${arg.name},__BINDINGS__.${arg.idlType.idlType}),"Parameter ${arg.name} (${argID + 1}) must be an instance of ${arg.idlType.idlType}")`);
         }
         else {
             this.luaC.write(buf, `assert(type(${arg.name}) == "number","Parameter ${arg.name} (${argID + 1}) must be a number")`);
@@ -695,7 +695,7 @@ class WebIDLBinder {
             this.luaC.write(buf, `assert(type(${argName}) == "boolean","Return value ${argName} must be a boolean")`);
         }
         else if (this.classLookup[argType.idlType]) {
-            this.luaC.write(buf, `assert((type(${argName}) == "table") and (getmetatable(${argName}) == __BINDINGS__.${argType.idlType}),"Return ${argName} must be an instance of ${argType.idlType}")`);
+            this.luaC.write(buf, `assert((type(${argName}) == "table") and __BINDER__.isClassInstance(${argName},__BINDINGS__.${argType.idlType}),"Return ${argName} must be an instance of ${argType.idlType}")`);
         }
         else {
             this.luaC.write(buf, `assert(type(${argName}) == "number","Return value ${argName} must be a number")`);

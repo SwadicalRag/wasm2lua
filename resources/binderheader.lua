@@ -34,6 +34,19 @@ function __BINDER__.stringify(str)
     return ptr
 end
 
+function __BINDER__.isClassInstance(meta,targMeta)
+    repeat
+        meta = getmetatable(meta)
+        if meta == targMeta then return true end
+        if meta and type(meta.__index) == "table" then
+            if meta.__index == targMeta then return true end
+            meta = meta.__index
+        end
+    until not meta
+
+    return false
+end
+
 function __BINDER__.createClass(tbl,tblName)
     tbl.__cache = {}
     tbl.__specialIndex = {}
