@@ -664,15 +664,33 @@ export class WebIDLBinder {
         }
 
         if(this.getExtendedAttribute("Array",arg.extAttrs)) {
+            let arrAttr = this.getExtendedAttribute("Array",arg.extAttrs);
             this.luaC.write(buf,`assert(type(${arg.name}) == "table","Parameter ${arg.name} (${argID + 1}) must be a table")`);
             this.luaC.write(buf,`local __arg${argID} =`);
-            this.luaC.write(buf,`__BINDER__.luaToWasmArrayInternal(__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType,arg.extAttrs))},${arg.name})`);
+            this.luaC.write(buf,`__BINDER__.luaToWasmArrayInternal(__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType,arg.extAttrs))},${arg.name}`);
+            if(arrAttr && arrAttr.rhs) {
+                let arrLen = this.unquote(arrAttr.rhs.value);
+                if(!parseInt(arrLen) || isNaN(parseInt(arrLen))) {
+                    throw new SemanticError("Attribute 'Array' must have a numeric value (denoting max array length)");
+                }
+                this.luaC.write(buf,`,${arrLen}`);
+            }
+            this.luaC.write(buf,`)`);
             return
         }
         else if(this.getExtendedAttribute("PointerArray",arg.extAttrs)) {
+            let ptrArrAttr = this.getExtendedAttribute("PointerArray",arg.extAttrs);
             this.luaC.write(buf,`assert(type(${arg.name}) == "table","Parameter ${arg.name} (${argID + 1}) must be a table")`);
             this.luaC.write(buf,`local __arg${argID} =`);
-            this.luaC.write(buf,`__BINDER__.luaToWasmArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType,arg.extAttrs))},${arg.name})`);
+            this.luaC.write(buf,`__BINDER__.luaToWasmArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType,arg.extAttrs))},${arg.name}`);
+            if(ptrArrAttr && ptrArrAttr.rhs) {
+                let arrLen = this.unquote(ptrArrAttr.rhs.value);
+                if(!parseInt(arrLen) || isNaN(parseInt(arrLen))) {
+                    throw new SemanticError("Attribute 'PointerArray' must have a numeric value (denoting max array length)");
+                }
+                this.luaC.write(buf,`,${arrLen}`);
+            }
+            this.luaC.write(buf,`)`);
             return
         }
 
@@ -796,11 +814,28 @@ export class WebIDLBinder {
         this.luaC.write(buf,`return `);
         
         if(this.getExtendedAttribute("Array",extAttrs)) {
-            this.luaC.write(buf,`__BINDER__.luaToWasmArrayInternal(__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(argType,extAttrs))},${argName})`);
+            let arrAttr = this.getExtendedAttribute("Array",extAttrs);
+            this.luaC.write(buf,`__BINDER__.luaToWasmArrayInternal(__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(argType,extAttrs))},${argName}`);
+            if(arrAttr && arrAttr.rhs) {
+                let arrLen = this.unquote(arrAttr.rhs.value);
+                if(!parseInt(arrLen) || isNaN(parseInt(arrLen))) {
+                    throw new SemanticError("Attribute 'Array' must have a numeric value (denoting max array length)");
+                }
+                this.luaC.write(buf,`,${arrLen}`);
+            }
             return
         }
         else if(this.getExtendedAttribute("PointerArray",extAttrs)) {
-            this.luaC.write(buf,`__BINDER__.luaToWasmArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(argType,extAttrs))},${argName})`);
+            let ptrArrAttr = this.getExtendedAttribute("PointerArray",extAttrs);
+            this.luaC.write(buf,`__BINDER__.luaToWasmArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(argType,extAttrs))},${argName}`);
+            if(ptrArrAttr && ptrArrAttr.rhs) {
+                let arrLen = this.unquote(ptrArrAttr.rhs.value);
+                if(!parseInt(arrLen) || isNaN(parseInt(arrLen))) {
+                    throw new SemanticError("Attribute 'PointerArray' must have a numeric value (denoting max array length)");
+                }
+                this.luaC.write(buf,`,${arrLen}`);
+            }
+            this.luaC.write(buf,`)`);
             return
         }
 

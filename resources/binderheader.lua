@@ -113,10 +113,12 @@ function __BINDER__.ptrToClass(ptr,classBase)
     end
 end
 
-function __BINDER__.luaToWasmArrayInternal(interface,tbl)
+function __BINDER__.luaToWasmArrayInternal(interface,tbl,maxLen)
     if getmetatable(tbl) and tbl.__ptr then return tbl.__ptr end
 
-    local wasmPtr = interface.new(#tbl)
+    if type(tbl.__wasmMaxLen) == "number" then maxLen = tbl.__wasmMaxLen end
+
+    local wasmPtr = interface.new(math.max(#tbl,maxLen or 0))
 
     if interface.isClass then
         for i=1,#tbl do
