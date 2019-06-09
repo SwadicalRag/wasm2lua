@@ -332,7 +332,7 @@ class WebIDLBinder {
         if (this.mode == BinderMode.WEBIDL_CPP) {
             for (let arrTypeNameKey in this.arrayTypes) {
                 let arrType = this.arrayTypes[arrTypeNameKey];
-                let arrTypeName = WebIDLBinder.CTypeRenames[arrType.idlType];
+                let arrTypeName = WebIDLBinder.CTypeRenames[arrType.idlType] || arrType.idlType;
                 let arrTypeNameAdj = arrTypeName;
                 if (this.classLookup[arrTypeName]) {
                     arrTypeNameAdj += "*";

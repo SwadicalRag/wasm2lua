@@ -401,7 +401,7 @@ export class WebIDLBinder {
             // output array operators
             for(let arrTypeNameKey in this.arrayTypes) {
                 let arrType = this.arrayTypes[arrTypeNameKey];
-                let arrTypeName = WebIDLBinder.CTypeRenames[arrType.idlType as string];
+                let arrTypeName = WebIDLBinder.CTypeRenames[arrType.idlType as string] || (arrType.idlType as string);
 
                 let arrTypeNameAdj = arrTypeName;
                 if(this.classLookup[arrTypeName]) {
