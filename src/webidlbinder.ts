@@ -655,6 +655,9 @@ export class WebIDLBinder {
             // null terminated only :(
             this.luaC.write(buf,`return __BINDER__.readString(${argName})`);
         }
+        else if(argType.idlType == "boolean") {
+            this.luaC.write(buf,`return ${argName} ~= 0`);
+        }
         else {
             this.luaC.write(buf,`return ${argName}`);
         }
@@ -720,6 +723,10 @@ export class WebIDLBinder {
         else if(arg.idlType.idlType == "DOMString") {
             // null terminated only :(
             this.luaC.write(buf,`__arg${argID}`);
+        }
+        else if(arg.idlType.idlType == "boolean") {
+            // null terminated only :(
+            this.luaC.write(buf,`${arg.name} ~= 0`);
         }
         else {
             this.luaC.write(buf,`${arg.name}`);
