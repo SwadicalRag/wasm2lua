@@ -352,6 +352,11 @@
 				}
 			});
 			result += ')';
+			
+			// @swadical: vararg narrowing
+			if(expression.inParens) {
+				result = `(${result})`;
+			}
 
 		} else if (expressionType == 'TableCallExpression') {
 
