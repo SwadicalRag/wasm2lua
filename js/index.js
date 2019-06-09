@@ -1534,14 +1534,11 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                             break;
                         }
                         case "select": {
-                            let resultVar = this.fn_createTempRegister(buf, state);
-                            let popCond = this.getPop(state);
-                            let ret1 = this.getPop(state);
-                            let ret2 = this.getPop(state);
-                            this.write(buf, `if ${popCond} == 0 then `);
-                            this.write(buf, ` ${state.regManager.getPhysicalRegisterName(resultVar)} = ${ret1} `);
-                            this.write(buf, `else ${state.regManager.getPhysicalRegisterName(resultVar)} = ${ret2} `);
-                            this.write(buf, "end;");
+                            let resultVar = this.fn_createPhantomRegister(buf, state);
+                            let popCond = this.getPop(state, resultVar);
+                            let ret1 = this.getPop(state, resultVar);
+                            let ret2 = this.getPop(state, resultVar);
+                            resultVar.value = `(${popCond} == 0) and ${ret1} or ${ret2}`;
                             this.write(buf, this.getPushStack(state, resultVar));
                             this.newLine(buf);
                             break;
