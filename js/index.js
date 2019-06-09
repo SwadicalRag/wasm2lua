@@ -56,6 +56,9 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         if (typeof options.jmpStreamThreshold !== "number") {
             options.jmpStreamThreshold = 8000;
         }
+        if (typeof options.maxPhantomNesting !== "number") {
+            options.maxPhantomNesting = 10;
+        }
         this.program_ast = wasm_parser_1.decode(program_binary, {});
         this.process();
     }
@@ -176,18 +179,33 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             throw new Error("just wHat");
         }
     }
+    fn_realizePhantomRegisterInStack(buf, state, stackID, stackEntry) {
+        let realized = state.regManager.realizePhantomRegister(stackEntry);
+        state.stackData[stackID] = realized;
+        this.writeLn(buf, `${state.regManager.getPhysicalRegisterName(realized)} = ${stackEntry.value};`);
+        for (let subDep of stackEntry.dependencies) {
+            this.decrementStackEntry(buf, state, subDep, true);
+        }
+    }
     invalidateCachedExpressionsWithDependency(buf, state, dependency) {
         for (let stackID = state.stackData.length - 1; stackID >= 0; stackID--) {
             let stackEntry = state.stackData[stackID];
             if (typeof stackEntry === "object") {
                 if (stackEntry.isPhantom) {
                     if (stackEntry.dependencies.indexOf(dependency) !== -1) {
-                        let realized = state.regManager.realizePhantomRegister(stackEntry);
-                        state.stackData[stackID] = realized;
-                        this.writeLn(buf, `${state.regManager.getPhysicalRegisterName(realized)} = ${stackEntry.value};`);
-                        for (let subDep of stackEntry.dependencies) {
-                            this.decrementStackEntry(buf, state, subDep, true);
-                        }
+                        this.fn_realizePhantomRegisterInStack(buf, state, stackID, stackEntry);
+                    }
+                }
+            }
+        }
+    }
+    computePhantomRegisters(buf, state) {
+        for (let stackID = state.stackData.length - 1; stackID >= 0; stackID--) {
+            let stackEntry = state.stackData[stackID];
+            if (typeof stackEntry === "object") {
+                if (stackEntry.isPhantom) {
+                    if (stackEntry.nestingDepth > this.options.maxPhantomNesting) {
+                        this.fn_realizePhantomRegisterInStack(buf, state, stackID, stackEntry);
                     }
                 }
             }
@@ -215,6 +233,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                     popToTemp.dependencies.push(lastData);
                 }
                 else {
+                    popToTemp.nestingDepth = Math.max(popToTemp.nestingDepth, lastData.isPhantom == true ? lastData.nestingDepth : 0) + 1;
                     popToTemp.dependencies.push(...lastData.dependencies);
                 }
             }
@@ -1988,6 +2007,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                 }
                 regIdx++;
             }
+            this.computePhantomRegisters(buf, state);
         }
         return buf.join("");
     }

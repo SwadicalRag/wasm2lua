@@ -125,6 +125,7 @@ export interface WASM2LuaOptions {
     pureLua?: boolean;
     libMode?: boolean;
     jmpStreamThreshold?: number;
+    maxPhantomNesting?: number;
     webidl?: {
         idlFilePath: string,
         mallocName?: string,
@@ -179,6 +180,10 @@ export class wasm2lua extends StringCompiler {
 
         if (typeof options.jmpStreamThreshold !== "number") {
             options.jmpStreamThreshold = 8000;
+        }
+
+        if (typeof options.maxPhantomNesting !== "number") {
+            options.maxPhantomNesting = 10;
         }
 
         this.program_ast = decode(program_binary,{
@@ -304,6 +309,17 @@ export class wasm2lua extends StringCompiler {
         }
     }
 
+    fn_realizePhantomRegisterInStack(buf: string[],state: WASMFuncState,stackID: number,stackEntry: PhantomRegister) {
+        let realized = state.regManager.realizePhantomRegister(stackEntry);
+        state.stackData[stackID] = realized;
+
+        this.writeLn(buf,`${state.regManager.getPhysicalRegisterName(realized)} = ${stackEntry.value};`);
+
+        for(let subDep of stackEntry.dependencies) {
+            this.decrementStackEntry(buf,state,subDep,true);
+        }
+    }
+
     invalidateCachedExpressionsWithDependency(buf: string[],state: WASMFuncState,dependency: VirtualRegister) {
         for(let stackID=state.stackData.length - 1;stackID >= 0;stackID--) {
             let stackEntry = state.stackData[stackID];
@@ -312,14 +328,21 @@ export class wasm2lua extends StringCompiler {
             if(typeof stackEntry === "object") {
                 if(stackEntry.isPhantom) {
                     if(stackEntry.dependencies.indexOf(dependency) !== -1) {
-                        let realized = state.regManager.realizePhantomRegister(stackEntry);
-                        state.stackData[stackID] = realized;
+                        this.fn_realizePhantomRegisterInStack(buf,state,stackID,stackEntry);
+                    }
+                }
+            }
+        }
+    }
 
-                        this.writeLn(buf,`${state.regManager.getPhysicalRegisterName(realized)} = ${stackEntry.value};`);
+    computePhantomRegisters(buf: string[],state: WASMFuncState) {
+        for(let stackID=state.stackData.length - 1;stackID >= 0;stackID--) {
+            let stackEntry = state.stackData[stackID];
 
-                        for(let subDep of stackEntry.dependencies) {
-                            this.decrementStackEntry(buf,state,subDep,true);
-                        }
+            if(typeof stackEntry === "object") {
+                if(stackEntry.isPhantom) {
+                    if(stackEntry.nestingDepth > this.options.maxPhantomNesting) {
+                        this.fn_realizePhantomRegisterInStack(buf,state,stackID,stackEntry);
                     }
                 }
             }
@@ -351,6 +374,7 @@ export class wasm2lua extends StringCompiler {
                     popToTemp.dependencies.push(lastData);
                 }
                 else {
+                    popToTemp.nestingDepth = Math.max(popToTemp.nestingDepth,lastData.isPhantom == true ? lastData.nestingDepth : 0) + 1;
                     popToTemp.dependencies.push(...lastData.dependencies);
                 }
             }
@@ -2532,6 +2556,9 @@ export class wasm2lua extends StringCompiler {
                 
                 regIdx++;
             }
+
+            // PASS 2C: Compute phantom registers to prevent too much nesting
+            this.computePhantomRegisters(buf,state);
         }
 
         return buf.join("");

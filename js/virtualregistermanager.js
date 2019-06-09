@@ -58,6 +58,7 @@ class VirtualRegisterManager {
             name: "temp",
             isPhantom: true,
             stackEntryCount: 0,
+            nestingDepth: 0,
             value: null,
             dependencies: [],
         };

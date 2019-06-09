@@ -18,6 +18,7 @@ program.version(manifest.version)
     .option("-b, --bindings <bindings.idl>", "Generates Lua-WebIDL bindings from the specified file")
     .option("--libmode", "Adds a dummy main function to use this as a library (for WASI)")
     .option("--jmpstreamThreshold <n>", "Specify jump size of n(opcodes) as the threshold for enabling jmpstream")
+    .option("--maxPhantomNesting <n>", "Specify maximum possible nesting of expressions folded via phantom registers")
     .action(function (inf, outf) {
     if ((typeof inf === "string") && (typeof outf === "string")) {
         if ((inf.trim() !== "") && (outf.trim() !== "")) {
@@ -60,6 +61,12 @@ if (program.jmpstreamThreshold) {
     conf.jmpStreamThreshold = parseInt(program.jmpstreamThreshold);
     if (!conf.jmpStreamThreshold || isNaN(conf.jmpStreamThreshold)) {
         conf.jmpStreamThreshold = null;
+    }
+}
+if (program.maxPhantomNesting) {
+    conf.maxPhantomNesting = parseInt(program.maxPhantomNesting);
+    if (!conf.maxPhantomNesting || isNaN(conf.maxPhantomNesting)) {
+        conf.maxPhantomNesting = null;
     }
 }
 let inst = new __1.wasm2lua(fs.readFileSync(infile), conf);
