@@ -114,6 +114,8 @@ function __BINDER__.ptrToClass(ptr,classBase)
 end
 
 function __BINDER__.luaToWasmArrayInternal(interface,tbl)
+    if getmetatable(tbl) and tbl.__ptr then return tbl.__ptr end
+
     local wasmPtr = interface.new(#tbl)
 
     if interface.isClass then
@@ -132,42 +134,45 @@ end
 function __BINDER__.wasmToWrappedLuaArrayConvertInternal(out,interface,wasmPtr)
     -- don't convert a table with a metatable
     -- (it may already be converted or we'll be in for undefined behaviour)
-    if getmetatable(out) then return end
+    if getmetatable(out) then assert(out.__ptr,"Cannot convert a table with a metatable to a WASM Array") return end
 
     -- nil out all the keys so that __index is usable
     for i=1,#out do
         out[i] = nil
     end
 
+    out.__ptr = wasmPtr
+    out.len = function() return interface.len(wasmPtr) end
+
+    local meta = {
+        __len = function(self)
+            return interface.len(wasmPtr)
+        end,
+    }
+
     if interface.isClass then
-        setmetatable(out,{
-            __index = function(self,idx)
-                assert(type(idx) == "number","Array indexer must be a number")
-                return __BINDER__.ptrToClass(interface.get(wasmPtr,idx-1))
-            end,
-            __newindex = function(self,idx,val)
-                assert(type(idx) == "number","Array indexer must be a number")
-                interface.set(wasmPtr,idx-1,val.__ptr)
-            end,
-            __len = function(self)
-                return interface.len(wasmPtr)
-            end,
-        })
+        meta.__index = function(self,idx)
+            assert(type(idx) == "number","Array indexer must be a number")
+            return __BINDER__.ptrToClass(interface.get(wasmPtr,idx-1))
+        end
+
+        meta.__newindex = function(self,idx,val)
+            assert(type(idx) == "number","Array indexer must be a number")
+            interface.set(wasmPtr,idx-1,val.__ptr)
+        end
     else
-        setmetatable(out,{
-            __index = function(self,idx)
-                assert(type(idx) == "number","Array indexer must be a number")
-                return interface.get(wasmPtr,idx-1)
-            end,
-            __newindex = function(self,idx,val)
-                assert(type(idx) == "number","Array indexer must be a number")
-                interface.set(wasmPtr,idx-1,val)
-            end,
-            __len = function(self)
-                return interface.len(wasmPtr)
-            end,
-        })
+        meta.__index = function(self,idx)
+            assert(type(idx) == "number","Array indexer must be a number")
+            return interface.get(wasmPtr,idx-1)
+        end
+
+        meta.__newindex = function(self,idx,val)
+            assert(type(idx) == "number","Array indexer must be a number")
+            interface.set(wasmPtr,idx-1,val)
+        end
     end
+
+    setmetatable(out,meta)
 
     return out
 end
