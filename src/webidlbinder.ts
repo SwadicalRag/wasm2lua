@@ -437,6 +437,7 @@ export class WebIDLBinder {
             }
 
             this.cppC.writeLn(this.outBufCPP,`#undef __CFUNC`);
+            this.cppC.writeLn(this.outBufCPP,`#undef export`);
         }
         else if(this.mode == BinderMode.WEBIDL_LUA) {
             // output array operators
