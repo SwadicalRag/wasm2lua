@@ -43,7 +43,7 @@ end
 
 -- division helpers
 
-local function __DIVIDE_S__(a,b)
+local function __IDIV_S__(a,b)
     local res_1 = a / b
     local res_2 = math_floor(res_1)
     if res_1 ~= res_2 and res_2 < 0 then res_2 = res_2 + 1 end
@@ -52,21 +52,21 @@ local function __DIVIDE_S__(a,b)
     return int
 end
 
-local function __DIVIDE_U__(a,b)
+local function __IDIV_U__(a,b)
     local res = math_floor(__UNSIGNED__(a) / __UNSIGNED__(b))
     local int = bit_tobit(res)
     if res ~= int then error("bad division") end
     return int
 end
 
-local function __MODULO_S__(a,b)
+local function __IMOD_S__(a,b)
     if b == 0 then error("bad modulo") end
     local res = math_abs(a) % math_abs(b)
     if a < 0 then  res = -res end
     return bit_tobit(res)
 end
 
-local function __MODULO_U__(a,b)
+local function __IMOD_U__(a,b)
     if b == 0 then error("bad modulo") end
     local res = __UNSIGNED__(a) % __UNSIGNED__(b)
     return bit_tobit(res)

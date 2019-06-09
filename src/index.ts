@@ -1171,10 +1171,10 @@ export class wasm2lua extends StringCompiler {
         rotr: "bit_ror",
 
         // division
-        div_s: "__DIVIDE_S__",
-        div_u: "__DIVIDE_U__",
-        rem_s: "__MODULO_S__",
-        rem_u: "__MODULO_U__",
+        div_s: "__IDIV_S__",
+        div_u: "__IDIV_U__",
+        rem_s: "__IMOD_S__",
+        rem_u: "__IMOD_U__",
 
         // unary
         clz: "__CLZ__",
