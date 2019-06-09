@@ -1059,7 +1059,26 @@ export class wasm2lua extends StringCompiler {
 
         this.endAllBlocks(buf,state);
         
-        if(state.stackLevel > 1) {
+        let wasLastInsUnreachable = false;
+
+        if(node.body.length > 0) {
+            let lastIns = node.body[node.body.length - 1];
+            if(lastIns.type == "Instr") {
+                if(lastIns.id == "return") {
+                    wasLastInsUnreachable = true;
+                }
+                else if(lastIns.id == "unreachable") {
+                    wasLastInsUnreachable = true;
+                }
+                // else if(lastIns.id == "br") {
+                //     // unconditional branch
+                //     // this should be an illegal instruction...
+                //     wasLastInsUnreachable = true;
+                // }
+            }
+        }
+
+        if((state.stackLevel > 1) && !wasLastInsUnreachable) {
             this.write(buf,"do return ");
 
             let nRets = state.funcType ? state.funcType.results.length : 0;

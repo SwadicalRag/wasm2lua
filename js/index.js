@@ -798,7 +798,19 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             this.writeEx(buf, buf2.join(""), -1);
         }
         this.endAllBlocks(buf, state);
-        if (state.stackLevel > 1) {
+        let wasLastInsUnreachable = false;
+        if (node.body.length > 0) {
+            let lastIns = node.body[node.body.length - 1];
+            if (lastIns.type == "Instr") {
+                if (lastIns.id == "return") {
+                    wasLastInsUnreachable = true;
+                }
+                else if (lastIns.id == "unreachable") {
+                    wasLastInsUnreachable = true;
+                }
+            }
+        }
+        if ((state.stackLevel > 1) && !wasLastInsUnreachable) {
             this.write(buf, "do return ");
             let nRets = state.funcType ? state.funcType.results.length : 0;
             for (let i = 0; i < nRets; i++) {
