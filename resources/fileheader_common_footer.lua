@@ -117,72 +117,48 @@ local __FLOAT__ = {
     -- https://github.com/dcodeIO/long.js which is adapted from
     -- https://github.com/google/closure-library
 
-function __LONG_INT_DIVIDE__(n,d,signed)
-
-    assert(d[1] ~= 0 or d[2] ~= 0,"divide by zero")
-
-    if n[1] == 0 and n[2] == 0 then
-        return __LONG_INT__(0,0), __LONG_INT__(d[1],d[2])
-    end
-
-    local approx, rem
-    if signed then
-        -- This section is only relevant for signed longs and is derived from the
-        -- closure library as a whole.
-        if n[2] == -2147483648 and n[1] == 0 then
-            -- corner cases for minimum value
-            if (d[1] == 1 and d[2] == 0) or (d[1] == -1 and d[2] == -1) then
-                -- abs(divisor) == 1
-                -- recall that -MIN_VALUE == MIN_VALUE
-                return MIN_VALUE, __LONG_INT__(0,0)
-            elseif d[2] == -2147483648 and d[1] == 0 then
-                return __LONG_INT__(1,0), __LONG_INT__(0,0)
-            else
-                error("fuck it - todo")
-                -- At this point, we have |other| >= 2, so |this/other| < |MIN_VALUE|.
-                --[[local halfSelf = self:shr(1) -- SIGNED SHIFT
-                approx = halfSelf:div(divisor):shl(1)
-                if approx:eq(Long.ZERO) then
-                    if divisor:isNegative() then return Long.ONE else return Long.NEG_ONE end
-                else
-                    rem = self:sub(divisor:mul(approx))
-                    res = approx:add(rem:div(divisor))
-                    return res
-                end]]
-            end
-        elseif d[2] == -2147483648 and d[1] == 0 then
-            return __LONG_INT__(0,0), __LONG_INT__(d[1],d[2])
-        end
-
-        -- if either argument is negative, fix it
-        -- todo get rid of recursive acll
-        if n[2] < 0 then
-            if d[2] < 0 then
-                -- -n, -d
-                return __LONG_INT_DIVIDE__(-n,-d,signed)
-            end
-            -- -n, +d
-            return -__LONG_INT_DIVIDE__(-n,d,signed)
-        elseif d[2] < 0 then
-            -- +n, -d
-            return -__LONG_INT_DIVIDE__(n,-d,signed)
-        end
-    else
-        -- The algorithm below has not been made for unsigned longs. It's therefore
-        -- required to take special care of the MSB prior to running it.
-        --[[if signed then
-            d = d:toUnsigned() -- pretty sure this is no-op
-        end]]
-        if d:_gt_u(n) then
-            return __LONG_INT__(0,0), error("remainder")
-        end
-        if d:_gt_u(n:_shr_u(1)) then -- 15 >>> 1 = 7  with divisor = 8  true (WTF?)
-            return __LONG_INT__(1,0), error("remainder")
-        end
-    end
+-- This is the core division routine used by other division functions.
+local function __LONG_INT_DIVIDE__(rem,divisor)
+    assert(divisor[1] ~= 0 or divisor[2] ~= 0,"divide by zero")
 
     local res = __LONG_INT__(0,0)
 
+    local d_approx = __UNSIGNED__(divisor[1]) + __UNSIGNED__(divisor[2]) * 4294967296
+
+    while rem:_ge_u(divisor) do
+        local n_approx = __UNSIGNED__(rem[1]) + __UNSIGNED__(rem[2]) * 4294967296
+
+        -- Don't allow our approximation to be larger than an i64
+        n_approx = math_min(n_approx, 18446744073709549568)
+
+        local q_approx = math_max(1, math_floor(n_approx / d_approx))
+
+        -- dark magic from long.js / closure lib
+        local log2 = math_ceil(math_log(q_approx, 2))
+        local delta = math_pow(2,math_max(0,log2 - 48))
+
+        local res_approx = __LONG_INT_N__(q_approx)
+        local rem_approx = res_approx * divisor
+
+        -- decrease approximation until smaller than remainder and the multiply hopefully
+        while rem_approx:_gt_u(rem) do
+            q_approx = q_approx - delta
+            res_approx = __LONG_INT_N__(q_approx)
+            rem_approx = res_approx * divisor
+        end
+
+        -- res must be at least one, lib I copied the algo from had this check
+        -- but I'm not sure is necessary or makes sense
+        if res_approx[1] == 0 and res_approx[2] == 0 then
+            error("res_approx = 0")
+            res_approx[1] = 1
+        end
+
+        res = res + res_approx
+        rem = rem - rem_approx
+    end
+
+    return res, rem
 end
 
 __LONG_INT_CLASS__ = {
@@ -284,56 +260,16 @@ __LONG_INT_CLASS__ = {
         _div_s = function(a,b)
             error("_div_s nyi")
         end,
-        _div_u = function(rem,divisor)
-            assert(divisor[1] ~= 0 or divisor[2] ~= 0,"divide by zero")
-
-            local res = __LONG_INT__(0,0)
-
-            local d_approx = __UNSIGNED__(divisor[1]) + __UNSIGNED__(divisor[2]) * 4294967296
-
-            while rem:_ge_u(divisor) do
-                local n_approx = __UNSIGNED__(rem[1]) + __UNSIGNED__(rem[2]) * 4294967296
-
-                -- Don't allow our approximation to be larger than an i64
-                n_approx = math_min(n_approx, 18446744073709549568)
-
-                local q_approx = math_max(1, math_floor(n_approx / d_approx))
-
-                -- dark magic from long.js / closure lib
-                local log2 = math_ceil(math_log(q_approx, 2))
-                local delta = math_pow(2,math_max(0,log2 - 48))
-
-                local res_approx = __LONG_INT_N__(q_approx)
-                local rem_approx = res_approx * divisor
-
-                -- decrease approximation until smaller than remainder and the multiply hopefully
-                while rem_approx:_gt_u(rem) do
-                    q_approx = q_approx - delta
-                    res_approx = __LONG_INT_N__(q_approx)
-                    rem_approx = res_approx * divisor
-                end
-
-                -- res must be at least one, lib I copied the algo from had this check
-                -- but I'm not sure is necessary or makes sense
-                if res_approx[1] == 0 and res_approx[2] == 0 then
-                    error("res_approx = 0")
-                    res_approx[1] = 1
-                end
-
-                res = res + res_approx
-                rem = rem - rem_approx
-            end
-
+        _div_u = function(a,b)
+            local res, rem = __LONG_INT_DIVIDE__(a,b)
             return res
         end,
         _rem_s = function(a,b)
-            -- trash impl, todo fix this
-            --[[local low = a[1] % b[1]
-            return __LONG_INT__(bit_tobit(low), 0)]]
-            error("nyi")
+            error("_rem_s nyi")
         end,
         _rem_u = function(a,b)
-            error("_rem_u nyi")
+            local res, rem = __LONG_INT_DIVIDE__(a,b)
+            return rem
         end,
         _lt_u = function(a,b)
             if __UNSIGNED__(a[2]) == __UNSIGNED__(b[2]) then
