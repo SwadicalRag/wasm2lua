@@ -301,7 +301,7 @@ __LONG_INT_CLASS__ = {
 
                 -- dark magic from long.js / closure lib
                 local log2 = math_ceil(math_log(q_approx, 2))
-                local delta = (log2 <= 48) and 1 or math_pow(2,log2 - 48) -- can we remove branches here?
+                local delta = math_pow(2,math_max(0,log2 - 48))
 
                 local res_approx = __LONG_INT_N__(q_approx)
                 local rem_approx = res_approx * divisor
@@ -313,7 +313,8 @@ __LONG_INT_CLASS__ = {
                     rem_approx = res_approx * divisor
                 end
 
-                -- res must be at least one
+                -- res must be at least one, lib I copied the algo from had this check
+                -- but I'm not sure is necessary or makes sense
                 if res_approx[1] == 0 and res_approx[2] == 0 then
                     error("res_approx = 0")
                     res_approx[1] = 1
