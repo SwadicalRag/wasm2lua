@@ -284,25 +284,46 @@ __LONG_INT_CLASS__ = {
         _div_s = function(a,b)
             error("_div_s nyi")
         end,
-        _div_u = function(n,d)
-            error("nyi")
-            --assert(d[1] ~= 0 or d[2] ~= 0,"divide by zero")
+        _div_u = function(rem,divisor)
+            assert(divisor[1] ~= 0 or divisor[2] ~= 0,"divide by zero")
 
+            local res = __LONG_INT__(0,0)
 
-            --[[local q = __LONG_INT__(0,0)
-            local r = __LONG_INT__(0,0)
+            local d_approx = __UNSIGNED__(divisor[1]) + __UNSIGNED__(divisor[2]) * 4294967296
 
-            for i = 63,0,-1 do
-                r = r:_shl(__LONG_INT__(1,0)) -- left-shift r by 1 bit
-                local x = bit_band(n:_shr_u( __LONG_INT__(i,0) )[1] ,1) -- bit i of n
-                r[1] = bit_bor(r[1],x) -- set lsb of r to n[i]
-                if r:_ge_u(d) then
-                    r = r - d
-                    q = q:_or( __LONG_INT__(1,0):_shl( __LONG_INT__(i,0) ) ) -- set q[i] = 1
+            while rem:_ge_u(divisor) do
+                local n_approx = __UNSIGNED__(rem[1]) + __UNSIGNED__(rem[2]) * 4294967296
+
+                -- Don't allow our approximation to be larger than an i64
+                n_approx = math_min(n_approx, 18446744073709549568)
+
+                local q_approx = math_max(1, math_floor(n_approx / d_approx))
+
+                -- dark magic from long.js / closure lib
+                local log2 = math_ceil(math_log(q_approx, 2))
+                local delta = (log2 <= 48) and 1 or math_pow(2,log2 - 48) -- can we remove branches here?
+
+                local res_approx = __LONG_INT_N__(q_approx)
+                local rem_approx = res_approx * divisor
+
+                -- decrease approximation until smaller than remainder and the multiply hopefully
+                while rem_approx:_gt_u(rem) do
+                    q_approx = q_approx - delta
+                    res_approx = __LONG_INT_N__(q_approx)
+                    rem_approx = res_approx * divisor
                 end
+
+                -- res must be at least one
+                if res_approx[1] == 0 and res_approx[2] == 0 then
+                    error("res_approx = 0")
+                    res_approx[1] = 1
+                end
+
+                res = res + res_approx
+                rem = rem - rem_approx
             end
 
-            return q]]
+            return res
         end,
         _rem_s = function(a,b)
             -- trash impl, todo fix this

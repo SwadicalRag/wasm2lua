@@ -40,7 +40,7 @@ if jit and jit.version_num < 20100 then
         local aDbl = math_abs(dbl)
     
         if dbl ~= 0 and (aDbl ~= math_huge) then
-            local exp = math_max(-1023,math_floor(math.log(aDbl,2) + 1))
+            local exp = math_max(-1023,math_floor(math_log(aDbl,2) + 1))
             local x = aDbl * math_pow(2,-exp)
     
             if dbl < 0 then
