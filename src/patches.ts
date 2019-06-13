@@ -12,6 +12,9 @@ Module.prototype.require = function(request) {
     else if(filename == "../node_modules/@webassemblyjs/leb128/lib/leb.js") {
         return require("./../resources/patches/leb.js");
     }
+    else if(filename == "../node_modules/luamin/luamin.js") {
+        return require("./../resources/patches/luamin.js");
+    }
 
     return origRequire.apply(this, arguments);
 };

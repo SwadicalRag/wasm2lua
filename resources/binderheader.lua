@@ -34,6 +34,19 @@ function __BINDER__.stringify(str)
     return ptr
 end
 
+function __BINDER__.isClassInstance(meta,targMeta)
+    repeat
+        meta = getmetatable(meta)
+        if meta == targMeta then return true end
+        if meta and type(meta.__index) == "table" then
+            if meta.__index == targMeta then return true end
+            meta = meta.__index
+        end
+    until not meta
+
+    return false
+end
+
 function __BINDER__.createClass(tbl,tblName)
     tbl.__cache = {}
     tbl.__specialIndex = {}
@@ -113,10 +126,12 @@ function __BINDER__.ptrToClass(ptr,classBase)
     end
 end
 
-function __BINDER__.luaToWasmArrayInternal(interface,tbl)
+function __BINDER__.luaToWasmArrayInternal(interface,tbl,maxLen)
     if getmetatable(tbl) and tbl.__ptr then return tbl.__ptr end
 
-    local wasmPtr = interface.new(#tbl)
+    if type(tbl.__wasmMaxLen) == "number" then maxLen = tbl.__wasmMaxLen end
+
+    local wasmPtr = interface.new(math.max(#tbl,maxLen or 0))
 
     if interface.isClass then
         for i=1,#tbl do

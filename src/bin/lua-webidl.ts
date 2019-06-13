@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import "../patches"
+
 import * as program from "commander"
 import * as fs from "fs"
 import * as fsExtra from "fs-extra"

@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 
+import "../patches"
+
 import * as program from "commander"
 import * as fs from "fs"
 import * as fsExtra from "fs-extra"
 import * as path from "path"
 import { wasm2lua, WASM2LuaOptions } from "..";
+import { scrypt } from "crypto";
 
 let infile,outfile;
 
@@ -16,10 +19,12 @@ program.version(manifest.version)
     .option("--freeName <free>","Specify custom `free` symbol name")
     .option("--mallocName <malloc>","Specify custom `malloc` symbol name")
     .option("--pureLua","Compiles without using `ffi`")
-    .option("-m, --minify","Generates a minified Lua file")
+    .option("-m, --minify <n>","Generates a minified Lua file (levels go from 0 to 3)")
+    .option("--discardExportSymbols","Enhances minification by discarding symbols of exported functions")
     .option("-b, --bindings <bindings.idl>","Generates Lua-WebIDL bindings from the specified file")
     .option("--libmode","Adds a dummy main function to use this as a library (for WASI)")
     .option("--jmpstreamThreshold <n>","Specify jump size of n(opcodes) as the threshold for enabling jmpstream")
+    .option("--maxPhantomNesting <n>","Specify maximum possible nesting of expressions folded via phantom registers")
     .action(function (inf, outf) {
         if((typeof inf === "string") && (typeof outf === "string")) {
             if((inf.trim() !== "") && (outf.trim() !== "")) {
@@ -75,6 +80,20 @@ if(program.jmpstreamThreshold) {
     conf.jmpStreamThreshold = parseInt(program.jmpstreamThreshold);
     if(!conf.jmpStreamThreshold || isNaN(conf.jmpStreamThreshold)) {
         conf.jmpStreamThreshold = null;
+    }
+}
+
+if(program.maxPhantomNesting) {
+    conf.maxPhantomNesting = parseInt(program.maxPhantomNesting);
+    if(!conf.maxPhantomNesting || isNaN(conf.maxPhantomNesting)) {
+        conf.maxPhantomNesting = null;
+    }
+}
+
+if(program.minify) {
+    conf.minify = Math.min(Math.max(parseInt(program.minify || 0),0),2) as (0 | 1 | 2 | 3);
+    if(isNaN(conf.minify)) {
+        conf.minify = null;
     }
 }
 

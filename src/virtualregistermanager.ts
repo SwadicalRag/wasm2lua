@@ -20,6 +20,7 @@ export interface PhantomRegister {
 
     stackEntryCount: number;
 
+    nestingDepth: number;
     value: string;
     dependencies: VirtualRegister[];
 };
@@ -96,6 +97,7 @@ export class VirtualRegisterManager {
 
             stackEntryCount: 0,
 
+            nestingDepth: 0,
             value: null,
             dependencies: [],
         };

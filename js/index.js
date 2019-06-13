@@ -33,6 +33,45 @@ function sanitizeIdentifier(ident) {
         return `__x${str.charCodeAt(0).toString(16)}`;
     });
 }
+const idMapStart = ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_").split("");
+const idMapChunk = ("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890_").split("");
+const reservedIdents = [
+    "if", "then", "elseif", "else", "end",
+    "do", "while", "repeat", "until",
+    "return", "break", "goto",
+    "and", "or", "not",
+    "function",
+    "for", "in",
+    "local", "nil", "true", "false",
+    "continue",
+];
+function numToIdent(num) {
+    num = Math.abs(num);
+    num++;
+    let out = "";
+    out += idMapStart[(num - 1) % idMapStart.length];
+    if (num > idMapStart.length) {
+        num = Math.floor((num - 1) / idMapStart.length);
+        do {
+            let rem = (num - 1) % idMapChunk.length;
+            let nextChar = idMapChunk[rem];
+            out += nextChar;
+            num = Math.floor((num - 1) / idMapChunk.length);
+        } while (num > 0);
+    }
+    return out;
+}
+function initIdentGenerator() {
+    let num = 0;
+    return () => {
+        while (true) {
+            let nextIdent = numToIdent(num++);
+            if (reservedIdents.indexOf(nextIdent) === -1) {
+                return nextIdent;
+            }
+        }
+    };
+}
 const FUNC_VAR_HEADER = "";
 class wasm2lua extends stringcompiler_1.StringCompiler {
     constructor(program_binary, options = {}) {
@@ -55,6 +94,12 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         }
         if (typeof options.jmpStreamThreshold !== "number") {
             options.jmpStreamThreshold = 8000;
+        }
+        if (typeof options.maxPhantomNesting !== "number") {
+            options.maxPhantomNesting = 10;
+        }
+        if (typeof options.minify !== "number") {
+            options.minify = 0;
         }
         this.program_ast = wasm_parser_1.decode(program_binary, {});
         this.process();
@@ -176,18 +221,33 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             throw new Error("just wHat");
         }
     }
+    fn_realizePhantomRegisterInStack(buf, state, stackID, stackEntry) {
+        let realized = state.regManager.realizePhantomRegister(stackEntry);
+        state.stackData[stackID] = realized;
+        this.writeLn(buf, `${state.regManager.getPhysicalRegisterName(realized)} = ${stackEntry.value};`);
+        for (let subDep of stackEntry.dependencies) {
+            this.decrementStackEntry(buf, state, subDep, true);
+        }
+    }
     invalidateCachedExpressionsWithDependency(buf, state, dependency) {
         for (let stackID = state.stackData.length - 1; stackID >= 0; stackID--) {
             let stackEntry = state.stackData[stackID];
             if (typeof stackEntry === "object") {
                 if (stackEntry.isPhantom) {
                     if (stackEntry.dependencies.indexOf(dependency) !== -1) {
-                        let realized = state.regManager.realizePhantomRegister(stackEntry);
-                        state.stackData[stackID] = realized;
-                        this.writeLn(buf, `${state.regManager.getPhysicalRegisterName(realized)} = ${stackEntry.value};`);
-                        for (let subDep of stackEntry.dependencies) {
-                            this.decrementStackEntry(buf, state, subDep, true);
-                        }
+                        this.fn_realizePhantomRegisterInStack(buf, state, stackID, stackEntry);
+                    }
+                }
+            }
+        }
+    }
+    computePhantomRegisters(buf, state) {
+        for (let stackID = state.stackData.length - 1; stackID >= 0; stackID--) {
+            let stackEntry = state.stackData[stackID];
+            if (typeof stackEntry === "object") {
+                if (stackEntry.isPhantom) {
+                    if (stackEntry.nestingDepth > this.options.maxPhantomNesting) {
+                        this.fn_realizePhantomRegisterInStack(buf, state, stackID, stackEntry);
                     }
                 }
             }
@@ -215,6 +275,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                     popToTemp.dependencies.push(lastData);
                 }
                 else {
+                    popToTemp.nestingDepth = Math.max(popToTemp.nestingDepth, lastData.isPhantom == true ? lastData.nestingDepth : 0) + 1;
                     popToTemp.dependencies.push(...lastData.dependencies);
                 }
             }
@@ -284,6 +345,16 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         if (this.options.webidl) {
             let idl = fs.readFileSync(this.options.webidl.idlFilePath);
             let binder = new webidlbinder_1.WebIDLBinder(idl.toString(), webidlbinder_1.BinderMode.WEBIDL_LUA, this.options.libMode);
+            if (this.options.minify >= 3) {
+                binder.setSymbolResolver((symName) => {
+                    if (this.modState.exportMinificationLookup.get(symName)) {
+                        return `__EXPORTS__.${this.modState.exportMinificationLookup.get(symName)}`;
+                    }
+                    else {
+                        return `__EXPORTS__.${symName}`;
+                    }
+                });
+            }
             binder.luaC.indent();
             binder.buildOut();
             binder.luaC.outdent();
@@ -312,8 +383,12 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             funcStates: [],
             funcByName: new Map(),
             funcByNameRaw: new Map(),
+            funcMinificationLookup: new Map(),
+            exportMinificationLookup: new Map(),
             memoryAllocations: new arraymap_1.ArrayMap(),
             func_tables: [],
+            funcIdentGen: initIdentGenerator(),
+            exportIdentGen: initIdentGenerator(),
             nextGlobalIndex: 0
         };
         this.modState = state;
@@ -529,7 +604,12 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             }
         }
         if (this.importedWASI) {
-            this.writeLn(buf, "module.exports._start()");
+            if (this.options.minify >= 3) {
+                this.writeLn(buf, `__EXPORTS__.${state.exportMinificationLookup.get("_start") || "_start"}()`);
+            }
+            else {
+                this.writeLn(buf, `__EXPORTS__._start()`);
+            }
         }
         this.outdent(buf);
         this.write(buf, "end");
@@ -575,8 +655,21 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         else {
             funcID = "func_u" + state.funcStates.length;
         }
+        let sanIdent = sanitizeIdentifier(funcID);
+        if (this.options.minify >= 2) {
+            if (!renameTo) {
+                let uniqueID = node.name.numeric || funcID;
+                let minIdent = state.funcMinificationLookup.get(uniqueID);
+                if (!minIdent) {
+                    minIdent = state.funcIdentGen();
+                    state.funcMinificationLookup.set(uniqueID, minIdent);
+                }
+                sanIdent = minIdent;
+            }
+        }
+        renameTo = renameTo || "__FUNCS__." + sanIdent;
         let fstate = {
-            id: renameTo ? renameTo : "__FUNCS__." + sanitizeIdentifier(funcID),
+            id: renameTo,
             origID: betterName || funcID,
             regManager: new virtualregistermanager_1.VirtualRegisterManager(),
             registersToBeFreed: [],
@@ -716,6 +809,11 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             throw new Error("TODO " + node.signature.type);
         }
         this.write(buf, ")");
+        if ((this.options.minify >= 2) && (node.name.numeric)) {
+            this.write(buf, `--[[`);
+            this.write(buf, modState.funcMinificationLookup.get(node.name.numeric));
+            this.write(buf, `]]`);
+        }
         this.indent();
         this.newLine(buf);
         this.writeLn(buf, FUNC_VAR_HEADER);
@@ -779,7 +877,19 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             this.writeEx(buf, buf2.join(""), -1);
         }
         this.endAllBlocks(buf, state);
-        if (state.stackLevel > 1) {
+        let wasLastInsUnreachable = false;
+        if (node.body.length > 0) {
+            let lastIns = node.body[node.body.length - 1];
+            if (lastIns.type == "Instr") {
+                if (lastIns.id == "return") {
+                    wasLastInsUnreachable = true;
+                }
+                else if (lastIns.id == "unreachable") {
+                    wasLastInsUnreachable = true;
+                }
+            }
+        }
+        if ((state.stackLevel > 1) && !wasLastInsUnreachable) {
             this.write(buf, "do return ");
             let nRets = state.funcType ? state.funcType.results.length : 0;
             for (let i = 0; i < nRets; i++) {
@@ -1503,14 +1613,11 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                             break;
                         }
                         case "select": {
-                            let resultVar = this.fn_createTempRegister(buf, state);
-                            let popCond = this.getPop(state);
-                            let ret1 = this.getPop(state);
-                            let ret2 = this.getPop(state);
-                            this.write(buf, `if ${popCond} == 0 then `);
-                            this.write(buf, ` ${state.regManager.getPhysicalRegisterName(resultVar)} = ${ret1} `);
-                            this.write(buf, `else ${state.regManager.getPhysicalRegisterName(resultVar)} = ${ret2} `);
-                            this.write(buf, "end;");
+                            let resultVar = this.fn_createPhantomRegister(buf, state);
+                            let popCond = this.getPop(state, resultVar);
+                            let ret1 = this.getPop(state, resultVar);
+                            let ret2 = this.getPop(state, resultVar);
+                            resultVar.value = `(${popCond} == 0) and ${ret1} or ${ret2}`;
                             this.write(buf, this.getPushStack(state, resultVar));
                             this.newLine(buf);
                             break;
@@ -1988,6 +2095,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                 }
                 regIdx++;
             }
+            this.computePhantomRegisters(buf, state);
         }
         return buf.join("");
     }
@@ -2075,9 +2183,21 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
     }
     processModuleExport(node, modState) {
         let buf = [];
-        this.write(buf, "__EXPORTS__[\"");
-        this.write(buf, node.name);
-        this.write(buf, "\"] = ");
+        if (this.options.minify >= 3) {
+            let minIdent = modState.exportMinificationLookup.get(node.name);
+            if (!minIdent) {
+                minIdent = modState.exportIdentGen();
+                modState.exportMinificationLookup.set(node.name, minIdent);
+            }
+            this.write(buf, "__EXPORTS__.");
+            this.write(buf, minIdent);
+            this.write(buf, " = ");
+        }
+        else {
+            this.write(buf, "__EXPORTS__[\"");
+            this.write(buf, node.name);
+            this.write(buf, "\"] = ");
+        }
         switch (node.descr.exportType) {
             case "Func": {
                 let fstate = this.getFuncByIndex(modState, node.descr.id);
