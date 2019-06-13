@@ -258,7 +258,25 @@ __LONG_INT_CLASS__ = {
             __MEMORY_WRITE_8__(mem,loc,self[1])
         end,
         _div_s = function(a,b)
-            error("_div_s nyi")
+            local negate_result = false
+            if a[2] < 0 then
+                a = __LONG_INT__(0,0) - a
+                negate_result = not negate_result
+            end
+
+            if b[2] < 0 then
+                b = __LONG_INT__(0,0) - b
+                negate_result = not negate_result
+            end
+
+            local res, rem = __LONG_INT_DIVIDE__(a,b)
+            if res[2] < 0 then
+                error("division overflow")
+            end
+            if negate_result then
+                res = __LONG_INT__(0,0) - res
+            end
+            return res
         end,
         _div_u = function(a,b)
             local res, rem = __LONG_INT_DIVIDE__(a,b)
