@@ -7,6 +7,6 @@ let outfile = process.argv[3] || (__dirname + "/../test/test.lua");
 
 let wasm = fs.readFileSync(infile);
 
-let inst = new wasm2lua(wasm);
+let inst = new wasm2lua(wasm,{pureLua:true});
 
 fs.writeFileSync(outfile,inst.outBuf.join(""));

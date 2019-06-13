@@ -1534,7 +1534,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                                 }
                                 else if (ins.object == "i32") {
                                     if (ins.id == "mul") {
-                                        resultVar.value = `__MULTIPLY_CORRECT__(${tmp2},${tmp})`;
+                                        resultVar.value = `__IMUL__(${tmp2},${tmp})`;
                                     }
                                     else {
                                         resultVar.value = `bit_tobit(${tmp2} ${op} ${tmp})`;
@@ -2297,10 +2297,10 @@ wasm2lua.instructionBinOpFuncRemap = {
     shr_s: "bit_arshift",
     rotl: "bit_rol",
     rotr: "bit_ror",
-    div_s: "__DIVIDE_S__",
-    div_u: "__DIVIDE_U__",
-    rem_s: "__MODULO_S__",
-    rem_u: "__MODULO_U__",
+    div_s: "__IDIV_S__",
+    div_u: "__IDIV_U__",
+    rem_s: "__IMOD_S__",
+    rem_u: "__IMOD_U__",
     clz: "__CLZ__",
     ctz: "__CTZ__",
     popcnt: "__POPCNT__",
