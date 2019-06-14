@@ -270,8 +270,12 @@ export class WebIDLBinder {
             this.cppC.write(this.outBufCPP,`template <typename T> struct _LuaArray {`);
             this.cppC.indent(); this.cppC.newLine(this.outBufCPP);
             this.cppC.writeLn(this.outBufCPP,`public:`);
-            this.cppC.writeLn(this.outBufCPP,`_LuaArray(size_t inLen) : totalLen(inLen), len(inLen) {array = new T[inLen];};`);
-            this.cppC.writeLn(this.outBufCPP,`~_LuaArray() {delete[] array;};`);
+            this.cppC.writeLn(this.outBufCPP,`_LuaArray(size_t inLen) : totalLen(inLen), len(inLen) {array = new T[inLen]; knownLen = true;};`);
+            this.cppC.writeLn(this.outBufCPP,`_LuaArray(size_t inLen,T* inArray) : totalLen(inLen), len(inLen) {array = inArray; knownLen = true; isOwner = false;};`);
+            this.cppC.writeLn(this.outBufCPP,`_LuaArray(T* inArray) {array = inArray; isOwner = false;};`);
+            this.cppC.writeLn(this.outBufCPP,`~_LuaArray() {if(isOwner) {delete[] array;}};`);
+            this.cppC.writeLn(this.outBufCPP,`bool isOwner = true;`);
+            this.cppC.writeLn(this.outBufCPP,`bool knownLen = false;`);
             this.cppC.writeLn(this.outBufCPP,`size_t totalLen = 0;`);
             this.cppC.writeLn(this.outBufCPP,`size_t len = 0;`);
             this.cppC.write(this.outBufCPP,`T* array;`);
@@ -302,27 +306,29 @@ export class WebIDLBinder {
                 let JsImpl = this.getExtendedAttribute("JSImplementation",node.extAttrs) || this.getExtendedAttribute("LuaImplementation",node.extAttrs);
                 for(let j=0;j < node.members.length;j++) {
                     let member = node.members[j];
-                    if(member.type == "operation") {
-                        for(let k=member.arguments.length-1;k >= 0;k--) {
-                            let arrEA = this.getExtendedAttribute("Array",member.arguments[k].extAttrs);
-                            if(arrEA) {
-                                this.arrayTypes[this.idlTypeToCTypeLite(member.arguments[k].idlType,member.arguments[k].extAttrs)] = member.arguments[k].idlType;
-
-                                if(this.getExtendedAttribute("ArrayLength",member.extAttrs) && JsImpl) {
-                                    throw new SemanticError("ArrayLength extended attribute is incompatible with functions implemented in Lua");
-                                }
-                                else if(this.getExtendedAttribute("ArrayLengthRef",member.extAttrs) && JsImpl) {
-                                    throw new SemanticError("ArrayLengthRef extended attribute is incompatible with functions implemented in Lua");
-                                }
-                            }
-                            else {
-                                arrEA = this.getExtendedAttribute("PointerArray",member.arguments[k].extAttrs);
+                    if((member.type == "operation") || (member.type == "attribute")) {
+                        if(member.type == "operation") {
+                            for(let k=member.arguments.length-1;k >= 0;k--) {
+                                let arrEA = this.getExtendedAttribute("Array",member.arguments[k].extAttrs);
                                 if(arrEA) {
-                                    if(!this.classLookup[member.arguments[k].idlType.idlType as string]) {
-                                        throw new SemanticError(`PointerArrays are unsupported for non-class types like '${member.arguments[k].idlType.idlType as string}'. Are you sure you defined an interface for this type?`);
-                                    }
+                                    this.arrayTypes[this.idlTypeToCTypeLite(member.arguments[k].idlType,member.arguments[k].extAttrs)] = member.arguments[k].idlType;
 
-                                    this.ptrArrayTypes[this.idlTypeToCTypeLite(member.arguments[k].idlType,member.arguments[k].extAttrs)] = member.arguments[k].idlType;
+                                    if(this.getExtendedAttribute("ArrayLength",member.extAttrs) && JsImpl) {
+                                        throw new SemanticError("ArrayLength extended attribute is incompatible with functions implemented in Lua");
+                                    }
+                                    else if(this.getExtendedAttribute("ArrayLengthRef",member.extAttrs) && JsImpl) {
+                                        throw new SemanticError("ArrayLengthRef extended attribute is incompatible with functions implemented in Lua");
+                                    }
+                                }
+                                else {
+                                    arrEA = this.getExtendedAttribute("PointerArray",member.arguments[k].extAttrs);
+                                    if(arrEA) {
+                                        if(!this.classLookup[member.arguments[k].idlType.idlType as string]) {
+                                            throw new SemanticError(`PointerArrays are unsupported for non-class types like '${member.arguments[k].idlType.idlType as string}'. Are you sure you defined an interface for this type?`);
+                                        }
+
+                                        this.ptrArrayTypes[this.idlTypeToCTypeLite(member.arguments[k].idlType,member.arguments[k].extAttrs)] = member.arguments[k].idlType;
+                                    }
                                 }
                             }
                         }
@@ -534,7 +540,7 @@ export class WebIDLBinder {
                 this.luaC.writeLn(this.outBufLua,"module.init = coroutine.wrap(module.init)");
             }
             else if(this.mode == BinderMode.WEBIDL_CPP) {
-                this.cppC.writeLn(this.outBufCPP,`extern "C" void _webidl_main_yield() __attribute__((__import_module__("webidl_internal"), __import_name__("main_yield")));`)
+                this.cppC.writeLn(this.outBufCPP,`extern "C" void _webidl_main_yield() __attribute__((__import_module__("_webidl_main_yield"), __import_name__("main_yield")));`)
                 this.cppC.writeLn(this.outBufCPP,`int main() {_webidl_main_yield(); return 0;}`);
             }
         }
@@ -913,6 +919,43 @@ export class WebIDLBinder {
         // nothing
     }
 
+    startWrappedCReturnValue(buf: string[],idlType: webidl.IDLTypeDescription,extAttrs: webidl.ExtendedAttributes[]) {
+        if(this.hasExtendedAttribute("Array",extAttrs)) {
+            let arrType = this.getExtendedAttribute("Array",extAttrs) as webidl.ExtendedAttributes;
+            if(arrType.rhs) {
+                this.cppC.write(buf,`new _LuaArray<${idlType.idlType}>(${this.unquote(arrType.rhs.value)},`);
+            }
+            else {
+                this.cppC.write(buf,`new _LuaArray<${idlType.idlType}>(`);
+            }
+        }
+        else if(this.hasExtendedAttribute("PointerArray",extAttrs)) {
+            let arrType = this.getExtendedAttribute("PointerArray",extAttrs) as webidl.ExtendedAttributes;
+            if(arrType.rhs) {
+                this.cppC.write(buf,`new _LuaArray<${idlType.idlType}*>(${this.unquote(arrType.rhs.value)},`);
+            }
+            else {
+                this.cppC.write(buf,`new _LuaArray<${idlType.idlType}*>(`);
+            }
+        }
+    }
+
+    endWrappedCReturnValue(buf: string[],idlType: webidl.IDLTypeDescription,extAttrs: webidl.ExtendedAttributes[]) {
+        if(this.hasExtendedAttribute("Array",extAttrs) || this.hasExtendedAttribute("PointerArray",extAttrs)) {
+            this.cppC.write(buf,`)`);
+        }
+    }
+
+    startWrappedCValue(buf: string[],idlType: webidl.IDLTypeDescription,extAttrs: webidl.ExtendedAttributes[]) {
+        // only a suffix is needed
+    }
+
+    endWrappedCValue(buf: string[],idlType: webidl.IDLTypeDescription,extAttrs: webidl.ExtendedAttributes[]) {
+        if(this.hasExtendedAttribute("Array",extAttrs) || this.hasExtendedAttribute("PointerArray",extAttrs)) {
+            this.cppC.write(buf,`->array`);
+        }
+    }
+
     walkInterfaceLua(node: webidl.InterfaceType) {
         let JsImpl = this.getExtendedAttribute("JSImplementation",node.extAttrs) || this.getExtendedAttribute("LuaImplementation",node.extAttrs);
 
@@ -1265,19 +1308,23 @@ export class WebIDLBinder {
             else if(member.type == "attribute") {
                 this.cppC.write(this.outBufCPP,`export extern "C" ${this.idlTypeToCType(member.idlType,member.extAttrs,true)} ${this.mangleIndexerName(member,node.name,false)}(${Prefix}${node.name}* self) {`);
                 this.cppC.write(this.outBufCPP,`return `);
+                this.startWrappedCReturnValue(this.outBufCPP,member.idlType,member.extAttrs);
                 if(this.hasExtendedAttribute("Value",member.extAttrs)) {
                     this.cppC.write(this.outBufCPP,"&");
                 }
-                this.cppC.write(this.outBufCPP,`self->${member.name}; `);
-                this.cppC.writeLn(this.outBufCPP,`};`);
+                this.cppC.write(this.outBufCPP,`self->${member.name}`);
+                this.endWrappedCReturnValue(this.outBufCPP,member.idlType,member.extAttrs);
+                this.cppC.writeLn(this.outBufCPP,`; };`);
                 
                 this.cppC.write(this.outBufCPP,`export extern "C" void ${this.mangleIndexerName(member,node.name,true)}(${Prefix}${node.name}* self,${this.idlTypeToCType(member.idlType,member.extAttrs,true)} val) {`);
                 this.cppC.write(this.outBufCPP,`self->${member.name} = `);
                 if(this.hasExtendedAttribute("Value",member.extAttrs)) {
                     this.cppC.write(this.outBufCPP,"*");
                 }
-                this.cppC.write(this.outBufCPP,`val;`);
-                this.cppC.writeLn(this.outBufCPP,`};`);
+                this.startWrappedCValue(this.outBufCPP,member.idlType,member.extAttrs);
+                this.cppC.write(this.outBufCPP,`val`);
+                this.endWrappedCValue(this.outBufCPP,member.idlType,member.extAttrs);
+                this.cppC.writeLn(this.outBufCPP,`; };`);
             }
         }
     }
@@ -1510,6 +1557,7 @@ export class WebIDLBinder {
                 else if(member.type == "attribute") {
                     this.cppC.write(this.outBufCPP,`export extern "C" ${this.idlTypeToCType(member.idlType,member.extAttrs,true)} ${this.mangleIndexerName(member,node.name,false)}(${node.name}* self) {`);
                     this.cppC.write(this.outBufCPP,`return `);
+                    this.startWrappedCReturnValue(this.outBufCPP,member.idlType,member.extAttrs);
                     if(this.hasExtendedAttribute("Value",member.extAttrs)) {
                         this.cppC.write(this.outBufCPP,"&");
                     }
@@ -1519,6 +1567,7 @@ export class WebIDLBinder {
                     else {
                         this.cppC.write(this.outBufCPP,`${node.name}::${member.name}`);
                     }
+                    this.endWrappedCReturnValue(this.outBufCPP,member.idlType,member.extAttrs);
                     this.cppC.write(this.outBufCPP,`; `);
                     this.cppC.writeLn(this.outBufCPP,`};`);
                     
@@ -1531,11 +1580,13 @@ export class WebIDLBinder {
                             this.cppC.write(this.outBufCPP,`${node.name}::${member.name}`);
                         }
                         this.cppC.write(this.outBufCPP,` = `);
+                        this.startWrappedCValue(this.outBufCPP,member.idlType,member.extAttrs);
                         if(this.hasExtendedAttribute("Value",member.extAttrs)) {
                             this.cppC.write(this.outBufCPP,"*");
                         }
-                        this.cppC.write(this.outBufCPP,`val;`);
-                        this.cppC.writeLn(this.outBufCPP,`};`);
+                        this.cppC.write(this.outBufCPP,`val`);
+                        this.endWrappedCValue(this.outBufCPP,member.idlType,member.extAttrs);
+                        this.cppC.writeLn(this.outBufCPP,`; };`);
                     }
                 }
             }
