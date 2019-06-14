@@ -76,11 +76,17 @@ class WebIDLBinder {
             out += "internalimpl_";
         }
         out += namespace + "_";
-        out += node.name;
-        for (let i = 0; i < node.arguments.length; i++) {
-            let arg = node.arguments[i];
-            out += "_";
-            out += arg.idlType.idlType.toString().replace(/\s+/g, "_");
+        if (typeof node === "string") {
+            out += node;
+            out += "_void";
+        }
+        else {
+            out += node.name;
+            for (let i = 0; i < node.arguments.length; i++) {
+                let arg = node.arguments[i];
+                out += "_";
+                out += arg.idlType.idlType.toString().replace(/\s+/g, "_");
+            }
         }
         return out;
     }
@@ -449,7 +455,7 @@ class WebIDLBinder {
                 this.luaC.writeLn(this.outBufLua, "module.init = coroutine.wrap(module.init)");
             }
             else if (this.mode == BinderMode.WEBIDL_CPP) {
-                this.cppC.writeLn(this.outBufCPP, `extern "C" void _webidl_main_yield() __attribute__((__import_module__("_webidl_main_yield"), __import_name__("main_yield")));`);
+                this.cppC.writeLn(this.outBufCPP, `extern "C" void _webidl_main_yield() __attribute__((__import_module__("webidl_internal"), __import_name__("main_yield")));`);
                 this.cppC.writeLn(this.outBufCPP, `int main() {_webidl_main_yield(); return 0;}`);
             }
         }
@@ -608,6 +614,12 @@ class WebIDLBinder {
         }
         else if (this.classLookup[arg.idlType.idlType]) {
             this.luaC.write(buf, `assert((type(${arg.name}) == "table") and __BINDER__.isClassInstance(${arg.name},__BINDINGS__.${arg.idlType.idlType}),"Parameter ${arg.name} (${argID + 1}) must be an instance of ${arg.idlType.idlType}")`);
+            if (this.hasExtendedAttribute("ToWASMOwned", arg.extAttrs)) {
+                this.luaC.write(buf, `${arg.name}.__luaOwned = false `);
+            }
+            else if (this.hasExtendedAttribute("ToLuaOwned", arg.extAttrs)) {
+                this.luaC.write(buf, `${arg.name}.__luaOwned = true `);
+            }
         }
         else {
             this.luaC.write(buf, `assert(type(${arg.name}) == "number","Parameter ${arg.name} (${argID + 1}) must be a number")`);
@@ -644,12 +656,19 @@ class WebIDLBinder {
             }
         }
         else {
+            let luaOwned = true;
+            if (this.hasExtendedAttribute("ToWASMOwned", arg.extAttrs)) {
+                luaOwned = false;
+            }
+            else if (this.hasExtendedAttribute("ToLuaOwned", arg.extAttrs)) {
+                throw new SemanticError(`WASM -> Lua arguments are owned by Lua by default. 'ToLuaOwned' is unnecessary in argument ${arg.name}`);
+            }
             if (this.getExtendedAttribute("Array", arg.extAttrs)) {
-                this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayConvertInternal(${arg.name},__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))},__arg${argID})`);
+                this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayConvertInternal(${arg.name},__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))},__arg${argID},${luaOwned})`);
                 return;
             }
             else if (this.getExtendedAttribute("PointerArray", arg.extAttrs)) {
-                this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayConvertInternal(${arg.name},__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))},__arg${argID})`);
+                this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayConvertInternal(${arg.name},__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))},__arg${argID},${luaOwned})`);
                 return;
             }
         }
@@ -658,17 +677,26 @@ class WebIDLBinder {
         }
     }
     convertCPPToLuaReturn(buf, argType, extAttrs, argName) {
+        let luaOwned = false;
+        if (this.hasExtendedAttribute("ToLuaOwned", extAttrs)) {
+            luaOwned = true;
+        }
+        else if (this.hasExtendedAttribute("ToWASMOwned", extAttrs)) {
+            throw new SemanticError(`WASM -> Lua return values are owned by WASM by default. 'ToWASMOwned' is unnecessary in argument ${argName}`);
+        }
         if (this.getExtendedAttribute("Array", extAttrs)) {
-            this.luaC.write(buf, `return __BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(argType, extAttrs))},${argName})`);
+            this.luaC.write(buf, `return __BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(argType, extAttrs))},${argName},${luaOwned})`);
             return;
         }
         else if (this.getExtendedAttribute("PointerArray", extAttrs)) {
-            this.luaC.write(buf, `return __BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(argType, extAttrs))},${argName})`);
+            this.luaC.write(buf, `return __BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(argType, extAttrs))},${argName},${luaOwned})`);
             return;
         }
         if (this.classLookup[argType.idlType]) {
-            this.luaC.write(buf, `local __obj = __BINDINGS__.${argType.idlType}.__cache[${argName}] `);
-            this.luaC.write(buf, `if not __obj then __obj = setmetatable({__ptr = ${argName}},__BINDINGS__.${argType.idlType}) __BINDINGS__.${argType.idlType}.__cache[${argName}] = __obj end `);
+            this.luaC.write(buf, `local __obj = __BINDER__.resolveClass(__BINDINGS__.${argType.idlType},${argName},${luaOwned}) `);
+            if (luaOwned) {
+                this.luaC.write(buf, `${argName}.__luaOwned = true `);
+            }
             this.luaC.write(buf, "return __obj");
         }
         else if (argType.idlType == "DOMString") {
@@ -753,20 +781,36 @@ class WebIDLBinder {
             return;
         }
         if (this.classLookup[arg.idlType.idlType]) {
-            this.luaC.write(buf, `local __arg${argID} = __BINDINGS__.${arg.idlType.idlType}.__cache[arg.name] `);
-            this.luaC.write(buf, `if not __arg${argID} then __arg${argID} = setmetatable({__ptr = __arg${argID}},__BINDINGS__.${arg.idlType.idlType}) __BINDINGS__.${arg.idlType.idlType}.__cache[${arg.name}] = __arg${argID} end `);
+            let luaOwned = false;
+            if (this.hasExtendedAttribute("ToLuaOwned", arg.extAttrs)) {
+                luaOwned = true;
+            }
+            else if (this.hasExtendedAttribute("ToWASMOwned", arg.extAttrs)) {
+                throw new SemanticError(`WASM -> Lua arguments are owned by WASM by default. 'ToWASMOwned' is unnecessary in argument ${arg.name}`);
+            }
+            this.luaC.write(buf, `local __arg${argID} = __BINDER__.resolveClass(__BINDINGS__.${arg.idlType.idlType},${arg.name},${luaOwned}) `);
+            if (luaOwned) {
+                this.luaC.write(buf, `__arg${argID}.__luaOwned = true `);
+            }
         }
         else if (arg.idlType.idlType == "DOMString") {
             this.luaC.write(buf, `local __arg${argID} = __BINDER__.readString(${arg.name}) `);
         }
     }
     convertCPPToLua_Arg(buf, arg, argID) {
+        let luaOwned = false;
+        if (this.hasExtendedAttribute("ToLuaOwned", arg.extAttrs)) {
+            luaOwned = true;
+        }
+        else if (this.hasExtendedAttribute("ToWASMOwned", arg.extAttrs)) {
+            throw new SemanticError(`WASM -> Lua arguments are owned by WASM by default. 'ToWASMOwned' is unnecessary in argument ${arg.name}`);
+        }
         if (this.getExtendedAttribute("Array", arg.extAttrs)) {
-            this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))},${arg.name})`);
+            this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))},${arg.name},${luaOwned})`);
             return;
         }
         else if (this.getExtendedAttribute("PointerArray", arg.extAttrs)) {
-            this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))},${arg.name})`);
+            this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))},${arg.name},${luaOwned})`);
             return;
         }
         if (this.classLookup[arg.idlType.idlType]) {
@@ -865,7 +909,11 @@ class WebIDLBinder {
             }
         }
         this.luaC.write(this.outBufLua, `)`);
-        this.luaC.write(this.outBufLua, `local ins = setmetatable({__ptr = 0},self)`);
+        let classLuaOwned = true;
+        if (this.hasExtendedAttribute("NoDelete", node.extAttrs)) {
+            classLuaOwned = false;
+        }
+        this.luaC.write(this.outBufLua, `local ins = __BINDER__.instantiateClass(__BINDINGS__.${node.name},0,true)`);
         this.luaC.write(this.outBufLua, `ins:${node.name}(`);
         if (funcSig[node.name]) {
             if (funcSig[node.name].length > 1) {
@@ -1009,6 +1057,14 @@ class WebIDLBinder {
                 this.luaC.writeLn(this.outBufLua, "end end");
             }
         }
+        this.luaC.write(this.outBufLua, `function __BINDINGS__.${node.name}:_delete()`);
+        if (!this.hasExtendedAttribute("NoDelete", node.extAttrs)) {
+            this.luaC.write(this.outBufLua, `return ${this.symbolResolver(this.mangleFunctionName("_delete", node.name))}(self.__ptr)`);
+        }
+        else {
+            this.luaC.writeLn(this.outBufLua, `error("Instances of class ${node.name} cannot be deleted from Lua")`);
+        }
+        this.luaC.writeLn(this.outBufLua, `end`);
         if (!hasConstructor) {
             this.luaC.writeLn(this.outBufLua, `function __BINDINGS__.${node.name}:${node.name}() error("Class ${node.name} has no WebIDL constructor and therefore cannot be instantiated via Lua") end`);
         }
@@ -1059,10 +1115,16 @@ class WebIDLBinder {
                         this.cppC.write(this.outBufCPP, "return");
                     }
                     this.cppC.write(this.outBufCPP, ` `);
+                    if (member.idlType.idlType !== "void") {
+                        this.startWrappedCReturnValue(this.outBufCPP, member.idlType, member.extAttrs);
+                    }
                     this.cppC.write(this.outBufCPP, `${this.mangleFunctionName(member, node.name, true)}(this`);
                     this.writeCArgs(this.outBufCPP, member.arguments, false, true, true, false);
-                    this.cppC.write(this.outBufCPP, ");");
-                    this.cppC.write(this.outBufCPP, " };");
+                    this.cppC.write(this.outBufCPP, ")");
+                    if (member.idlType.idlType !== "void") {
+                        this.endWrappedCReturnValue(this.outBufCPP, member.idlType, member.extAttrs);
+                    }
+                    this.cppC.write(this.outBufCPP, "; };");
                     this.cppC.newLine(this.outBufCPP);
                 }
             }
@@ -1092,13 +1154,21 @@ class WebIDLBinder {
                 }
                 this.writeCArgs(this.outBufCPP, member.arguments, true, false);
                 this.cppC.write(this.outBufCPP, `) {`);
+                let wrappedCReturnValue = true;
                 if (Value && (member.name !== node.name)) {
                     this.cppC.write(this.outBufCPP, `static ${this.idlTypeToCType(member.idlType, [], false, true)} temp; return (temp = `);
+                    this.cppC.write(this.outBufCPP, ` `);
+                    this.startWrappedCReturnValue(this.outBufCPP, member.idlType, member.extAttrs);
                 }
                 else if ((member.idlType.idlType !== "void") || (member.name == node.name)) {
                     this.cppC.write(this.outBufCPP, "return");
+                    this.cppC.write(this.outBufCPP, ` `);
+                    this.startWrappedCReturnValue(this.outBufCPP, member.idlType, member.extAttrs);
                 }
-                this.cppC.write(this.outBufCPP, ` `);
+                else {
+                    wrappedCReturnValue = false;
+                    this.cppC.write(this.outBufCPP, ` `);
+                }
                 if (Operator === false) {
                     if (member.name == node.name) {
                         this.cppC.write(this.outBufCPP, `new ${Prefix}${node.name}`);
@@ -1124,7 +1194,10 @@ class WebIDLBinder {
                         this.cppC.write(this.outBufCPP, `${this.unquote(Operator.rhs.value)} self`);
                     }
                 }
-                if (Value && (member.name !== node.name)) {
+                if (wrappedCReturnValue) {
+                    this.endWrappedCReturnValue(this.outBufCPP, member.idlType, member.extAttrs);
+                }
+                if (Value) {
                     this.cppC.write(this.outBufCPP, `, &temp)`);
                 }
                 this.cppC.write(this.outBufCPP, `;`);
@@ -1152,6 +1225,14 @@ class WebIDLBinder {
                 this.cppC.writeLn(this.outBufCPP, `; };`);
             }
         }
+        this.cppC.write(this.outBufCPP, `export extern "C" void ${this.mangleFunctionName("_delete", node.name)}(${Prefix}${node.name}* self) {`);
+        if (!this.hasExtendedAttribute("NoDelete", node.extAttrs)) {
+            this.cppC.write(this.outBufCPP, `delete self;`);
+        }
+        else {
+            this.cppC.write(this.outBufCPP, `/* no op */`);
+        }
+        this.cppC.writeLn(this.outBufCPP, `};`);
     }
     walkNamespaceLua(node) {
         let JsImpl = this.getExtendedAttribute("JSImplementation", node.extAttrs) || this.getExtendedAttribute("LuaImplementation", node.extAttrs);
@@ -1304,10 +1385,16 @@ class WebIDLBinder {
                         this.cppC.write(this.outBufCPP, "return");
                     }
                     this.cppC.write(this.outBufCPP, ` `);
+                    if (member.idlType.idlType !== "void") {
+                        this.startWrappedCReturnValue(this.outBufCPP, member.idlType, member.extAttrs);
+                    }
                     this.cppC.write(this.outBufCPP, `${this.mangleFunctionName(member, node.name, true)}(`);
                     this.writeCArgs(this.outBufCPP, member.arguments, false, false, true, false);
-                    this.cppC.write(this.outBufCPP, ");");
-                    this.cppC.write(this.outBufCPP, " };");
+                    this.cppC.write(this.outBufCPP, ")");
+                    if (member.idlType.idlType !== "void") {
+                        this.endWrappedCReturnValue(this.outBufCPP, member.idlType, member.extAttrs);
+                    }
+                    this.cppC.write(this.outBufCPP, "; };");
                     this.cppC.newLine(this.outBufCPP);
                 }
             }
@@ -1325,13 +1412,21 @@ class WebIDLBinder {
                     this.cppC.write(this.outBufCPP, `export extern "C" ${this.idlTypeToCType(member.idlType, member.extAttrs, true)} ${this.mangleFunctionName(member, node.name)}(`);
                     this.writeCArgs(this.outBufCPP, member.arguments, true, false);
                     this.cppC.write(this.outBufCPP, `) {`);
+                    let wrappedCReturnValue = true;
                     if (Value) {
                         this.cppC.write(this.outBufCPP, `static ${this.idlTypeToCType(member.idlType, [], false, true)} temp; return (temp = `);
+                        this.cppC.write(this.outBufCPP, ` `);
+                        this.startWrappedCReturnValue(this.outBufCPP, member.idlType, member.extAttrs);
                     }
                     else if (member.idlType.idlType !== "void") {
                         this.cppC.write(this.outBufCPP, "return");
+                        this.cppC.write(this.outBufCPP, ` `);
+                        this.startWrappedCReturnValue(this.outBufCPP, member.idlType, member.extAttrs);
                     }
-                    this.cppC.write(this.outBufCPP, ` `);
+                    else {
+                        wrappedCReturnValue = false;
+                        this.cppC.write(this.outBufCPP, ` `);
+                    }
                     if (node.name === "global") {
                         this.cppC.write(this.outBufCPP, `${member.name}`);
                     }
@@ -1341,7 +1436,10 @@ class WebIDLBinder {
                     this.cppC.write(this.outBufCPP, `(`);
                     this.writeCArgs(this.outBufCPP, member.arguments, false, false, true);
                     this.cppC.write(this.outBufCPP, `) `);
-                    if (Value && (member.name !== node.name)) {
+                    if (wrappedCReturnValue) {
+                        this.endWrappedCReturnValue(this.outBufCPP, member.idlType, member.extAttrs);
+                    }
+                    if (Value) {
                         this.cppC.write(this.outBufCPP, `, &temp)`);
                     }
                     this.cppC.write(this.outBufCPP, `;`);
