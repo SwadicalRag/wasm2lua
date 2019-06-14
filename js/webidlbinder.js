@@ -2,7 +2,6 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const webidl = require("webidl2");
 const stringcompiler_1 = require("./stringcompiler");
-const fs = require("fs");
 var BinderMode;
 (function (BinderMode) {
     BinderMode[BinderMode["WEBIDL_NONE"] = -1] = "WEBIDL_NONE";
@@ -615,8 +614,11 @@ class WebIDLBinder {
         }
         else if (this.classLookup[arg.idlType.idlType]) {
             this.luaC.write(buf, `assert((type(${arg.name}) == "table") and __BINDER__.isClassInstance(${arg.name},__BINDINGS__.${arg.idlType.idlType}),"Parameter ${arg.name} (${argID + 1}) must be an instance of ${arg.idlType.idlType}")`);
-            if (this.hasExtendedAttribute("WASMOwned", arg.extAttrs)) {
+            if (this.hasExtendedAttribute("ToWASMOwned", arg.extAttrs)) {
                 this.luaC.write(buf, `${arg.name}.__luaOwned = false `);
+            }
+            else if (this.hasExtendedAttribute("ToLuaOwned", arg.extAttrs)) {
+                this.luaC.write(buf, `${arg.name}.__luaOwned = true `);
             }
         }
         else {
@@ -654,7 +656,13 @@ class WebIDLBinder {
             }
         }
         else {
-            let luaOwned = this.hasExtendedAttribute("LuaOwned", arg.extAttrs);
+            let luaOwned = true;
+            if (this.hasExtendedAttribute("ToWASMOwned", arg.extAttrs)) {
+                luaOwned = false;
+            }
+            else if (this.hasExtendedAttribute("ToLuaOwned", arg.extAttrs)) {
+                throw new SemanticError(`WASM -> Lua arguments are owned by Lua by default. 'ToLuaOwned' is unnecessary in argument ${arg.name}`);
+            }
             if (this.getExtendedAttribute("Array", arg.extAttrs)) {
                 this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayConvertInternal(${arg.name},__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))},__arg${argID},${luaOwned})`);
                 return;
@@ -669,20 +677,27 @@ class WebIDLBinder {
         }
     }
     convertCPPToLuaReturn(buf, argType, extAttrs, argName) {
+        let luaOwned = false;
+        if (this.hasExtendedAttribute("ToLuaOwned", extAttrs)) {
+            luaOwned = true;
+        }
+        else if (this.hasExtendedAttribute("ToWASMOwned", extAttrs)) {
+            throw new SemanticError(`WASM -> Lua return values are owned by WASM by default. 'ToWASMOwned' is unnecessary in argument ${argName}`);
+        }
         if (this.getExtendedAttribute("Array", extAttrs)) {
-            let luaOwned = this.hasExtendedAttribute("LuaOwned", extAttrs);
             this.luaC.write(buf, `return __BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(argType, extAttrs))},${argName},${luaOwned})`);
             return;
         }
         else if (this.getExtendedAttribute("PointerArray", extAttrs)) {
-            let luaOwned = this.hasExtendedAttribute("LuaOwned", extAttrs);
             this.luaC.write(buf, `return __BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(argType, extAttrs))},${argName},${luaOwned})`);
             return;
         }
         if (this.classLookup[argType.idlType]) {
-            let luaOwned = this.hasExtendedAttribute("LuaOwned", extAttrs);
             this.luaC.write(buf, `local __obj = __BINDINGS__.${argType.idlType}.__cache[${argName}] `);
             this.luaC.write(buf, `if not __obj then __obj = setmetatable({__ptr = ${argName},__luaOwned = ${luaOwned}},__BINDINGS__.${argType.idlType}) __BINDINGS__.${argType.idlType}.__cache[${argName}] = __obj end `);
+            if (luaOwned) {
+                this.luaC.write(buf, `${argName}.__luaOwned = true `);
+            }
             this.luaC.write(buf, "return __obj");
         }
         else if (argType.idlType == "DOMString") {
@@ -767,11 +782,17 @@ class WebIDLBinder {
             return;
         }
         if (this.classLookup[arg.idlType.idlType]) {
-            let wasmOwned = this.hasExtendedAttribute("WASMOwned", arg.extAttrs);
+            let luaOwned = false;
+            if (this.hasExtendedAttribute("ToLuaOwned", arg.extAttrs)) {
+                luaOwned = true;
+            }
+            else if (this.hasExtendedAttribute("ToWASMOwned", arg.extAttrs)) {
+                throw new SemanticError(`WASM -> Lua arguments are owned by WASM by default. 'ToWASMOwned' is unnecessary in argument ${arg.name}`);
+            }
             this.luaC.write(buf, `local __arg${argID} = __BINDINGS__.${arg.idlType.idlType}.__cache[arg.name] `);
-            this.luaC.write(buf, `if not __arg${argID} then __arg${argID} = setmetatable({__ptr = __arg${argID},__luaOwned = ${!wasmOwned}},__BINDINGS__.${arg.idlType.idlType}) __BINDINGS__.${arg.idlType.idlType}.__cache[${arg.name}] = __arg${argID} end `);
-            if (wasmOwned) {
-                this.luaC.write(buf, `__arg${argID}.__luaOwned = false `);
+            this.luaC.write(buf, `if not __arg${argID} then __arg${argID} = setmetatable({__ptr = __arg${argID},__luaOwned = ${luaOwned}},__BINDINGS__.${arg.idlType.idlType}) __BINDINGS__.${arg.idlType.idlType}.__cache[${arg.name}] = __arg${argID} end `);
+            if (luaOwned) {
+                this.luaC.write(buf, `__arg${argID}.__luaOwned = true `);
             }
         }
         else if (arg.idlType.idlType == "DOMString") {
@@ -779,14 +800,19 @@ class WebIDLBinder {
         }
     }
     convertCPPToLua_Arg(buf, arg, argID) {
+        let luaOwned = false;
+        if (this.hasExtendedAttribute("ToLuaOwned", arg.extAttrs)) {
+            luaOwned = true;
+        }
+        else if (this.hasExtendedAttribute("ToWASMOwned", arg.extAttrs)) {
+            throw new SemanticError(`WASM -> Lua arguments are owned by WASM by default. 'ToWASMOwned' is unnecessary in argument ${arg.name}`);
+        }
         if (this.getExtendedAttribute("Array", arg.extAttrs)) {
-            let wasmOwned = this.hasExtendedAttribute("WASMOwned", arg.extAttrs);
-            this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))},${arg.name},${!wasmOwned})`);
+            this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))},${arg.name},${luaOwned})`);
             return;
         }
         else if (this.getExtendedAttribute("PointerArray", arg.extAttrs)) {
-            let wasmOwned = this.hasExtendedAttribute("WASMOwned", arg.extAttrs);
-            this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))},${arg.name},${!wasmOwned})`);
+            this.luaC.write(buf, `__BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType, arg.extAttrs))},${arg.name},${luaOwned})`);
             return;
         }
         if (this.classLookup[arg.idlType.idlType]) {
@@ -1423,12 +1449,4 @@ WebIDLBinder.CTypeRenames = {
     ["VoidPtr"]: "void*",
 };
 exports.WebIDLBinder = WebIDLBinder;
-let infile = process.argv[2] || (__dirname + "/../test/test.idl");
-let outfile_lua = process.argv[3] || (__dirname + "/../test/test_bind.lua");
-let outfile_cpp = process.argv[3] || (__dirname + "/../test/test_bind.cpp");
-let idl = fs.readFileSync(infile);
-let inst = new WebIDLBinder(idl.toString(), BinderMode.WEBIDL_LUA, true);
-inst.buildOut();
-fs.writeFileSync(outfile_lua, inst.outBufLua.join(""));
-fs.writeFileSync(outfile_cpp, inst.outBufCPP.join(""));
 //# sourceMappingURL=webidlbinder.js.map
