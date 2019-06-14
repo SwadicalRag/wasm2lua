@@ -48,7 +48,7 @@ function __BINDER__.isClassInstance(meta,targMeta)
 end
 
 function __BINDER__.createClass(tbl,tblName)
-    tbl.__cache = {}
+    tbl.__cache = setmetatable({},{__mode = "v"})
     tbl.__specialIndex = {}
     tbl.__specialNewIndex = {}
 
@@ -89,6 +89,20 @@ function __BINDER__.createClass(tbl,tblName)
 
         rawset(self,k,v)
     end
+end
+
+function __BINDER__.instantiateClass(classBase,ptr,luaOwned)
+    local ins = setmetatable({__ptr = ptr,__luaOwned = luaOwned},classBase)
+    ins.__gcproxy = newproxy(true)
+    getmetatable(ins.__gcproxy).__gc = function() ins:__gc() end
+    classBase.__cache[ptr] = ins
+    return ins
+end
+
+function __BINDER__.resolveClass(classBase,ptr,luaOwned)
+    local ret = classBase.__cache[ptr]
+    if ret then return ret end
+    return __BINDER__.instantiateClass(classBase,ptr,luaOwned)
 end
 
 function __BINDER__.createNamespace()
