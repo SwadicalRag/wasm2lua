@@ -52,6 +52,13 @@ function __BINDER__.createClass(tbl,tblName)
     tbl.__specialIndex = {}
     tbl.__specialNewIndex = {}
 
+    function tbl:__gc()
+        if self.__luaOwned then
+            self:_delete()
+            self.__ptr = 0
+        end
+    end
+
     function tbl:__tostring()
         if self.__ptr == 0 then
             return string.format("wasm.%s: NULL",tblName)
@@ -146,9 +153,10 @@ function __BINDER__.luaToWasmArrayInternal(interface,tbl,maxLen)
     return wasmPtr
 end
 
-function __BINDER__.wasmToWrappedLuaArrayConvertInternal(out,interface,wasmPtr)
+function __BINDER__.wasmToWrappedLuaArrayConvertInternal(out,interface,wasmPtr,luaOwned)
     -- don't convert a table with a metatable
     -- (it may already be converted or we'll be in for undefined behaviour)
+    if luaOwned ~= nil then out.__luaOwned = luaOwned end
     if getmetatable(out) then assert(out.__ptr,"Cannot convert a table with a metatable to a WASM Array") return end
 
     -- nil out all the keys so that __index is usable
@@ -156,34 +164,41 @@ function __BINDER__.wasmToWrappedLuaArrayConvertInternal(out,interface,wasmPtr)
         out[i] = nil
     end
 
+    out.__luaOwned = luaOwned or false
     out.__ptr = wasmPtr
-    out.len = function() return interface.len(wasmPtr) end
+    out.len = function(self) return interface.len(self.__ptr) end
 
     local meta = {
         __len = function(self)
-            return interface.len(wasmPtr)
+            return interface.len(self.__ptr)
         end,
+        __gc = function(self)
+            if self.__luaOwned then
+                interface.delete(self.__ptr)
+                self.__ptr = 0
+            end
+        end
     }
 
     if interface.isClass then
         meta.__index = function(self,idx)
             assert(type(idx) == "number","Array indexer must be a number")
-            return __BINDER__.ptrToClass(interface.get(wasmPtr,idx-1))
+            return __BINDER__.ptrToClass(interface.get(self.__ptr,idx-1))
         end
 
         meta.__newindex = function(self,idx,val)
             assert(type(idx) == "number","Array indexer must be a number")
-            interface.set(wasmPtr,idx-1,val.__ptr)
+            interface.set(self.__ptr,idx-1,val.__ptr)
         end
     else
         meta.__index = function(self,idx)
             assert(type(idx) == "number","Array indexer must be a number")
-            return interface.get(wasmPtr,idx-1)
+            return interface.get(self.__ptr,idx-1)
         end
 
         meta.__newindex = function(self,idx,val)
             assert(type(idx) == "number","Array indexer must be a number")
-            interface.set(wasmPtr,idx-1,val)
+            interface.set(self.__ptr,idx-1,val)
         end
     end
 
@@ -192,8 +207,8 @@ function __BINDER__.wasmToWrappedLuaArrayConvertInternal(out,interface,wasmPtr)
     return out
 end
 
-function __BINDER__.wasmToWrappedLuaArrayInternal(interface,wasmPtr)
-    return __BINDER__.wasmToWrappedLuaArrayConvertInternal({},interface,wasmPtr,len)
+function __BINDER__.wasmToWrappedLuaArrayInternal(interface,wasmPtr,luaOwned)
+    return __BINDER__.wasmToWrappedLuaArrayConvertInternal({},interface,wasmPtr,len,luaOwned)
 end
 
 function __BINDER__.wasmToLuaArrayInternal(interface,wasmPtr)

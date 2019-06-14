@@ -88,20 +88,26 @@ export class WebIDLBinder {
         });
     }
 
-    mangleFunctionName(node: webidl.OperationMemberType,namespace: string,isImpl?: boolean) {
+    mangleFunctionName(node: webidl.OperationMemberType | string,namespace: string,isImpl?: boolean) {
         let out = "_webidl_lua_";
 
         if(isImpl) {out += "internalimpl_";}
 
         out += namespace + "_"
 
-        out += node.name;
+        if(typeof node === "string") {
+            out += node;
+            out += "_void";
+        }
+        else {
+            out += node.name;
 
-        for(let i=0;i < node.arguments.length;i++) {
-            let arg = node.arguments[i];
+            for(let i=0;i < node.arguments.length;i++) {
+                let arg = node.arguments[i];
 
-            out += "_";
-            out += arg.idlType.idlType.toString().replace(/\s+/g,"_");
+                out += "_";
+                out += arg.idlType.idlType.toString().replace(/\s+/g,"_");
+            }
         }
 
         return out;
@@ -714,6 +720,11 @@ export class WebIDLBinder {
         }
         else if(this.classLookup[arg.idlType.idlType as string]) {
             this.luaC.write(buf,`assert((type(${arg.name}) == "table") and __BINDER__.isClassInstance(${arg.name},__BINDINGS__.${arg.idlType.idlType}),"Parameter ${arg.name} (${argID + 1}) must be an instance of ${arg.idlType.idlType}")`);
+            // If this WASM function accepts ownership of the passed in Lua arg,
+            // let the Lua arg know
+            if(this.hasExtendedAttribute("WASMOwned",arg.extAttrs)) {
+                this.luaC.write(buf,`${arg.name}.__luaOwned = false `);
+            }
         }
         else {
             this.luaC.write(buf,`assert(type(${arg.name}) == "number","Parameter ${arg.name} (${argID + 1}) must be a number")`);
@@ -753,12 +764,15 @@ export class WebIDLBinder {
             }
         }
         else {
+            // If this Lua-implemented function's return value is owned by Lua,
+            // let the return value know
+            let luaOwned = this.hasExtendedAttribute("LuaOwned",arg.extAttrs);
             if(this.getExtendedAttribute("Array",arg.extAttrs)) {
-                this.luaC.write(buf,`__BINDER__.wasmToWrappedLuaArrayConvertInternal(${arg.name},__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType,arg.extAttrs))},__arg${argID})`);
+                this.luaC.write(buf,`__BINDER__.wasmToWrappedLuaArrayConvertInternal(${arg.name},__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType,arg.extAttrs))},__arg${argID},${luaOwned})`);
                 return
             }
             else if(this.getExtendedAttribute("PointerArray",arg.extAttrs)) {
-                this.luaC.write(buf,`__BINDER__.wasmToWrappedLuaArrayConvertInternal(${arg.name},__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType,arg.extAttrs))},__arg${argID})`);
+                this.luaC.write(buf,`__BINDER__.wasmToWrappedLuaArrayConvertInternal(${arg.name},__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType,arg.extAttrs))},__arg${argID},${luaOwned})`);
                 return
             }
         }
@@ -770,17 +784,24 @@ export class WebIDLBinder {
 
     convertCPPToLuaReturn(buf: string[],argType: webidl.IDLTypeDescription,extAttrs: webidl.ExtendedAttributes[],argName: string) {
         if(this.getExtendedAttribute("Array",extAttrs)) {
-            this.luaC.write(buf,`return __BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(argType,extAttrs))},${argName})`);
+            // If this C++ function's return value is owned by Lua,
+            // let the return value know
+            let luaOwned = this.hasExtendedAttribute("LuaOwned",extAttrs);
+            this.luaC.write(buf,`return __BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(argType,extAttrs))},${argName},${luaOwned})`);
             return
         }
         else if(this.getExtendedAttribute("PointerArray",extAttrs)) {
-            this.luaC.write(buf,`return __BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(argType,extAttrs))},${argName})`);
+            // ditto above (re: gc)
+            let luaOwned = this.hasExtendedAttribute("LuaOwned",extAttrs);
+            this.luaC.write(buf,`return __BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(argType,extAttrs))},${argName},${luaOwned})`);
             return
         }
 
         if(this.classLookup[argType.idlType as string]) {
+            // ditto above (re: gc)
+            let luaOwned = this.hasExtendedAttribute("LuaOwned",extAttrs);
             this.luaC.write(buf,`local __obj = __BINDINGS__.${argType.idlType}.__cache[${argName}] `);
-            this.luaC.write(buf,`if not __obj then __obj = setmetatable({__ptr = ${argName}},__BINDINGS__.${argType.idlType}) __BINDINGS__.${argType.idlType}.__cache[${argName}] = __obj end `);
+            this.luaC.write(buf,`if not __obj then __obj = setmetatable({__ptr = ${argName},__luaOwned = ${luaOwned}},__BINDINGS__.${argType.idlType}) __BINDINGS__.${argType.idlType}.__cache[${argName}] = __obj end `);
             this.luaC.write(buf,"return __obj");
         }
         else if(argType.idlType == "DOMString") {
@@ -873,8 +894,14 @@ export class WebIDLBinder {
         }
         
         if(this.classLookup[arg.idlType.idlType as string]) {
+            // If this C++-implemented function's argument is owned by C++, and is not managed by Lua
+            // let the C++ arg know
+            let wasmOwned = this.hasExtendedAttribute("WASMOwned",arg.extAttrs);
             this.luaC.write(buf,`local __arg${argID} = __BINDINGS__.${arg.idlType.idlType}.__cache[arg.name] `);
-            this.luaC.write(buf,`if not __arg${argID} then __arg${argID} = setmetatable({__ptr = __arg${argID}},__BINDINGS__.${arg.idlType.idlType}) __BINDINGS__.${arg.idlType.idlType}.__cache[${arg.name}] = __arg${argID} end `);
+            this.luaC.write(buf,`if not __arg${argID} then __arg${argID} = setmetatable({__ptr = __arg${argID},__luaOwned = ${!wasmOwned}},__BINDINGS__.${arg.idlType.idlType}) __BINDINGS__.${arg.idlType.idlType}.__cache[${arg.name}] = __arg${argID} end `);
+            if(wasmOwned) {
+                this.luaC.write(buf,`__arg${argID}.__luaOwned = false `);
+            }
         }
         else if(arg.idlType.idlType == "DOMString") {
             // null terminated only :(
@@ -884,11 +911,16 @@ export class WebIDLBinder {
 
     convertCPPToLua_Arg(buf: string[],arg: {name: string,idlType: webidl.IDLTypeDescription,extAttrs: webidl.ExtendedAttributes[]},argID: number) {
         if(this.getExtendedAttribute("Array",arg.extAttrs)) {
-            this.luaC.write(buf,`__BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType,arg.extAttrs))},${arg.name})`);
+            // If this C++-implemented function's argument is owned by C++, and is not managed by Lua
+            // let the C++ arg know
+            let wasmOwned = this.hasExtendedAttribute("WASMOwned",arg.extAttrs);
+            this.luaC.write(buf,`__BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.arrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType,arg.extAttrs))},${arg.name},${!wasmOwned})`);
             return
         }
         else if(this.getExtendedAttribute("PointerArray",arg.extAttrs)) {
-            this.luaC.write(buf,`__BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType,arg.extAttrs))},${arg.name})`);
+            // ditto above (re: gc)
+            let wasmOwned = this.hasExtendedAttribute("WASMOwned",arg.extAttrs);
+            this.luaC.write(buf,`__BINDER__.wasmToWrappedLuaArrayInternal(__BINDER__.ptrArrays.${this.rawMangle(this.idlTypeToCTypeLite(arg.idlType,arg.extAttrs))},${arg.name},${!wasmOwned})`);
             return
         }
 
@@ -1005,7 +1037,8 @@ export class WebIDLBinder {
             }
         }
         this.luaC.write(this.outBufLua,`)`)
-        this.luaC.write(this.outBufLua,`local ins = setmetatable({__ptr = 0},self)`)
+        // All classes instantiated by Lua should be owned by Lua by default
+        this.luaC.write(this.outBufLua,`local ins = setmetatable({__ptr = 0,__luaOwned = true},self)`)
         this.luaC.write(this.outBufLua,`ins:${node.name}(`)
         if(funcSig[node.name]) {
             if(funcSig[node.name].length > 1) {
@@ -1172,6 +1205,10 @@ export class WebIDLBinder {
             }
         }
 
+        this.luaC.write(this.outBufLua,`function __BINDINGS__.${node.name}:_delete()`);
+        this.luaC.write(this.outBufLua,`return ${this.symbolResolver(this.mangleFunctionName("_delete",node.name))}(self.__ptr)`);
+        this.luaC.writeLn(this.outBufLua,`end`);
+
         if(!hasConstructor) {
             this.luaC.writeLn(this.outBufLua,`function __BINDINGS__.${node.name}:${node.name}() error("Class ${node.name} has no WebIDL constructor and therefore cannot be instantiated via Lua") end`)
         }
@@ -1327,6 +1364,10 @@ export class WebIDLBinder {
                 this.cppC.writeLn(this.outBufCPP,`; };`);
             }
         }
+        
+        this.cppC.write(this.outBufCPP,`export extern "C" void ${this.mangleFunctionName("_delete",node.name,true)}(${Prefix}${node.name}* self) {`);
+        this.cppC.write(this.outBufCPP,`delete self;`);
+        this.cppC.writeLn(this.outBufCPP,`};`);
     }
 
     walkNamespaceLua(node: webidl.NamespaceType) {
