@@ -44,13 +44,13 @@ function compileModule(file) {
     var file_index = file.match(/\.(\d+)\.wasm/)[1];
     testFileName = `test${file_index}.lua`;
     let result = child_process.spawnSync(process.argv0, [
-        path_1.join(__dirname, "compile.js"),
+        path_1.join(__dirname, "bin/wasm2lua.js"),
+        "--useGraphIR",
         file,
-        `${testDirectory}${testFileName}`,
-        "correct-multiply"
+        `${testDirectory}${testFileName}`
     ]);
     if (result.status != 0) {
-        console.log(result.stderr.toString());
+        console.log(">>>>>>>>>", result.stderr.toString());
         throw new Error("compile failed");
     }
 }

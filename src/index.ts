@@ -8,7 +8,8 @@ import {ArrayMap} from "./arraymap"
 import { VirtualRegisterManager, VirtualRegister, PhantomRegister } from "./virtualregistermanager";
 import { StringCompiler } from "./stringcompiler";
 import { WebIDLBinder, BinderMode } from "./webidlbinder";
-import { WSAEHOSTDOWN } from "constants";
+import { compileFuncWithIR } from "./graph_ir";
+import { WASMModuleState, WASMFuncState, WASMBlockState } from "./common";
 
 /* TODO CORRECTNESS:
     - Be extra careful with conversions from floats -> ints. The bit library's rounding behavior is undefined.
@@ -117,62 +118,6 @@ function initIdentGenerator() {
     }
 }
 
-interface WASMModuleState {
-    funcStates: WASMFuncState[];
-    funcMinificationLookup: Map<string,string>;
-    exportMinificationLookup: Map<string,string>;
-    funcByName: Map<string,WASMFuncState>;
-    funcByNameRaw: Map<string,WASMFuncState>;
-    memoryAllocations: ArrayMap<string>;
-    func_tables: Array< Array< Array<Index> > >;
-
-    funcIdentGen: () => string;
-    exportIdentGen: () => string;
-
-    nextGlobalIndex: number;
-}
-
-interface WASMFuncState {
-    id: string;
-    origID: string;
-    regManager: VirtualRegisterManager;
-    insLastRefs: number[];
-    insLastAssigned: [number,WASMBlockState | false][];
-    insCountPass1: number;
-    insCountPass2: number;
-    insCountPass1LoopLifespanAdjs: Map<number,WASMBlockState>;
-    forceVarInit: Map<number, number[]>,
-    registersToBeFreed: VirtualRegister[];
-    locals: VirtualRegister[];
-    localTypes: Valtype[];
-    blocks: WASMBlockState[];
-    funcType?: Signature;
-    modState?: WASMModuleState;
-
-    hasSetjmp: boolean;
-    setJmps: CallInstruction[];
-
-    labels: Map<string,{ins: number,id: number}>;
-    gotos: {ins: number,label: string}[];
-    jumpStreamEnabled: boolean;
-    curJmpID: number;
-
-    usedLabels: {[labelID: string]: boolean};
-
-    stackLevel: number;
-    stackData: (string | VirtualRegister | PhantomRegister | false)[];
-}
-
-interface WASMBlockState {
-    id: string;
-    blockType: "block" | "loop" | "if";
-    resultRegister?: VirtualRegister;
-    resultType?: Valtype | null;
-    insCountStart: number;
-    enterStackLevel: number; // used to check if we left a block with an extra item in the stack
-    hasClosed?: true;
-}
-
 export interface WASM2LuaOptions {
     whitelist?: string[];
     compileFlags?: string[];
@@ -186,7 +131,8 @@ export interface WASM2LuaOptions {
         idlFilePath: string,
         mallocName?: string,
         freeName?: string,
-    }
+    };
+    useGraphIR?: boolean;
 }
 
 const FUNC_VAR_HEADER = "";
@@ -1017,6 +963,10 @@ export class wasm2lua extends StringCompiler {
 
     doneFunctions: {[funcID: string]: boolean} = {};
     processFunc(node: Func,modState: WASMModuleState) {
+        if (this.options.useGraphIR) {
+            return compileFuncWithIR(node, modState);
+        }
+
         let buf = [];
         if(node.signature.type == "NumberLiteral") {
             if(!this.globalTypes[node.signature.value]) {

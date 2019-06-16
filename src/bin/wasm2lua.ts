@@ -25,6 +25,7 @@ program.version(manifest.version)
     .option("--libmode","Adds a dummy main function to use this as a library (for WASI)")
     .option("--jmpstreamThreshold <n>","Specify jump size of n(opcodes) as the threshold for enabling jmpstream")
     .option("--maxPhantomNesting <n>","Specify maximum possible nesting of expressions folded via phantom registers")
+    .option("--useGraphIR")
     .action(function (inf, outf) {
         if((typeof inf === "string") && (typeof outf === "string")) {
             if((inf.trim() !== "") && (outf.trim() !== "")) {
@@ -74,6 +75,10 @@ if(program.pureLua) {
 
 if(program.libmode) {
     conf.libMode = program.libmode;
+}
+
+if (program.useGraphIR) {
+    conf.useGraphIR = true;
 }
 
 if(program.jmpstreamThreshold) {

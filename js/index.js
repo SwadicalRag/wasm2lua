@@ -7,6 +7,7 @@ const arraymap_1 = require("./arraymap");
 const virtualregistermanager_1 = require("./virtualregistermanager");
 const stringcompiler_1 = require("./stringcompiler");
 const webidlbinder_1 = require("./webidlbinder");
+const graph_ir_1 = require("./graph_ir");
 function makeBinaryStringLiteral(array) {
     let literal = ["'"];
     for (let i = 0; i < array.length; i++) {
@@ -748,6 +749,9 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
         return hasVars;
     }
     processFunc(node, modState) {
+        if (this.options.useGraphIR) {
+            return graph_ir_1.compileFuncWithIR(node, modState);
+        }
         let buf = [];
         if (node.signature.type == "NumberLiteral") {
             if (!this.globalTypes[node.signature.value]) {
