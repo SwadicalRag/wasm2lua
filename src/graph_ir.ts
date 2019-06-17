@@ -64,7 +64,7 @@ class IRControlBlock {
     // this pass runs afer blocks are initially generated
     // it must run in a separate pass because blocks may not be
     // properly linked together when operations are first encountered
-    processOpsR(seen: any) {
+    /*processOpsR(seen: any) {
         if (seen[this.id]) {
             return;
         }
@@ -91,7 +91,7 @@ class IRControlBlock {
                 if (arg == null) {
                     arg = new IROpError(this, "negative stack access");
                 }
-                
+
                 op.args.push(arg);
                 arg.refs.push(op);
             }
@@ -104,7 +104,7 @@ class IRControlBlock {
         this.next.forEach((block)=>{
             block.processOpsR(seen);
         });
-    }
+    }*/
 
 
     // recursively emit blocks
@@ -117,14 +117,14 @@ class IRControlBlock {
 
         //data.push(`BLOCK ${this.id} - ${this.prev.length} - ${this.next.length} - ${this.operations.length} - ${this.operations.map((x)=>"\n\t\t\t\t\t\t"+x)}`);
 
-        str_builder.write(str_buffer,`::block_${this.id}:: --> [${this.next.map(x=>x.id)}] (${this.input_type})`);
+        str_builder.write(str_buffer,`::block_${this.id}:: --> [${this.next.map(x=>x.id)}] (${IRType[this.input_type]})`);
 
         str_builder.indent();
 
         if (this.is_exit) {
             // exit block
             str_builder.newLine(str_buffer);
-            str_builder.write(str_buffer,"return ");
+            str_builder.write(str_buffer,"do return ");
 
             for (let i=0; i<this.func_info.return_types.length; i++) {
                 str_builder.write(str_buffer, `ret${i}`);
@@ -133,11 +133,17 @@ class IRControlBlock {
                     str_builder.write(str_buffer,", ");
                 }
             }
+            str_builder.write(str_buffer," end");
         } else {
             // normal block
             this.operations.forEach((op)=>{
-                str_builder.newLine(str_buffer);
-                str_builder.write(str_buffer,op.emit_code());
+
+                let code = op.emit_code();
+
+                if (code != "") {
+                    str_builder.newLine(str_buffer);
+                    str_builder.write(str_buffer,code);
+                }
             });
         }
 
@@ -145,6 +151,7 @@ class IRControlBlock {
         str_builder.newLine(str_buffer);
 
         this.next.forEach((block)=>{
+            str_builder.newLine(str_buffer);
             block.emitR(str_builder,str_buffer,seen);
         });
     }
@@ -158,12 +165,21 @@ abstract class IROperation {
     // The codegen and type information must be implemented by child classes.
     abstract type: IRType;
 
-    abstract emit_code(): string;
+    // The code directly emitted into the generated code.
+    emit_code() {
+        //return "-- no code";
+        return "";
+    };
+
+    // What should be inserted when other operations use our value.
+    emit_value() {
+        return "[[no value]]";
+    }
 
     // can be used to update the arg and peek count before arguments are linked
-    update_arg_count() {
+    /*update_arg_count() {
 
-    }
+    }*/
 
     // Number of arguments to pop from the virtual stack.
     arg_count = 0;
@@ -194,7 +210,7 @@ abstract class IROperation {
     is_read = false;
 
     // Set if we should always inline, regardless of refcount. Used for constants.
-    always_inline = false;
+    // always_inline = false;
 }
 
 class IROpConst extends IROperation {
@@ -204,11 +220,9 @@ class IROpConst extends IROperation {
         this.type = type;
     }
 
-    always_inline = true;
-
     type: IRType;
     
-    emit_code() {
+    emit_value() {
         if(this.value.type == "LongNumberLiteral") {
             let value = (this.value as LongNumberLiteral).value;
             return `__LONG_INT__(${value.low},${value.high})`;
@@ -232,14 +246,56 @@ class IROpConst extends IROperation {
     }
 }
 
+// this is temporary, it should almost certainly not appear in the final IR
+class IROpBlockResult extends IROperation {
+    constructor(parent: IRControlBlock, private name: string, public type: IRType) {
+        super(parent);
+    }
+
+    /*emit_code() {
+        if (this.type == IRType.Void)
+            return "";
+        return `${this.name} = blockres`;
+    }
+
+    emit_value() {
+        return this.name;
+    }*/
+    
+    emit_value() {
+        return "blockres";
+    }
+}
+
+// mostly temporary garbage for block results
+function getBranchDataflowCode(args: IROperation[], parent: IRControlBlock, results_start: number) {
+
+    if (args.length > results_start) {
+
+        if (parent.getNextBlock(0).is_exit) {
+            let result = "";
+            for (var i=results_start;i<args.length;i++) {
+
+                result += ` ret${i-results_start} = ${args[i].emit_value()}`;
+            }
+            return result;
+        } else {
+            return `blockres = ${args[results_start].emit_value()}`;
+        }
+    }
+
+    return "";
+}
+
 class IROpBranchAlways extends IROperation {
 
-    is_write = true; // todo change?
+    constructor(parent: IRControlBlock) {
+        super(parent);
 
-    type = IRType.Void;
-
-    update_arg_count() {
-        var target = this.parent.getNextBlock(0);
+        let target = this.parent.getNextBlock(0);
+        if (target == null) {
+            throw new Error("Target block not linked.");
+        }
         if (target.is_exit) {
             this.peek_count = this.parent.func_info.return_types.length;
         } else {
@@ -247,8 +303,40 @@ class IROpBranchAlways extends IROperation {
         }
     }
 
+    type = IRType.Void;
+
+    // is_write = true; // todo change? add a separate indicator for branches?
+
     emit_code() {
-        return "goto block_"+this.parent.getNextBlock(0).id;
+        return `${getBranchDataflowCode(this.args,this.parent,0)} goto block_${this.parent.getNextBlock(0).id}`;
+    }
+}
+
+class IROpBranchConditional extends IROperation {
+
+    constructor(parent: IRControlBlock) {
+        super(parent);
+
+        // First next block is the target, the other is a continuation of the current wasm block.
+        // In the case of if-blocks, both are new blocks, but both have void inputs so this is still fine.
+        let target = this.parent.getNextBlock(0);
+        if (target == null) {
+            throw new Error("Target block not linked.");
+        }
+        if (target.is_exit) {
+            this.peek_count = this.parent.func_info.return_types.length + 1;
+        } else {
+            this.peek_count = (target.input_type == IRType.Void) ? 1 : 2;
+        }
+    }
+
+    type = IRType.Void;
+
+    // is_write = true; // todo change? add a separate indicator for branches?
+
+    emit_code() {
+
+        return `if (${this.args[0].emit_value()}) ~= 0 then ${getBranchDataflowCode(this.args,this.parent,1)} goto block_${this.parent.getNextBlock(0).id} else goto block_${this.parent.getNextBlock(1).id} end`;
     }
 }
 
@@ -261,6 +349,9 @@ class IROpError extends IROperation {
     emit_code() {
         return `error("${this.msg}")`;
     }
+
+    // Should be ordered with writes.
+    is_write = true;
     
     type = IRType.Void;
 }
@@ -316,8 +407,6 @@ export function compileFuncWithIR(node: Func, modState: WASMModuleState, str_bui
 
     compileWASMBlockToIRBlocks(func_info, node.body, entry, [exit]);
 
-    entry.processOpsR({});
-
     str_builder.write(str_buffer, `function __FUNCS__.${node.name.value}(`);
 
     // todo longs may require two args/locals in future?
@@ -367,6 +456,36 @@ export function compileFuncWithIR(node: Func, modState: WASMModuleState, str_bui
 
 function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction[], current_block: IRControlBlock, branch_targets: IRControlBlock[], skip_link_next?: boolean) {
 
+    let value_stack: IROperation[] = [];
+
+    let error_block = new IRControlBlock(func_info,IRType.Void);
+
+    function processOp(op: IROperation) {
+        for (let i=0;i<op.arg_count;i++) {
+            let arg = value_stack.pop();
+            if (arg == null) {
+                arg = new IROpError(error_block, "negative stack access");
+            }
+
+            op.args.push(arg);
+            arg.refs.push(op);
+        }
+
+        for (let i=0;i<op.peek_count;i++) {
+            let arg = value_stack[value_stack.length-1-i];
+            if (arg == null) {
+                arg = new IROpError(error_block, "negative stack access");
+            }
+
+            op.args.push(arg);
+            arg.refs.push(op);
+        }
+
+        if (op.type != IRType.Void) {
+            value_stack.push(op);
+        }
+    }
+
     for (let i=0;i<body.length;i++) {
         let instr = body[i];
         if (instr.type == "BlockInstruction") {
@@ -374,7 +493,9 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
             let next_block = new IRControlBlock(func_info, convertWasmTypeToIRType(instr.result) );
             compileWASMBlockToIRBlocks(func_info, instr.instr,current_block,branch_targets.concat([next_block]));
             current_block = next_block;
-            // todo push block result pseudo-register?
+
+            processOp(new IROpBlockResult(current_block,"__br_"+current_block.id,current_block.input_type));
+
         } else if (instr.type == "LoopInstruction") {
             // start a new block for the loop, but allow it to continue after the loop ends
             // NOTE: The actual loop takes nothing as input. If the loop is supposed to return something, just push the stack at the end of the block.
@@ -389,7 +510,7 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
             current_block = loop_block;
         } else if (instr.type == "IfInstruction") {
 
-            new IROpError(current_block,"conditional branch"); // todo push block result pseudo-register?
+            processOp(new IROpError(current_block,"conditional branch"));
 
             let next_block = new IRControlBlock(func_info, convertWasmTypeToIRType(instr.result) );
 
@@ -409,22 +530,22 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
             }
 
             current_block = next_block;
-            // todo push block result pseudo-register?
+
+            processOp(new IROpBlockResult(current_block,"__br_"+current_block.id,current_block.input_type));
 
         } else if (instr.type == "CallInstruction" || instr.type == "CallIndirectInstruction") {
             // TODO split block on setjmp / handle longjmp
-            new IROpError(current_block,"call!");
+            processOp(new IROpError(current_block,"call!"));
         } else if (instr.type == "Instr") {
             if (instr.id == "br") {
-                new IROpBranchAlways(current_block);
-
                 let blocks_to_exit = (instr.args[0] as NumberLiteral).value;
 
                 current_block.addNextBlock(branch_targets[branch_targets.length-1-blocks_to_exit]);
+
+                processOp(new IROpBranchAlways(current_block));
+
                 return;
             } else if (instr.id == "br_if") {
-
-                new IROpError(current_block,"conditional branch ~ "); // todo push block result pseudo-register?
 
                 let next_block = new IRControlBlock(func_info, IRType.Void);
 
@@ -435,10 +556,12 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
                 // branch is not taken
                 current_block.addNextBlock(next_block);
 
+                processOp(new IROpBranchConditional(current_block));
+
                 current_block = next_block;
             } else if (instr.id == "br_table") {
 
-                new IROpError(current_block,"table branch ~ "); // todo push block result pseudo-register?
+                processOp(new IROpError(current_block,"table branch ~ "));
 
                 instr.args.forEach((arg)=>{
                     let blocks_to_exit = (arg as NumberLiteral).value;
@@ -451,10 +574,10 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
 
                 switch (instr.id) {
                     case "const":
-                        new IROpConst(current_block,instr.args[0] as any,convertWasmTypeToIRType(instr.object));
+                        processOp(new IROpConst(current_block,instr.args[0] as any,convertWasmTypeToIRType(instr.object)));
                         break;
                     default:
-                        new IROpError(current_block,"unknown: "+instr.id);
+                        processOp(new IROpError(current_block,"unknown: "+instr.id));
                         break;
                 }
             }
@@ -466,9 +589,9 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
     
     // We don't auto-link to the next block for loops, since loop IR blocks don't end with the loop.
     if (!skip_link_next) {
-        new IROpBranchAlways(current_block);
-
         // Link to the next block.
         current_block.addNextBlock(branch_targets[branch_targets.length-1]);
+
+        processOp(new IROpBranchAlways(current_block));
     }
 }

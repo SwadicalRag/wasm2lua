@@ -49,64 +49,37 @@ class IRControlBlock {
     _addOp(x) {
         this.operations.push(x);
     }
-    processOpsR(seen) {
-        if (seen[this.id]) {
-            return;
-        }
-        seen[this.id] = true;
-        let value_stack = [];
-        this.operations.forEach((op) => {
-            op.update_arg_count();
-            for (let i = 0; i < op.arg_count; i++) {
-                let arg = value_stack.pop();
-                if (arg == null) {
-                    arg = new IROpError(this, "negative stack access");
-                }
-                op.args.push(arg);
-                arg.refs.push(op);
-            }
-            for (let i = 0; i < op.peek_count; i++) {
-                let arg = value_stack[value_stack.length - 1 - i];
-                if (arg == null) {
-                    arg = new IROpError(this, "negative stack access");
-                }
-                op.args.push(arg);
-                arg.refs.push(op);
-            }
-            if (op.type != IRType.Void) {
-                value_stack.push(op);
-            }
-        });
-        this.next.forEach((block) => {
-            block.processOpsR(seen);
-        });
-    }
     emitR(str_builder, str_buffer, seen) {
         if (seen[this.id]) {
             return;
         }
         seen[this.id] = true;
-        str_builder.write(str_buffer, `::block_${this.id}:: --> [${this.next.map(x => x.id)}] (${this.input_type})`);
+        str_builder.write(str_buffer, `::block_${this.id}:: --> [${this.next.map(x => x.id)}] (${IRType[this.input_type]})`);
         str_builder.indent();
         if (this.is_exit) {
             str_builder.newLine(str_buffer);
-            str_builder.write(str_buffer, "return ");
+            str_builder.write(str_buffer, "do return ");
             for (let i = 0; i < this.func_info.return_types.length; i++) {
                 str_builder.write(str_buffer, `ret${i}`);
                 if ((i + 1) < this.func_info.return_types.length) {
                     str_builder.write(str_buffer, ", ");
                 }
             }
+            str_builder.write(str_buffer, " end");
         }
         else {
             this.operations.forEach((op) => {
-                str_builder.newLine(str_buffer);
-                str_builder.write(str_buffer, op.emit_code());
+                let code = op.emit_code();
+                if (code != "") {
+                    str_builder.newLine(str_buffer);
+                    str_builder.write(str_buffer, code);
+                }
             });
         }
         str_builder.outdent();
         str_builder.newLine(str_buffer);
         this.next.forEach((block) => {
+            str_builder.newLine(str_buffer);
             block.emitR(str_builder, str_buffer, seen);
         });
     }
@@ -120,20 +93,23 @@ class IROperation {
         this.refs = new Array();
         this.is_write = false;
         this.is_read = false;
-        this.always_inline = false;
         parent._addOp(this);
     }
-    update_arg_count() {
+    emit_code() {
+        return "";
+    }
+    ;
+    emit_value() {
+        return "[[no value]]";
     }
 }
 class IROpConst extends IROperation {
     constructor(parent, value, type) {
         super(parent);
         this.value = value;
-        this.always_inline = true;
         this.type = type;
     }
-    emit_code() {
+    emit_value() {
         if (this.value.type == "LongNumberLiteral") {
             let value = this.value.value;
             return `__LONG_INT__(${value.low},${value.high})`;
@@ -160,14 +136,39 @@ class IROpConst extends IROperation {
         }
     }
 }
-class IROpBranchAlways extends IROperation {
-    constructor() {
-        super(...arguments);
-        this.is_write = true;
-        this.type = IRType.Void;
+class IROpBlockResult extends IROperation {
+    constructor(parent, name, type) {
+        super(parent);
+        this.name = name;
+        this.type = type;
     }
-    update_arg_count() {
-        var target = this.parent.getNextBlock(0);
+    emit_value() {
+        return "blockres";
+    }
+}
+function getBranchDataflowCode(args, parent, results_start) {
+    if (args.length > results_start) {
+        if (parent.getNextBlock(0).is_exit) {
+            let result = "";
+            for (var i = results_start; i < args.length; i++) {
+                result += ` ret${i - results_start} = ${args[i].emit_value()}`;
+            }
+            return result;
+        }
+        else {
+            return `blockres = ${args[results_start].emit_value()}`;
+        }
+    }
+    return "";
+}
+class IROpBranchAlways extends IROperation {
+    constructor(parent) {
+        super(parent);
+        this.type = IRType.Void;
+        let target = this.parent.getNextBlock(0);
+        if (target == null) {
+            throw new Error("Target block not linked.");
+        }
         if (target.is_exit) {
             this.peek_count = this.parent.func_info.return_types.length;
         }
@@ -176,13 +177,33 @@ class IROpBranchAlways extends IROperation {
         }
     }
     emit_code() {
-        return "goto block_" + this.parent.getNextBlock(0).id;
+        return `${getBranchDataflowCode(this.args, this.parent, 0)} goto block_${this.parent.getNextBlock(0).id}`;
+    }
+}
+class IROpBranchConditional extends IROperation {
+    constructor(parent) {
+        super(parent);
+        this.type = IRType.Void;
+        let target = this.parent.getNextBlock(0);
+        if (target == null) {
+            throw new Error("Target block not linked.");
+        }
+        if (target.is_exit) {
+            this.peek_count = this.parent.func_info.return_types.length + 1;
+        }
+        else {
+            this.peek_count = (target.input_type == IRType.Void) ? 1 : 2;
+        }
+    }
+    emit_code() {
+        return `if (${this.args[0].emit_value()}) ~= 0 then ${getBranchDataflowCode(this.args, this.parent, 1)} goto block_${this.parent.getNextBlock(0).id} else goto block_${this.parent.getNextBlock(1).id} end`;
     }
 }
 class IROpError extends IROperation {
     constructor(parent, msg) {
         super(parent);
         this.msg = msg;
+        this.is_write = true;
         this.type = IRType.Void;
     }
     emit_code() {
@@ -206,7 +227,6 @@ function compileFuncWithIR(node, modState, str_builder) {
     let entry = new IRControlBlock(func_info, IRType.Void);
     let exit = new IRControlBlock(func_info, IRType.Void, true);
     compileWASMBlockToIRBlocks(func_info, node.body, entry, [exit]);
-    entry.processOpsR({});
     str_builder.write(str_buffer, `function __FUNCS__.${node.name.value}(`);
     for (let i = 0; i < func_info.arg_count; i++) {
         str_builder.write(str_buffer, `var${i}`);
@@ -241,12 +261,36 @@ function compileFuncWithIR(node, modState, str_builder) {
 }
 exports.compileFuncWithIR = compileFuncWithIR;
 function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targets, skip_link_next) {
+    let value_stack = [];
+    let error_block = new IRControlBlock(func_info, IRType.Void);
+    function processOp(op) {
+        for (let i = 0; i < op.arg_count; i++) {
+            let arg = value_stack.pop();
+            if (arg == null) {
+                arg = new IROpError(error_block, "negative stack access");
+            }
+            op.args.push(arg);
+            arg.refs.push(op);
+        }
+        for (let i = 0; i < op.peek_count; i++) {
+            let arg = value_stack[value_stack.length - 1 - i];
+            if (arg == null) {
+                arg = new IROpError(error_block, "negative stack access");
+            }
+            op.args.push(arg);
+            arg.refs.push(op);
+        }
+        if (op.type != IRType.Void) {
+            value_stack.push(op);
+        }
+    }
     for (let i = 0; i < body.length; i++) {
         let instr = body[i];
         if (instr.type == "BlockInstruction") {
             let next_block = new IRControlBlock(func_info, convertWasmTypeToIRType(instr.result));
             compileWASMBlockToIRBlocks(func_info, instr.instr, current_block, branch_targets.concat([next_block]));
             current_block = next_block;
+            processOp(new IROpBlockResult(current_block, "__br_" + current_block.id, current_block.input_type));
         }
         else if (instr.type == "LoopInstruction") {
             let loop_block = new IRControlBlock(func_info, IRType.Void);
@@ -257,7 +301,7 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
             current_block = loop_block;
         }
         else if (instr.type == "IfInstruction") {
-            new IROpError(current_block, "conditional branch");
+            processOp(new IROpError(current_block, "conditional branch"));
             let next_block = new IRControlBlock(func_info, convertWasmTypeToIRType(instr.result));
             let block_true = new IRControlBlock(func_info, IRType.Void);
             current_block.addNextBlock(block_true);
@@ -271,27 +315,28 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
                 current_block.addNextBlock(next_block);
             }
             current_block = next_block;
+            processOp(new IROpBlockResult(current_block, "__br_" + current_block.id, current_block.input_type));
         }
         else if (instr.type == "CallInstruction" || instr.type == "CallIndirectInstruction") {
-            new IROpError(current_block, "call!");
+            processOp(new IROpError(current_block, "call!"));
         }
         else if (instr.type == "Instr") {
             if (instr.id == "br") {
-                new IROpBranchAlways(current_block);
                 let blocks_to_exit = instr.args[0].value;
                 current_block.addNextBlock(branch_targets[branch_targets.length - 1 - blocks_to_exit]);
+                processOp(new IROpBranchAlways(current_block));
                 return;
             }
             else if (instr.id == "br_if") {
-                new IROpError(current_block, "conditional branch ~ ");
                 let next_block = new IRControlBlock(func_info, IRType.Void);
                 let blocks_to_exit = instr.args[0].value;
                 current_block.addNextBlock(branch_targets[branch_targets.length - 1 - blocks_to_exit]);
                 current_block.addNextBlock(next_block);
+                processOp(new IROpBranchConditional(current_block));
                 current_block = next_block;
             }
             else if (instr.id == "br_table") {
-                new IROpError(current_block, "table branch ~ ");
+                processOp(new IROpError(current_block, "table branch ~ "));
                 instr.args.forEach((arg) => {
                     let blocks_to_exit = arg.value;
                     current_block.addNextBlock(branch_targets[branch_targets.length - 1 - blocks_to_exit]);
@@ -303,10 +348,10 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
             else {
                 switch (instr.id) {
                     case "const":
-                        new IROpConst(current_block, instr.args[0], convertWasmTypeToIRType(instr.object));
+                        processOp(new IROpConst(current_block, instr.args[0], convertWasmTypeToIRType(instr.object)));
                         break;
                     default:
-                        new IROpError(current_block, "unknown: " + instr.id);
+                        processOp(new IROpError(current_block, "unknown: " + instr.id));
                         break;
                 }
             }
@@ -316,8 +361,8 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
         }
     }
     if (!skip_link_next) {
-        new IROpBranchAlways(current_block);
         current_block.addNextBlock(branch_targets[branch_targets.length - 1]);
+        processOp(new IROpBranchAlways(current_block));
     }
 }
 //# sourceMappingURL=graph_ir.js.map
