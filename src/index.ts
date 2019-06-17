@@ -964,7 +964,7 @@ export class wasm2lua extends StringCompiler {
     doneFunctions: {[funcID: string]: boolean} = {};
     processFunc(node: Func,modState: WASMModuleState) {
         if (this.options.useGraphIR) {
-            return compileFuncWithIR(node, modState);
+            return compileFuncWithIR(node, modState, this);
         }
 
         let buf = [];

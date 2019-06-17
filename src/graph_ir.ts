@@ -1,20 +1,42 @@
 import { WASMModuleState } from "./common";
 import { StringCompiler } from "./stringcompiler";
 
-type IRType = "i32" | "i64" | "f32" | "f64" | "bool" | "void";
+enum IRType {
+    Int,
+    LongInt,
+    Float,
+    Bool,
+    Void
+}
 
-let next_block_id = 1;
+enum IRConvertMode {
+    Int,
+    Bool,
+    Any
+}
+
+function convertWasmTypeToIRType(type: Valtype) {
+    if (type == "i32") {
+        return IRType.Int;
+    } else if (type == "i64") {
+        return IRType.LongInt;
+    } else if (type == "f32" || type == "f64") {
+        return IRType.Float;
+    } else {
+        return IRType.Void;
+    }
+}
+
+let next_block_id: number;
 
 class IRControlBlock {
     // This is mostly for debugging.
-    private id = next_block_id++;
+    readonly id = next_block_id++;
 
     // Contains a list of IR operations.
     private operations = new Array<IROperation>();
 
-    // The operation that decides which next block to branch to. Can be i32 or bool.
-    // Not included in the normal list of operations.
-    private branch_op?: IROperation;
+    // Note that the last operation in any block should be a branch, unless it is an exit block.
     
     // Can have any number of preceding and following blocks.
     private prev = new Array<IRControlBlock>();
@@ -26,20 +48,15 @@ class IRControlBlock {
         next.prev.push(this);
     }
 
-    addOp(x: IROperation) {
-        this.operations.push(x);
-        // todo double link the operation to us
+    getNextBlock(index: number) {
+        return this.next[index];
     }
 
-    // each function should have exactly one entry and one exit
-    // maybe should add some explicit fields for this, IDK
-    /*get is_entry() {
-        return this.prev.length == 0;
+    _addOp(x: IROperation) {
+        this.operations.push(x);
     }
-    get is_exit() {
-        return this.next.length == 0;
-    }*/
-    debugInfoR(builder: StringCompiler, buffer: string[], seen: any) {
+
+    emitR(builder: StringCompiler, buffer: string[], seen: any) {
         if (seen[this.id]) {
             return;
         }
@@ -47,25 +64,127 @@ class IRControlBlock {
 
         //data.push(`BLOCK ${this.id} - ${this.prev.length} - ${this.next.length} - ${this.operations.length} - ${this.operations.map((x)=>"\n\t\t\t\t\t\t"+x)}`);
 
-        builder.write(buffer,`BLOCK ${this.id} -> [${this.next.map(x=>x.id)}]`);
+        builder.write(buffer,`::block_${this.id}:: --> [${this.next.map(x=>x.id)}]`);
 
         builder.indent();
 
-        this.operations.forEach((str)=>{
+        if (this.next.length > 0) {
+            this.operations.forEach((op)=>{
+                builder.newLine(buffer);
+                builder.write(buffer,op.emit_code());
+            });
+        } else {
+            // exit block
             builder.newLine(buffer);
-            builder.write(buffer,str);
-        })
+            builder.write(buffer,"return"); // todo actually return stuff
+        }
 
         builder.outdent();
         builder.newLine(buffer);
 
         this.next.forEach((block)=>{
-            block.debugInfoR(builder,buffer,seen);
+            block.emitR(builder,buffer,seen);
         })
     }
 }
 
-type IROperation = string;
+abstract class IROperation {
+    constructor(protected parent: IRControlBlock) {
+        parent._addOp(this);
+    }
+
+    // The codegen and type information must be implemented by child classes.
+    abstract type: IRType;
+
+    abstract emit_code(): string;
+
+    // Number of arguments to pop from the virtual stack.
+    arg_count = 0;
+
+    // Set if we don't pop the arguments from the stack.
+    // arg_peek = false; NOTE: ditch this and just push args back, since the only ops that need to do this still need to pop one arg
+
+    // Set to override how to compiler forces integer/bool conversions. If unset, defaults to IRConvertMode.Int.
+    arg_conversion_mode?: Array<IRConvertMode>;
+
+    // automatically filled
+    args: Array<IROperation>;
+    refs: Array<IROperation>;
+    
+    // If set, all pending reads should be emitted before this operation.
+    // All writes must also be ordered.
+    // Should be set for:
+        // Any write to a global or memory.
+        // Any write to a local. *(Until local dataflow is implemented.)
+        // Any function call.
+        // Any branch. **(MAYBE NOT, I NEED TO THINK ABOUT THIS SOME MORE.)
+    is_write = false;
+
+    // Indicates that this op is a read and should be ordered before any writes.
+    is_read = false;
+
+    // Set if we should always inline, regardless of refcount. Used for constants.
+    always_inline = false;
+}
+
+class IROpConst extends IROperation {
+
+    constructor(parent: IRControlBlock, private value: LongNumberLiteral | NumberLiteral, type: IRType) {
+        super(parent);
+        this.type = type;
+    }
+
+    always_inline = true;
+
+    type: IRType;
+    
+    emit_code() {
+        if(this.value.type == "LongNumberLiteral") {
+            let value = (this.value as LongNumberLiteral).value;
+            return `__LONG_INT__(${value.low},${value.high})`;
+        }
+        else {
+            let _const = (this.value as NumberLiteral);
+            if (_const.inf) {
+                if (_const.value > 0) {
+                    return "(1/0)";
+                } else {
+                    return "(-1/0)";
+                }
+            } else if (_const.nan) {
+                return "(0/0)";
+            } else if (_const.value == 0 && 1/_const.value == -Number.POSITIVE_INFINITY) {
+                return "(-0)";
+            } else {
+                return _const.value.toString();
+            }
+        }
+    }
+}
+
+class IROpBranchAlways extends IROperation {
+
+    is_write = true; // todo change?
+
+    type = IRType.Void;
+
+    emit_code() {
+        return "goto block_"+this.parent.getNextBlock(0).id;
+    }
+}
+
+class IROpError extends IROperation {
+
+    constructor(parent: IRControlBlock, private msg: string) {
+        super(parent);
+    }
+
+    emit_code() {
+        return `error("${this.msg}")`;
+    }
+    
+    type = IRType.Void;
+}
 
 /*interface IROperation {
     // Data that this operation uses.
@@ -80,7 +199,7 @@ type IROperation = string;
 
     type: IRType;
 
-    emitCode(): string;
+    emit_code(): string;
 
     // special garbage
     resolve_local?: number;
@@ -89,61 +208,95 @@ type IROperation = string;
     has_side_effects?: boolean;
 }*/
 
-export function compileFuncWithIR(node: Func,modState: WASMModuleState) {
+export function compileFuncWithIR(node: Func,modState: WASMModuleState, str_builder: StringCompiler) {
+    next_block_id = 1;
+
+    let str_buffer = new Array<string>();
+    
     let entry = new IRControlBlock();
     let exit = new IRControlBlock();
 
-    compileWASMBlockToIRBlocks(node.body, entry, [exit]);
+    compileWASMBlockToIRBlocks(node.body, entry, [exit], IRType.Void);
 
-    // debug output
-    let compiler = new StringCompiler();
-    let buffer = new Array<string>();
+    str_builder.write(str_buffer, `function __FUNCS__.${node.name.value}(`);
 
-    compiler.write(buffer, "FUNC "+node.name.value);
-    compiler.indent();
-    compiler.newLine(buffer);
+    // todo setup type info for these locals
+    // todo longs may require two locals in future
+    if(node.signature.type == "Signature") {
+        let i = 0;
+        for(let param of node.signature.params) {
+            str_builder.write(str_buffer, `var${i}`);
 
-    entry.debugInfoR(compiler,buffer,{});
+            if((i+1) !== node.signature.params.length) {
+                str_builder.write(str_buffer,", ");
+            }
+            i++;
+        }
+    }
+    
+    str_builder.write(str_buffer, `)`);
+    str_builder.indent();
+    str_builder.newLine(str_buffer);
 
-    return `--[[\n${buffer.join("")}\n]]\n`;
+    str_builder.write(str_buffer, "local blockres");
+    str_builder.newLine(str_buffer);
+
+    entry.emitR(str_builder,str_buffer,{});
+
+    str_builder.outdent();
+    str_builder.newLine(str_buffer);
+    str_builder.write(str_buffer, "end");
+    str_builder.newLine(str_buffer);
+
+    return str_buffer.join("");
 }
 
-function compileWASMBlockToIRBlocks(body: Instruction[], current_block: IRControlBlock, branch_targets: IRControlBlock[], skip_link_next?: boolean) {
+function compileWASMBlockToIRBlocks(body: Instruction[], current_block: IRControlBlock, branch_targets: IRControlBlock[], result_type: IRType, skip_link_next?: boolean) {
 
-    // Virtual stack of values, TODO.
-    let value_stack: number[] = [];
+    // Virtual stack of values
+    let value_stack: IROperation[] = [];
+
+    function processOp(op: IROperation) {
+        if (op.arg_count > 0) {
+            throw "fixme args";
+        }
+
+        if (op.type != IRType.Void) {
+            value_stack.push(op);
+        }
+    }
 
     for (let i=0;i<body.length;i++) {
         let instr = body[i];
         if (instr.type == "BlockInstruction") {
             // continue adding to our current block, cut it at the end of the wasm block
             let next_block = new IRControlBlock();
-            compileWASMBlockToIRBlocks(instr.instr,current_block,branch_targets.concat([next_block]));
+            compileWASMBlockToIRBlocks(instr.instr,current_block,branch_targets.concat([next_block]),convertWasmTypeToIRType(instr.result));
             current_block = next_block;
             // todo push block result pseudo-register?
         } else if (instr.type == "LoopInstruction") {
             // start a new block for the loop, but allow it to continue after the loop ends
             let loop_block = new IRControlBlock();
             current_block.addNextBlock(loop_block);
-            compileWASMBlockToIRBlocks(instr.instr,loop_block,branch_targets.concat([loop_block]),true);
+            compileWASMBlockToIRBlocks(instr.instr,loop_block,branch_targets.concat([loop_block]),convertWasmTypeToIRType(instr.resulttype),true);
             current_block = loop_block;
             // todo push block result pseudo-register?
         } else if (instr.type == "IfInstruction") {
 
-            current_block.addOp("br_if"); // decides next block
+            new IROpError(current_block,"conditional branch ~ "+IRType[result_type]); // todo push block result pseudo-register?
 
             let next_block = new IRControlBlock();
 
             let block_true = new IRControlBlock();
             current_block.addNextBlock(block_true);
 
-            compileWASMBlockToIRBlocks(instr.consequent,block_true,branch_targets.concat([next_block]));
+            compileWASMBlockToIRBlocks(instr.consequent,block_true,branch_targets.concat([next_block]),convertWasmTypeToIRType(instr.result));
 
             if (instr.alternate.length > 0) {
                 let block_false = new IRControlBlock();
                 current_block.addNextBlock(block_false);
                 
-                compileWASMBlockToIRBlocks(instr.consequent,block_false,branch_targets.concat([next_block]));
+                compileWASMBlockToIRBlocks(instr.consequent,block_false,branch_targets.concat([next_block]),convertWasmTypeToIRType(instr.result));
             } else {
                 // just link to the next block if there's nothing to compile for the alternate.
                 current_block.addNextBlock(next_block);
@@ -154,10 +307,10 @@ function compileWASMBlockToIRBlocks(body: Instruction[], current_block: IRContro
 
         } else if (instr.type == "CallInstruction" || instr.type == "CallIndirectInstruction") {
             // TODO split block on setjmp / handle longjmp
-            current_block.addOp(instr.id);
+            new IROpError(current_block,"call!");
         } else if (instr.type == "Instr") {
             if (instr.id == "br") {
-                current_block.addOp("br"); // todo push block result pseudo-register?
+                processOp(new IROpBranchAlways(current_block));
 
                 let blocks_to_exit = (instr.args[0] as NumberLiteral).value;
 
@@ -165,7 +318,7 @@ function compileWASMBlockToIRBlocks(body: Instruction[], current_block: IRContro
                 return;
             } else if (instr.id == "br_if") {
 
-                current_block.addOp("br_if"); // decides next block, todo push block result pseudo-register?
+                new IROpError(current_block,"conditional branch ~ "+IRType[result_type]); // todo push block result pseudo-register?
 
                 let next_block = new IRControlBlock();
 
@@ -179,7 +332,7 @@ function compileWASMBlockToIRBlocks(body: Instruction[], current_block: IRContro
                 current_block = next_block;
             } else if (instr.id == "br_table") {
 
-                current_block.addOp("br_table"); // decides next block, todo push block result pseudo-register?
+                new IROpError(current_block,"table branch ~ "+IRType[result_type]); // todo push block result pseudo-register?
 
                 instr.args.forEach((arg)=>{
                     let blocks_to_exit = (arg as NumberLiteral).value;
@@ -189,15 +342,26 @@ function compileWASMBlockToIRBlocks(body: Instruction[], current_block: IRContro
             } else if (instr.id == "end" || instr.id == "nop") {
                 // don't care
             } else {
-                current_block.addOp(instr.id);
+
+                switch (instr.id) {
+                    case "const":
+                        processOp(new IROpConst(current_block,instr.args[0] as any,convertWasmTypeToIRType(instr.object)));
+                        break;
+                    default:
+                        processOp(new IROpError(current_block,"unknown: "+instr.id));
+                        break;
+                }
             }
         } else {
             throw new Error(instr.type+" "+instr.id);
         }
     }
 
+    
     // We don't auto-link to the next block for loops, since loop IR blocks don't end with the loop.
     if (!skip_link_next) {
+        processOp(new IROpBranchAlways(current_block));
+
         // Link to the next block.
         current_block.addNextBlock(branch_targets[branch_targets.length-1]);
     }

@@ -750,7 +750,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
     }
     processFunc(node, modState) {
         if (this.options.useGraphIR) {
-            return graph_ir_1.compileFuncWithIR(node, modState);
+            return graph_ir_1.compileFuncWithIR(node, modState, this);
         }
         let buf = [];
         if (node.signature.type == "NumberLiteral") {
