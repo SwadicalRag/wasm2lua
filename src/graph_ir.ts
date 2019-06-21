@@ -246,6 +246,19 @@ class IROpConst extends IROperation {
     }
 }
 
+class IROpGetLocal extends IROperation {
+    type = IRType.Int;
+
+    constructor(parent: IRControlBlock, private index) {
+        super(parent);
+        //this.type = type;
+    }
+
+    emit_value() {
+        return "var"+JSON.stringify(this.index);
+    }
+}
+
 // this is temporary, it should almost certainly not appear in the final IR
 class IROpBlockResult extends IROperation {
     constructor(parent: IRControlBlock, private name: string, public type: IRType) {
@@ -312,31 +325,13 @@ class IROpBranchAlways extends IROperation {
     }
 }
 
-class IROpBranchConditional extends IROperation {
+class IROpBranchConditional extends IROpBranchAlways {
 
-    constructor(parent: IRControlBlock) {
-        super(parent);
-
-        // First next block is the target, the other is a continuation of the current wasm block.
-        // In the case of if-blocks, both are new blocks, but both have void inputs so this is still fine.
-        let target = this.parent.getNextBlock(0);
-        if (target == null) {
-            throw new Error("Target block not linked.");
-        }
-        if (target.is_exit) {
-            this.peek_count = this.parent.func_info.return_types.length + 1;
-        } else {
-            this.peek_count = (target.input_type == IRType.Void) ? 1 : 2;
-        }
-    }
-
-    type = IRType.Void;
-
-    // is_write = true; // todo change? add a separate indicator for branches?
+    arg_count = 1;
 
     emit_code() {
 
-        return `if (${this.args[0].emit_value()}) ~= 0 then ${getBranchDataflowCode(this.args,this.parent,1)} goto block_${this.parent.getNextBlock(0).id} else goto block_${this.parent.getNextBlock(1).id} end`;
+        return `if ${this.args[0].emit_value()} ~= 0 then ${getBranchDataflowCode(this.args,this.parent,1)} goto block_${this.parent.getNextBlock(0).id} else goto block_${this.parent.getNextBlock(1).id} end`;
     }
 }
 
@@ -353,6 +348,33 @@ class IROpError extends IROperation {
     // Should be ordered with writes.
     is_write = true;
     
+    type = IRType.Void;
+}
+
+class IROpCall extends IROperation {
+
+    emit_code() {
+        return "-- call";
+    }
+
+    is_write = true;
+    
+    type = IRType.Void;
+}
+
+class IRStackInfo extends IROperation {
+
+    stack: IROperation[];
+
+    constructor(parent: IRControlBlock, stack: IROperation[]) {
+        super(parent);
+        this.stack = stack.slice();
+    }
+
+    emit_code() {
+        return "-- stack info [ "+this.stack.map((x)=>x.emit_value()).join(", ")+" ]";
+    }
+
     type = IRType.Void;
 }
 
@@ -487,6 +509,8 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
     }
 
     for (let i=0;i<body.length;i++) {
+        processOp(new IRStackInfo(current_block,value_stack));
+
         let instr = body[i];
         if (instr.type == "BlockInstruction") {
             // continue adding to our current block, cut it at the end of the wasm block
@@ -510,8 +534,6 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
             current_block = loop_block;
         } else if (instr.type == "IfInstruction") {
 
-            processOp(new IROpError(current_block,"conditional branch"));
-
             let next_block = new IRControlBlock(func_info, convertWasmTypeToIRType(instr.result) );
 
             let block_true = new IRControlBlock(func_info, IRType.Void);
@@ -529,18 +551,31 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
                 current_block.addNextBlock(next_block);
             }
 
+            processOp(new IROpBranchConditional(current_block));
+
             current_block = next_block;
 
             processOp(new IROpBlockResult(current_block,"__br_"+current_block.id,current_block.input_type));
 
         } else if (instr.type == "CallInstruction" || instr.type == "CallIndirectInstruction") {
             // TODO split block on setjmp / handle longjmp
-            processOp(new IROpError(current_block,"call!"));
+            if (instr.type == "CallInstruction") {
+                processOp(new IROpCall(current_block));
+            } else {
+                processOp(new IROpError(current_block,"call!"));
+            }
         } else if (instr.type == "Instr") {
             if (instr.id == "br") {
                 let blocks_to_exit = (instr.args[0] as NumberLiteral).value;
 
                 current_block.addNextBlock(branch_targets[branch_targets.length-1-blocks_to_exit]);
+
+                processOp(new IROpBranchAlways(current_block));
+
+                return;
+            } else if (instr.id == "return") {
+
+                current_block.addNextBlock(branch_targets[0]);
 
                 processOp(new IROpBranchAlways(current_block));
 
@@ -568,13 +603,21 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
                     current_block.addNextBlock(branch_targets[branch_targets.length-1-blocks_to_exit]);
                 });
                 return;
-            } else if (instr.id == "end" || instr.id == "nop") {
-                // don't care
             } else {
 
                 switch (instr.id) {
                     case "const":
                         processOp(new IROpConst(current_block,instr.args[0] as any,convertWasmTypeToIRType(instr.object)));
+                        break;
+                    case "get_local":
+                        processOp(new IROpGetLocal(current_block, (instr.args[0] as NumberLiteral).value ));
+                        break;
+                    case "drop":
+                        value_stack.pop();
+                        break;
+                    case "end":
+                    case "nop":
+                        // don't care
                         break;
                     default:
                         processOp(new IROpError(current_block,"unknown: "+instr.id));
