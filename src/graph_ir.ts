@@ -1,4 +1,4 @@
-import { WASMModuleState } from "./common";
+import { WASMModuleState, WASMFuncState } from "./common";
 import { StringCompiler } from "./stringcompiler";
 
 enum IRType {
@@ -24,6 +24,22 @@ function convertWasmTypeToIRType(type: Valtype) {
         return IRType.Float;
     } else {
         return IRType.Void;
+    }
+}
+
+function getFuncByIndex(modState: WASMModuleState, index: Index) {
+    if(index.type == "NumberLiteral") {
+        if(modState.funcByName.get(`func_${index.value}`)) {
+            return modState.funcByName.get(`func_${index.value}`);
+        }
+        else if(modState.funcByName.get(`func_u${index.value}`)) {
+            return modState.funcByName.get(`func_u${index.value}`);
+        } else {
+            return modState.funcStates[index.value] || false;
+        }
+    }
+    else {
+        return modState.funcByName.get(index.value) || false;
     }
 }
 
@@ -136,6 +152,7 @@ class IRControlBlock {
             str_builder.write(str_buffer," end");
         } else {
             // normal block
+            let read_ops = [];
             this.operations.forEach((op)=>{
 
                 let code = op.emit_code();
@@ -157,6 +174,8 @@ class IRControlBlock {
     }
 }
 
+const WRITE_ALL = "ALL";
+
 abstract class IROperation {
     constructor(protected parent: IRControlBlock) {
         parent._addOp(this);
@@ -165,21 +184,31 @@ abstract class IROperation {
     // The codegen and type information must be implemented by child classes.
     abstract type: IRType;
 
+    abstract emit(): string;
+
     // The code directly emitted into the generated code.
     emit_code() {
         //return "-- no code";
+        if (this.write_group != null) {
+            return this.emit();
+        } else if (this.var_name != null) {
+            return this.var_name+" = "+this.emit();
+        }
         return "";
     };
 
     // What should be inserted when other operations use our value.
     emit_value() {
-        return "[[no value]]";
+        if (this.var_name != null) {
+            return this.var_name;
+        }
+        return this.emit();
     }
 
-    // can be used to update the arg and peek count before arguments are linked
-    /*update_arg_count() {
+    // called after arguments are linked
+    args_linked() {
 
-    }*/
+    }
 
     // Number of arguments to pop from the virtual stack.
     arg_count = 0;
@@ -204,13 +233,18 @@ abstract class IROperation {
         // Any write to a local. *(Until local dataflow is implemented.)
         // Any function call.
         // Any branch. **(MAYBE NOT, I NEED TO THINK ABOUT THIS SOME MORE.)
-    is_write = false;
+    write_group?: string;
 
     // Indicates that this op is a read and should be ordered before any writes.
-    is_read = false;
+    read_group?: string;
 
     // Set if we should always inline, regardless of refcount. Used for constants.
     // always_inline = false;
+
+    blocked_by_write_barrier = false;
+
+    // Set if stored to a register instead of inlined.
+    var_name?: string;
 }
 
 class IROpConst extends IROperation {
@@ -222,7 +256,7 @@ class IROpConst extends IROperation {
 
     type: IRType;
     
-    emit_value() {
+    emit() {
         if(this.value.type == "LongNumberLiteral") {
             let value = (this.value as LongNumberLiteral).value;
             return `__LONG_INT__(${value.low},${value.high})`;
@@ -246,17 +280,76 @@ class IROpConst extends IROperation {
     }
 }
 
-class IROpGetLocal extends IROperation {
-    type = IRType.Int;
+class IROpSetGlobal extends IROperation {
+    type = IRType.Void;
 
     constructor(parent: IRControlBlock, private index) {
         super(parent);
-        //this.type = type;
+    }
+
+    emit() {
+        return "__GLOBALS__["+this.index+"] = "+this.args[0].emit_value();
+    }
+    
+    arg_count = 1;
+
+    write_group = "G"+this.index;
+}
+
+class IROpGetLocal extends IROperation {
+    type: IRType;
+
+    constructor(parent: IRControlBlock, private index) {
+        super(parent);
+        this.type = parent.func_info.local_types[index];
+    }
+
+    emit() {
+        return "var"+this.index;
+    }
+
+    read_group = "L"+this.index;
+}
+
+class IROpSetLocal extends IROperation {
+    type = IRType.Void;
+
+    constructor(parent: IRControlBlock, private index) {
+        super(parent);
+    }
+
+    emit() {
+        return "var"+this.index+" = "+this.args[0].emit_value();
+    }
+
+    arg_count = 1;
+
+    write_group = "L"+this.index;
+}
+
+class IROpTeeLocal extends IROperation {
+    type: IRType;
+
+    constructor(parent: IRControlBlock, private index) {
+        super(parent);
+        this.type = parent.func_info.local_types[index];
+    }
+
+    emit_code() {
+        return "var"+this.index+" = "+this.args[0].emit_value();
     }
 
     emit_value() {
-        return "var"+JSON.stringify(this.index);
+        return "var"+this.index;
     }
+
+    emit() {
+        return "";
+    }
+
+    arg_count = 1;
+
+    write_group = "L"+this.index;
 }
 
 // this is temporary, it should almost certainly not appear in the final IR
@@ -264,18 +357,8 @@ class IROpBlockResult extends IROperation {
     constructor(parent: IRControlBlock, private name: string, public type: IRType) {
         super(parent);
     }
-
-    /*emit_code() {
-        if (this.type == IRType.Void)
-            return "";
-        return `${this.name} = blockres`;
-    }
-
-    emit_value() {
-        return this.name;
-    }*/
     
-    emit_value() {
+    emit() {
         return "blockres";
     }
 }
@@ -318,9 +401,9 @@ class IROpBranchAlways extends IROperation {
 
     type = IRType.Void;
 
-    // is_write = true; // todo change? add a separate indicator for branches?
+    write_group = WRITE_ALL;
 
-    emit_code() {
+    emit() {
         return `${getBranchDataflowCode(this.args,this.parent,0)} goto block_${this.parent.getNextBlock(0).id}`;
     }
 }
@@ -329,8 +412,7 @@ class IROpBranchConditional extends IROpBranchAlways {
 
     arg_count = 1;
 
-    emit_code() {
-
+    emit() {
         return `if ${this.args[0].emit_value()} ~= 0 then ${getBranchDataflowCode(this.args,this.parent,1)} goto block_${this.parent.getNextBlock(0).id} else goto block_${this.parent.getNextBlock(1).id} end`;
     }
 }
@@ -341,25 +423,64 @@ class IROpError extends IROperation {
         super(parent);
     }
 
-    emit_code() {
+    emit() {
         return `error("${this.msg}")`;
     }
 
-    // Should be ordered with writes.
-    is_write = true;
+    // Should be ordered with any writes.
+    write_group = WRITE_ALL;
     
     type = IRType.Void;
 }
 
 class IROpCall extends IROperation {
 
-    emit_code() {
-        return "-- call";
+    too_many_returns = false;
+
+    constructor(parent: IRControlBlock, private func: WASMFuncState) {
+        super(parent);
+
+        this.arg_count = func.funcType.params.length;
+
+        let retCount = func.funcType.results.length;
+        if (retCount == 1) {
+            this.type = convertWasmTypeToIRType(func.funcType.results[0]);
+        } else if (retCount == 0) {
+            this.type = IRType.Void;
+        } else {
+            this.too_many_returns = true;
+        }
     }
 
-    is_write = true;
+    emit() {
+        if (this.too_many_returns) {
+            return "error('too many returns')"
+        }
+        let arg_str = this.args.map((arg)=>arg.emit_value()).join(", ");
+        return this.func.id+"("+arg_str+")";
+    }
+
+    write_group = WRITE_ALL;
     
-    type = IRType.Void;
+    type: IRType;
+}
+
+class IROpBinaryOperator extends IROperation {
+    constructor(parent: IRControlBlock, private op: string, public type: IRType, private normalize_result = false, private normalize_args = false) {
+        super(parent);
+    }
+
+    arg_count = 2;
+
+    //type: IRType;
+
+    /*args_linked() {
+        this.type = this.args[0].type;
+    }*/
+
+    emit() {
+        return `(${this.args[0].emit_value()} ${this.op} ${this.args[1].emit_value()})`;
+    }
 }
 
 class IRStackInfo extends IROperation {
@@ -371,6 +492,10 @@ class IRStackInfo extends IROperation {
         this.stack = stack.slice();
     }
 
+    emit() {
+        return "";
+    }
+
     emit_code() {
         return "-- stack info [ "+this.stack.map((x)=>x.emit_value()).join(", ")+" ]";
     }
@@ -378,32 +503,12 @@ class IRStackInfo extends IROperation {
     type = IRType.Void;
 }
 
-/*interface IROperation {
-    // Data that this operation uses.
-    inputs: IROperation[];
-    // Any operations that reference this operation.
-    refs: IROperation[];
-
-    parent: IRControlBlock;
-
-    // the variable containing this value, if one exists
-    register_name?: string;
-
-    type: IRType;
-
-    emit_code(): string;
-
-    // special garbage
-    resolve_local?: number;
-    
-    // Writes to memory or a global, or is a function call. Should always emit code.
-    has_side_effects?: boolean;
-}*/
-
 interface IRFunctionInfo {
     arg_count: number;
     local_types: IRType[];
     return_types: IRType[];
+    module: WASMModuleState;
+    next_tmp_id: number;
 }
 
 export function compileFuncWithIR(node: Func, modState: WASMModuleState, str_builder: StringCompiler) {
@@ -418,7 +523,10 @@ export function compileFuncWithIR(node: Func, modState: WASMModuleState, str_bui
         func_info = {
             arg_count: node.signature.params.length,
             local_types: node.signature.params.map((param)=>convertWasmTypeToIRType(param.valtype)),
-            return_types: node.signature.results.map(convertWasmTypeToIRType)
+            return_types: node.signature.results.map(convertWasmTypeToIRType),
+            module: modState,
+
+            next_tmp_id: 1
         }
     } else {
         throw new Error("bad signature");
@@ -488,6 +596,9 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
             if (arg == null) {
                 arg = new IROpError(error_block, "negative stack access");
             }
+            if (arg.blocked_by_write_barrier) {
+                arg.var_name = "_TMP"+(func_info.next_tmp_id++);
+            }
 
             op.args.push(arg);
             arg.refs.push(op);
@@ -498,9 +609,34 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
             if (arg == null) {
                 arg = new IROpError(error_block, "negative stack access");
             }
+            if (arg.blocked_by_write_barrier) {
+                arg.var_name = "_TMP"+(func_info.next_tmp_id++);
+            }
 
             op.args.push(arg);
             arg.refs.push(op);
+        }
+
+        op.args_linked();
+
+        if (op.type == null) {
+            throw new Error("Op missing type.");
+        }
+
+        if (op.write_group != null) {
+            if (op.write_group == WRITE_ALL) {
+                value_stack.forEach((stack_op)=>{
+                    if (stack_op.read_group != null) {
+                        stack_op.blocked_by_write_barrier = true;
+                    }
+                });
+            } else {
+                value_stack.forEach((stack_op)=>{
+                    if (stack_op.read_group == op.write_group) {
+                        stack_op.blocked_by_write_barrier = true;
+                    }
+                });
+            }
         }
 
         if (op.type != IRType.Void) {
@@ -560,9 +696,16 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
         } else if (instr.type == "CallInstruction" || instr.type == "CallIndirectInstruction") {
             // TODO split block on setjmp / handle longjmp
             if (instr.type == "CallInstruction") {
-                processOp(new IROpCall(current_block));
+
+                let func = getFuncByIndex(func_info.module, instr.numeric || instr.index);
+                if (func) {
+                    processOp(new IROpCall(current_block, func));
+                } else {
+                    processOp(new IROpError(current_block,"bad call"));
+                }
+
             } else {
-                processOp(new IROpError(current_block,"call!"));
+                processOp(new IROpError(current_block,"call indirect!"));
             }
         } else if (instr.type == "Instr") {
             if (instr.id == "br") {
@@ -609,9 +752,37 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
                     case "const":
                         processOp(new IROpConst(current_block,instr.args[0] as any,convertWasmTypeToIRType(instr.object)));
                         break;
+                    
+                    // Locals
+                    case "local":
+                        // record local types here
+                        instr.args.forEach((arg)=> {
+                            if (arg.type=="ValtypeLiteral") {
+                                func_info.local_types.push(convertWasmTypeToIRType(arg.name));
+                            } else {
+                                throw new Error("Bad type???");
+                            }
+                        });
+                        break;
                     case "get_local":
                         processOp(new IROpGetLocal(current_block, (instr.args[0] as NumberLiteral).value ));
                         break;
+                    case "set_local":
+                        processOp(new IROpSetLocal(current_block, (instr.args[0] as NumberLiteral).value ));
+                        break;
+                    case "tee_local":
+                        processOp(new IROpTeeLocal(current_block, (instr.args[0] as NumberLiteral).value ));
+                        break;
+                    // Globals
+                    case "set_global":
+                        processOp(new IROpSetGlobal(current_block, (instr.args[0] as NumberLiteral).value ));
+                        break;
+                    
+                    // Operators
+                    case "add":
+                        processOp(new IROpBinaryOperator(current_block, "+", convertWasmTypeToIRType(instr.object)));
+                        break;
+                    
                     case "drop":
                         value_stack.pop();
                         break;

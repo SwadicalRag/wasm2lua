@@ -28,6 +28,22 @@ function convertWasmTypeToIRType(type) {
         return IRType.Void;
     }
 }
+function getFuncByIndex(modState, index) {
+    if (index.type == "NumberLiteral") {
+        if (modState.funcByName.get(`func_${index.value}`)) {
+            return modState.funcByName.get(`func_${index.value}`);
+        }
+        else if (modState.funcByName.get(`func_u${index.value}`)) {
+            return modState.funcByName.get(`func_u${index.value}`);
+        }
+        else {
+            return modState.funcStates[index.value] || false;
+        }
+    }
+    else {
+        return modState.funcByName.get(index.value) || false;
+    }
+}
 let next_block_id;
 class IRControlBlock {
     constructor(func_info, input_type, is_exit = false) {
@@ -68,6 +84,7 @@ class IRControlBlock {
             str_builder.write(str_buffer, " end");
         }
         else {
+            let read_ops = [];
             this.operations.forEach((op) => {
                 let code = op.emit_code();
                 if (code != "") {
@@ -84,6 +101,7 @@ class IRControlBlock {
         });
     }
 }
+const WRITE_ALL = "ALL";
 class IROperation {
     constructor(parent) {
         this.parent = parent;
@@ -91,16 +109,26 @@ class IROperation {
         this.peek_count = 0;
         this.args = new Array();
         this.refs = new Array();
-        this.is_write = false;
-        this.is_read = false;
+        this.blocked_by_write_barrier = false;
         parent._addOp(this);
     }
     emit_code() {
+        if (this.write_group != null) {
+            return this.emit();
+        }
+        else if (this.var_name != null) {
+            return this.var_name + " = " + this.emit();
+        }
         return "";
     }
     ;
     emit_value() {
-        return "[[no value]]";
+        if (this.var_name != null) {
+            return this.var_name;
+        }
+        return this.emit();
+    }
+    args_linked() {
     }
 }
 class IROpConst extends IROperation {
@@ -109,7 +137,7 @@ class IROpConst extends IROperation {
         this.value = value;
         this.type = type;
     }
-    emit_value() {
+    emit() {
         if (this.value.type == "LongNumberLiteral") {
             let value = this.value.value;
             return `__LONG_INT__(${value.low},${value.high})`;
@@ -136,14 +164,57 @@ class IROpConst extends IROperation {
         }
     }
 }
+class IROpSetGlobal extends IROperation {
+    constructor(parent, index) {
+        super(parent);
+        this.index = index;
+        this.type = IRType.Void;
+        this.arg_count = 1;
+        this.write_group = "G" + this.index;
+    }
+    emit() {
+        return "__GLOBALS__[" + this.index + "] = " + this.args[0].emit_value();
+    }
+}
 class IROpGetLocal extends IROperation {
     constructor(parent, index) {
         super(parent);
         this.index = index;
-        this.type = IRType.Int;
+        this.read_group = "L" + this.index;
+        this.type = parent.func_info.local_types[index];
+    }
+    emit() {
+        return "var" + this.index;
+    }
+}
+class IROpSetLocal extends IROperation {
+    constructor(parent, index) {
+        super(parent);
+        this.index = index;
+        this.type = IRType.Void;
+        this.arg_count = 1;
+        this.write_group = "L" + this.index;
+    }
+    emit() {
+        return "var" + this.index + " = " + this.args[0].emit_value();
+    }
+}
+class IROpTeeLocal extends IROperation {
+    constructor(parent, index) {
+        super(parent);
+        this.index = index;
+        this.arg_count = 1;
+        this.write_group = "L" + this.index;
+        this.type = parent.func_info.local_types[index];
+    }
+    emit_code() {
+        return "var" + this.index + " = " + this.args[0].emit_value();
     }
     emit_value() {
-        return "var" + JSON.stringify(this.index);
+        return "var" + this.index;
+    }
+    emit() {
+        return "";
     }
 }
 class IROpBlockResult extends IROperation {
@@ -152,7 +223,7 @@ class IROpBlockResult extends IROperation {
         this.name = name;
         this.type = type;
     }
-    emit_value() {
+    emit() {
         return "blockres";
     }
 }
@@ -175,6 +246,7 @@ class IROpBranchAlways extends IROperation {
     constructor(parent) {
         super(parent);
         this.type = IRType.Void;
+        this.write_group = WRITE_ALL;
         let target = this.parent.getNextBlock(0);
         if (target == null) {
             throw new Error("Target block not linked.");
@@ -186,7 +258,7 @@ class IROpBranchAlways extends IROperation {
             this.peek_count = (target.input_type == IRType.Void) ? 0 : 1;
         }
     }
-    emit_code() {
+    emit() {
         return `${getBranchDataflowCode(this.args, this.parent, 0)} goto block_${this.parent.getNextBlock(0).id}`;
     }
 }
@@ -195,7 +267,7 @@ class IROpBranchConditional extends IROpBranchAlways {
         super(...arguments);
         this.arg_count = 1;
     }
-    emit_code() {
+    emit() {
         return `if ${this.args[0].emit_value()} ~= 0 then ${getBranchDataflowCode(this.args, this.parent, 1)} goto block_${this.parent.getNextBlock(0).id} else goto block_${this.parent.getNextBlock(1).id} end`;
     }
 }
@@ -203,21 +275,50 @@ class IROpError extends IROperation {
     constructor(parent, msg) {
         super(parent);
         this.msg = msg;
-        this.is_write = true;
+        this.write_group = WRITE_ALL;
         this.type = IRType.Void;
     }
-    emit_code() {
+    emit() {
         return `error("${this.msg}")`;
     }
 }
 class IROpCall extends IROperation {
-    constructor() {
-        super(...arguments);
-        this.is_write = true;
-        this.type = IRType.Void;
+    constructor(parent, func) {
+        super(parent);
+        this.func = func;
+        this.too_many_returns = false;
+        this.write_group = WRITE_ALL;
+        this.arg_count = func.funcType.params.length;
+        let retCount = func.funcType.results.length;
+        if (retCount == 1) {
+            this.type = convertWasmTypeToIRType(func.funcType.results[0]);
+        }
+        else if (retCount == 0) {
+            this.type = IRType.Void;
+        }
+        else {
+            this.too_many_returns = true;
+        }
     }
-    emit_code() {
-        return "-- call";
+    emit() {
+        if (this.too_many_returns) {
+            return "error('too many returns')";
+        }
+        let arg_str = this.args.map((arg) => arg.emit_value()).join(", ");
+        return this.func.id + "(" + arg_str + ")";
+    }
+}
+class IROpBinaryOperator extends IROperation {
+    constructor(parent, op, type, normalize_result = false, normalize_args = false) {
+        super(parent);
+        this.op = op;
+        this.type = type;
+        this.normalize_result = normalize_result;
+        this.normalize_args = normalize_args;
+        this.arg_count = 2;
+    }
+    emit() {
+        return `(${this.args[0].emit_value()} ${this.op} ${this.args[1].emit_value()})`;
     }
 }
 class IRStackInfo extends IROperation {
@@ -225,6 +326,9 @@ class IRStackInfo extends IROperation {
         super(parent);
         this.type = IRType.Void;
         this.stack = stack.slice();
+    }
+    emit() {
+        return "";
     }
     emit_code() {
         return "-- stack info [ " + this.stack.map((x) => x.emit_value()).join(", ") + " ]";
@@ -238,7 +342,9 @@ function compileFuncWithIR(node, modState, str_builder) {
         func_info = {
             arg_count: node.signature.params.length,
             local_types: node.signature.params.map((param) => convertWasmTypeToIRType(param.valtype)),
-            return_types: node.signature.results.map(convertWasmTypeToIRType)
+            return_types: node.signature.results.map(convertWasmTypeToIRType),
+            module: modState,
+            next_tmp_id: 1
         };
     }
     else {
@@ -289,6 +395,9 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
             if (arg == null) {
                 arg = new IROpError(error_block, "negative stack access");
             }
+            if (arg.blocked_by_write_barrier) {
+                arg.var_name = "_TMP" + (func_info.next_tmp_id++);
+            }
             op.args.push(arg);
             arg.refs.push(op);
         }
@@ -297,8 +406,31 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
             if (arg == null) {
                 arg = new IROpError(error_block, "negative stack access");
             }
+            if (arg.blocked_by_write_barrier) {
+                arg.var_name = "_TMP" + (func_info.next_tmp_id++);
+            }
             op.args.push(arg);
             arg.refs.push(op);
+        }
+        op.args_linked();
+        if (op.type == null) {
+            throw new Error("Op missing type.");
+        }
+        if (op.write_group != null) {
+            if (op.write_group == WRITE_ALL) {
+                value_stack.forEach((stack_op) => {
+                    if (stack_op.read_group != null) {
+                        stack_op.blocked_by_write_barrier = true;
+                    }
+                });
+            }
+            else {
+                value_stack.forEach((stack_op) => {
+                    if (stack_op.read_group == op.write_group) {
+                        stack_op.blocked_by_write_barrier = true;
+                    }
+                });
+            }
         }
         if (op.type != IRType.Void) {
             value_stack.push(op);
@@ -340,10 +472,16 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
         }
         else if (instr.type == "CallInstruction" || instr.type == "CallIndirectInstruction") {
             if (instr.type == "CallInstruction") {
-                processOp(new IROpCall(current_block));
+                let func = getFuncByIndex(func_info.module, instr.numeric || instr.index);
+                if (func) {
+                    processOp(new IROpCall(current_block, func));
+                }
+                else {
+                    processOp(new IROpError(current_block, "bad call"));
+                }
             }
             else {
-                processOp(new IROpError(current_block, "call!"));
+                processOp(new IROpError(current_block, "call indirect!"));
             }
         }
         else if (instr.type == "Instr") {
@@ -379,8 +517,30 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
                     case "const":
                         processOp(new IROpConst(current_block, instr.args[0], convertWasmTypeToIRType(instr.object)));
                         break;
+                    case "local":
+                        instr.args.forEach((arg) => {
+                            if (arg.type == "ValtypeLiteral") {
+                                func_info.local_types.push(convertWasmTypeToIRType(arg.name));
+                            }
+                            else {
+                                throw new Error("Bad type???");
+                            }
+                        });
+                        break;
                     case "get_local":
                         processOp(new IROpGetLocal(current_block, instr.args[0].value));
+                        break;
+                    case "set_local":
+                        processOp(new IROpSetLocal(current_block, instr.args[0].value));
+                        break;
+                    case "tee_local":
+                        processOp(new IROpTeeLocal(current_block, instr.args[0].value));
+                        break;
+                    case "set_global":
+                        processOp(new IROpSetGlobal(current_block, instr.args[0].value));
+                        break;
+                    case "add":
+                        processOp(new IROpBinaryOperator(current_block, "+", convertWasmTypeToIRType(instr.object)));
                         break;
                     case "drop":
                         value_stack.pop();
