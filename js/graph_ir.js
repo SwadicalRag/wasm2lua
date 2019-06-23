@@ -62,6 +62,9 @@ class IRControlBlock {
     getNextBlock(index) {
         return this.next[index];
     }
+    getNextBlockCount() {
+        return this.next.length;
+    }
     _addOp(x) {
         this.operations.push(x);
     }
@@ -227,9 +230,9 @@ class IROpBlockResult extends IROperation {
         return "blockres";
     }
 }
-function getBranchDataflowCode(args, parent, results_start) {
+function getBranchDataflowCode(args, parent, results_start, target_block = 0) {
     if (args.length > results_start) {
-        if (parent.getNextBlock(0).is_exit) {
+        if (parent.getNextBlock(target_block).is_exit) {
             let result = "";
             for (var i = results_start; i < args.length; i++) {
                 result += ` ret${i - results_start} = ${args[i].emit_value()}`;
@@ -269,6 +272,32 @@ class IROpBranchConditional extends IROpBranchAlways {
     }
     emit() {
         return `if ${this.args[0].emit_value()} ~= 0 then ${getBranchDataflowCode(this.args, this.parent, 1)} goto block_${this.parent.getNextBlock(0).id} else goto block_${this.parent.getNextBlock(1).id} end`;
+    }
+}
+class IROpBranchTable extends IROpBranchAlways {
+    constructor() {
+        super(...arguments);
+        this.arg_count = 1;
+    }
+    emit() {
+        let branch_count = this.parent.getNextBlockCount();
+        let generated_code = `local tmp = ${this.args[0].emit_value()} `;
+        for (var i = 0; i < branch_count; i++) {
+            if (i != 0) {
+                generated_code += "else";
+            }
+            if (i < branch_count - 1) {
+                generated_code += `if tmp == ${i} then `;
+            }
+            else {
+                generated_code += " ";
+            }
+            generated_code += `${getBranchDataflowCode(this.args, this.parent, 1, i)} goto block_${this.parent.getNextBlock(i).id} `;
+        }
+        if (branch_count > 1) {
+            generated_code += "end";
+        }
+        return generated_code;
     }
 }
 class IROpError extends IROperation {
@@ -505,11 +534,11 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
                 current_block = next_block;
             }
             else if (instr.id == "br_table") {
-                processOp(new IROpError(current_block, "table branch ~ "));
                 instr.args.forEach((arg) => {
                     let blocks_to_exit = arg.value;
                     current_block.addNextBlock(branch_targets[branch_targets.length - 1 - blocks_to_exit]);
                 });
+                processOp(new IROpBranchTable(current_block));
                 return;
             }
             else {

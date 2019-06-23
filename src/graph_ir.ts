@@ -72,6 +72,10 @@ class IRControlBlock {
         return this.next[index];
     }
 
+    getNextBlockCount() {
+        return this.next.length;
+    }
+
     _addOp(x: IROperation) {
         this.operations.push(x);
     }
@@ -364,11 +368,11 @@ class IROpBlockResult extends IROperation {
 }
 
 // mostly temporary garbage for block results
-function getBranchDataflowCode(args: IROperation[], parent: IRControlBlock, results_start: number) {
+function getBranchDataflowCode(args: IROperation[], parent: IRControlBlock, results_start: number, target_block = 0) {
 
     if (args.length > results_start) {
 
-        if (parent.getNextBlock(0).is_exit) {
+        if (parent.getNextBlock(target_block).is_exit) {
             let result = "";
             for (var i=results_start;i<args.length;i++) {
 
@@ -414,6 +418,38 @@ class IROpBranchConditional extends IROpBranchAlways {
 
     emit() {
         return `if ${this.args[0].emit_value()} ~= 0 then ${getBranchDataflowCode(this.args,this.parent,1)} goto block_${this.parent.getNextBlock(0).id} else goto block_${this.parent.getNextBlock(1).id} end`;
+    }
+}
+
+class IROpBranchTable extends IROpBranchAlways {
+
+    arg_count = 1;
+
+    emit() {
+        // get count of next blocks?
+        let branch_count = this.parent.getNextBlockCount();
+
+        let generated_code = `local tmp = ${this.args[0].emit_value()} `;
+
+        for (var i=0;i<branch_count;i++) {
+
+            if (i!=0) {
+                generated_code += "else";
+            }
+
+            if (i<branch_count-1) {
+                generated_code += `if tmp == ${i} then `;
+            } else {
+                generated_code += " ";
+            }
+
+            generated_code += `${getBranchDataflowCode(this.args,this.parent,1,i)} goto block_${this.parent.getNextBlock(i).id} `;
+        }
+        if (branch_count>1) {
+            generated_code += "end";
+        }
+
+        return generated_code;
     }
 }
 
@@ -624,6 +660,7 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
         }
 
         if (op.write_group != null) {
+            // FIXME: Search args recursively?
             if (op.write_group == WRITE_ALL) {
                 value_stack.forEach((stack_op)=>{
                     if (stack_op.read_group != null) {
@@ -739,12 +776,13 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
                 current_block = next_block;
             } else if (instr.id == "br_table") {
 
-                processOp(new IROpError(current_block,"table branch ~ "));
-
                 instr.args.forEach((arg)=>{
                     let blocks_to_exit = (arg as NumberLiteral).value;
                     current_block.addNextBlock(branch_targets[branch_targets.length-1-blocks_to_exit]);
                 });
+
+                processOp(new IROpBranchTable(current_block));
+
                 return;
             } else {
 
