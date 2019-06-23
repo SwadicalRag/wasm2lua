@@ -126,10 +126,19 @@ class IROperation {
     }
     ;
     emit_value() {
+        let expr;
         if (this.var_name != null) {
-            return this.var_name;
+            expr = this.var_name;
         }
-        return this.emit();
+        else {
+            expr = this.emit();
+        }
+        if (this.type == IRType.Bool) {
+            return `(${unwrap_expr(expr)} and 1 or 0)`;
+        }
+        else {
+            return expr;
+        }
     }
     args_linked() {
     }
@@ -333,7 +342,7 @@ class IROpCall extends IROperation {
         if (this.too_many_returns) {
             return "error('too many returns')";
         }
-        let arg_str = this.args.map((arg) => arg.emit_value()).join(", ");
+        let arg_str = this.args.map((arg) => unwrap_expr(arg.emit_value())).join(", ");
         return this.func.id + "(" + arg_str + ")";
     }
 }
@@ -348,6 +357,52 @@ class IROpBinaryOperator extends IROperation {
     }
     emit() {
         return `(${this.args[0].emit_value()} ${this.op} ${this.args[1].emit_value()})`;
+    }
+}
+function unwrap_expr(expr) {
+    if (!expr.startsWith("(") || !expr.endsWith(")")) {
+        return expr;
+    }
+    return expr;
+}
+class IROpCompare extends IROperation {
+    constructor(parent, op_name, arg_wasm_type) {
+        super(parent);
+        this.op_name = op_name;
+        this.arg_wasm_type = arg_wasm_type;
+        this.type = IRType.Bool;
+        this.arg_count = 2;
+        if (op_name == "eqz") {
+            this.arg_count = 1;
+        }
+    }
+    emit() {
+        if (this.arg_wasm_type == "i64") {
+            return "error('i64 compares unsupported')";
+        }
+        let op = {
+            eq: "==",
+            ne: "~=",
+            gt_s: ">",
+            lt_s: "<",
+            ge_s: ">=",
+            le_s: "<=",
+            gt_u: ">",
+            lt_u: "<",
+            ge_u: ">=",
+            le_u: "<=",
+            eqz: "=="
+        }[this.op_name];
+        let arg1 = this.args[0].emit_value();
+        let arg2 = this.op_name == "eqz" ? "0" : this.args[1].emit_value();
+        let expr;
+        if (this.op_name.endsWith("_u")) {
+            expr = `__UNSIGNED__(${unwrap_expr(arg2)}) ${op} __UNSIGNED__(${unwrap_expr(arg1)})`;
+        }
+        else {
+            expr = `${arg2} ${op} ${arg1}`;
+        }
+        return `${expr}`;
     }
 }
 class IRStackInfo extends IROperation {
@@ -570,6 +625,19 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
                         break;
                     case "add":
                         processOp(new IROpBinaryOperator(current_block, "+", convertWasmTypeToIRType(instr.object)));
+                        break;
+                    case "eq":
+                    case "ne":
+                    case "gt_s":
+                    case "lt_s":
+                    case "ge_s":
+                    case "le_s":
+                    case "gt_u":
+                    case "lt_u":
+                    case "ge_u":
+                    case "le_u":
+                    case "eqz":
+                        processOp(new IROpCompare(current_block, instr.id, instr.object));
                         break;
                     case "drop":
                         value_stack.pop();
