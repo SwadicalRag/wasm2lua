@@ -346,6 +346,18 @@ class IROpCall extends IROperation {
         return this.func.id + "(" + arg_str + ")";
     }
 }
+class IROpCallBuiltin extends IROperation {
+    constructor(parent, fname, arg_count, type) {
+        super(parent);
+        this.fname = fname;
+        this.arg_count = arg_count;
+        this.type = type;
+    }
+    emit() {
+        let arg_str = this.args.slice().reverse().map((arg) => unwrap_expr(arg.emit_value())).join(", ");
+        return this.fname + "(" + arg_str + ")";
+    }
+}
 class IROpBinaryOperator extends IROperation {
     constructor(parent, op, type, normalize_result = false, normalize_args = false) {
         super(parent);
@@ -356,7 +368,17 @@ class IROpBinaryOperator extends IROperation {
         this.arg_count = 2;
     }
     emit() {
-        return `(${this.args[0].emit_value()} ${this.op} ${this.args[1].emit_value()})`;
+        let arg1 = this.args[0].emit_value();
+        let arg2 = this.args[1].emit_value();
+        if (this.normalize_args) {
+            arg1 = "bit_tobit(" + unwrap_expr(arg1) + ")";
+            arg2 = "bit_tobit(" + unwrap_expr(arg2) + ")";
+        }
+        let final_expr = `(${arg2} ${this.op} ${arg1})`;
+        if (this.normalize_result) {
+            return "bit_tobit" + final_expr;
+        }
+        return final_expr;
     }
 }
 function unwrap_expr(expr) {
@@ -624,7 +646,58 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
                         processOp(new IROpSetGlobal(current_block, instr.args[0].value));
                         break;
                     case "add":
-                        processOp(new IROpBinaryOperator(current_block, "+", convertWasmTypeToIRType(instr.object)));
+                        processOp(new IROpBinaryOperator(current_block, "+", convertWasmTypeToIRType(instr.object), true, true));
+                        break;
+                    case "sub":
+                        processOp(new IROpBinaryOperator(current_block, "-", convertWasmTypeToIRType(instr.object), true, true));
+                        break;
+                    case "mul":
+                        processOp(new IROpCallBuiltin(current_block, "__IMUL__", 2, IRType.Int));
+                        break;
+                    case "div_s":
+                        processOp(new IROpCallBuiltin(current_block, "__IDIV_S__", 2, IRType.Int));
+                        break;
+                    case "div_u":
+                        processOp(new IROpCallBuiltin(current_block, "__IDIV_U__", 2, IRType.Int));
+                        break;
+                    case "rem_s":
+                        processOp(new IROpCallBuiltin(current_block, "__IMOD_S__", 2, IRType.Int));
+                        break;
+                    case "rem_u":
+                        processOp(new IROpCallBuiltin(current_block, "__IMOD_U__", 2, IRType.Int));
+                        break;
+                    case "and":
+                        processOp(new IROpCallBuiltin(current_block, "bit_band", 2, IRType.Int));
+                        break;
+                    case "or":
+                        processOp(new IROpCallBuiltin(current_block, "bit_bor", 2, IRType.Int));
+                        break;
+                    case "xor":
+                        processOp(new IROpCallBuiltin(current_block, "bit_bxor", 2, IRType.Int));
+                        break;
+                    case "shl":
+                        processOp(new IROpCallBuiltin(current_block, "bit_lshift", 2, IRType.Int));
+                        break;
+                    case "shr_u":
+                        processOp(new IROpCallBuiltin(current_block, "bit_rshift", 2, IRType.Int));
+                        break;
+                    case "shr_s":
+                        processOp(new IROpCallBuiltin(current_block, "bit_arshift", 2, IRType.Int));
+                        break;
+                    case "rotr":
+                        processOp(new IROpCallBuiltin(current_block, "bit_ror", 2, IRType.Int));
+                        break;
+                    case "rotl":
+                        processOp(new IROpCallBuiltin(current_block, "bit_rol", 2, IRType.Int));
+                        break;
+                    case "popcnt":
+                        processOp(new IROpCallBuiltin(current_block, "__POPCNT__", 1, IRType.Int));
+                        break;
+                    case "ctz":
+                        processOp(new IROpCallBuiltin(current_block, "__CTZ__", 1, IRType.Int));
+                        break;
+                    case "clz":
+                        processOp(new IROpCallBuiltin(current_block, "__CLZ__", 1, IRType.Int));
                         break;
                     case "eq":
                     case "ne":
