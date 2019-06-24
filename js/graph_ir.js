@@ -358,6 +358,20 @@ class IROpCallBuiltin extends IROperation {
         return this.fname + "(" + arg_str + ")";
     }
 }
+class IROpCallMethod extends IROperation {
+    constructor(parent, fname, arg_count, type) {
+        super(parent);
+        this.fname = fname;
+        this.arg_count = arg_count;
+        this.type = type;
+    }
+    emit() {
+        let arg_exprs = this.args.slice().reverse().map((arg) => unwrap_expr(arg.emit_value()));
+        let this_arg = arg_exprs.shift();
+        let arg_str = arg_exprs.join(", ");
+        return this_arg + ":" + this.fname + "(" + arg_str + ")";
+    }
+}
 class IROpBinaryOperator extends IROperation {
     constructor(parent, op, type, normalize_result = false, normalize_args = false) {
         super(parent);
@@ -399,9 +413,6 @@ class IROpCompare extends IROperation {
         }
     }
     emit() {
-        if (this.arg_wasm_type == "i64") {
-            return "error('i64 compares unsupported')";
-        }
         let op = {
             eq: "==",
             ne: "~=",
@@ -416,15 +427,31 @@ class IROpCompare extends IROperation {
             eqz: "=="
         }[this.op_name];
         let arg1 = this.args[0].emit_value();
-        let arg2 = this.op_name == "eqz" ? "0" : this.args[1].emit_value();
+        let arg2;
+        if (this.op_name == "eqz") {
+            if (this.arg_wasm_type == "i64") {
+                arg2 = "__LONG_INT__(0,0)";
+            }
+            else {
+                arg2 = "0";
+            }
+        }
+        else {
+            arg2 = this.args[1].emit_value();
+        }
         let expr;
         if (this.op_name.endsWith("_u")) {
-            expr = `__UNSIGNED__(${unwrap_expr(arg2)}) ${op} __UNSIGNED__(${unwrap_expr(arg1)})`;
+            if (this.arg_wasm_type == "i64") {
+                return arg2 + ":_" + this.op_name + "(" + unwrap_expr(arg1) + ")";
+            }
+            else {
+                expr = `__UNSIGNED__(${unwrap_expr(arg2)}) ${op} __UNSIGNED__(${unwrap_expr(arg1)})`;
+            }
         }
         else {
             expr = `${arg2} ${op} ${arg1}`;
         }
-        return `${expr}`;
+        return `(${expr})`;
     }
 }
 class IRStackInfo extends IROperation {
@@ -645,59 +672,95 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
                     case "set_global":
                         processOp(new IROpSetGlobal(current_block, instr.args[0].value));
                         break;
-                    case "add":
-                        processOp(new IROpBinaryOperator(current_block, "+", convertWasmTypeToIRType(instr.object), true, true));
+                    case "add": {
+                        let is_i32_op = (instr.object == "i32");
+                        processOp(new IROpBinaryOperator(current_block, "+", convertWasmTypeToIRType(instr.object), is_i32_op, is_i32_op));
                         break;
-                    case "sub":
-                        processOp(new IROpBinaryOperator(current_block, "-", convertWasmTypeToIRType(instr.object), true, true));
+                    }
+                    case "sub": {
+                        let is_i32_op = (instr.object == "i32");
+                        processOp(new IROpBinaryOperator(current_block, "-", convertWasmTypeToIRType(instr.object), is_i32_op, is_i32_op));
                         break;
+                    }
                     case "mul":
-                        processOp(new IROpCallBuiltin(current_block, "__IMUL__", 2, IRType.Int));
+                        processOp(instr.object == "i32" ?
+                            new IROpCallBuiltin(current_block, "__IMUL__", 2, IRType.Int) :
+                            new IROpBinaryOperator(current_block, "*", convertWasmTypeToIRType(instr.object)));
                         break;
                     case "div_s":
-                        processOp(new IROpCallBuiltin(current_block, "__IDIV_S__", 2, IRType.Int));
+                        processOp(instr.object == "i32" ?
+                            new IROpCallBuiltin(current_block, "__IDIV_S__", 2, IRType.Int) :
+                            new IROpCallMethod(current_block, "_div_s", 2, IRType.LongInt));
                         break;
                     case "div_u":
-                        processOp(new IROpCallBuiltin(current_block, "__IDIV_U__", 2, IRType.Int));
+                        processOp(instr.object == "i32" ?
+                            new IROpCallBuiltin(current_block, "__IDIV_U__", 2, IRType.Int) :
+                            new IROpCallMethod(current_block, "_div_u", 2, IRType.LongInt));
                         break;
                     case "rem_s":
-                        processOp(new IROpCallBuiltin(current_block, "__IMOD_S__", 2, IRType.Int));
+                        processOp(instr.object == "i32" ?
+                            new IROpCallBuiltin(current_block, "__IMOD_S__", 2, IRType.Int) :
+                            new IROpCallMethod(current_block, "_rem_s", 2, IRType.LongInt));
                         break;
                     case "rem_u":
-                        processOp(new IROpCallBuiltin(current_block, "__IMOD_U__", 2, IRType.Int));
+                        processOp(instr.object == "i32" ?
+                            new IROpCallBuiltin(current_block, "__IMOD_U__", 2, IRType.Int) :
+                            new IROpCallMethod(current_block, "_rem_u", 2, IRType.LongInt));
                         break;
                     case "and":
-                        processOp(new IROpCallBuiltin(current_block, "bit_band", 2, IRType.Int));
+                        processOp(instr.object == "i32" ?
+                            new IROpCallBuiltin(current_block, "bit_band", 2, IRType.Int) :
+                            new IROpCallMethod(current_block, "_and", 2, IRType.LongInt));
                         break;
                     case "or":
-                        processOp(new IROpCallBuiltin(current_block, "bit_bor", 2, IRType.Int));
+                        processOp(instr.object == "i32" ?
+                            new IROpCallBuiltin(current_block, "bit_bor", 2, IRType.Int) :
+                            new IROpCallMethod(current_block, "_or", 2, IRType.LongInt));
                         break;
                     case "xor":
-                        processOp(new IROpCallBuiltin(current_block, "bit_bxor", 2, IRType.Int));
+                        processOp(instr.object == "i32" ?
+                            new IROpCallBuiltin(current_block, "bit_bxor", 2, IRType.Int) :
+                            new IROpCallMethod(current_block, "_xor", 2, IRType.LongInt));
                         break;
                     case "shl":
-                        processOp(new IROpCallBuiltin(current_block, "bit_lshift", 2, IRType.Int));
+                        processOp(instr.object == "i32" ?
+                            new IROpCallBuiltin(current_block, "bit_lshift", 2, IRType.Int) :
+                            new IROpCallMethod(current_block, "_shl", 2, IRType.LongInt));
                         break;
                     case "shr_u":
-                        processOp(new IROpCallBuiltin(current_block, "bit_rshift", 2, IRType.Int));
+                        processOp(instr.object == "i32" ?
+                            new IROpCallBuiltin(current_block, "bit_rshift", 2, IRType.Int) :
+                            new IROpCallMethod(current_block, "_shr_u", 2, IRType.LongInt));
                         break;
                     case "shr_s":
-                        processOp(new IROpCallBuiltin(current_block, "bit_arshift", 2, IRType.Int));
+                        processOp(instr.object == "i32" ?
+                            new IROpCallBuiltin(current_block, "bit_arshift", 2, IRType.Int) :
+                            new IROpCallMethod(current_block, "_shr_s", 2, IRType.LongInt));
                         break;
                     case "rotr":
-                        processOp(new IROpCallBuiltin(current_block, "bit_ror", 2, IRType.Int));
+                        processOp(instr.object == "i32" ?
+                            new IROpCallBuiltin(current_block, "bit_ror", 2, IRType.Int) :
+                            new IROpCallMethod(current_block, "_rotr", 2, IRType.LongInt));
                         break;
                     case "rotl":
-                        processOp(new IROpCallBuiltin(current_block, "bit_rol", 2, IRType.Int));
+                        processOp(instr.object == "i32" ?
+                            new IROpCallBuiltin(current_block, "bit_rol", 2, IRType.Int) :
+                            new IROpCallMethod(current_block, "_rotl", 2, IRType.LongInt));
                         break;
                     case "popcnt":
-                        processOp(new IROpCallBuiltin(current_block, "__POPCNT__", 1, IRType.Int));
+                        processOp(instr.object == "i32" ?
+                            new IROpCallBuiltin(current_block, "__POPCNT__", 1, IRType.Int) :
+                            new IROpCallMethod(current_block, "_popcnt", 1, IRType.LongInt));
                         break;
                     case "ctz":
-                        processOp(new IROpCallBuiltin(current_block, "__CTZ__", 1, IRType.Int));
+                        processOp(instr.object == "i32" ?
+                            new IROpCallBuiltin(current_block, "__CTZ__", 1, IRType.Int) :
+                            new IROpCallMethod(current_block, "_ctz", 1, IRType.LongInt));
                         break;
                     case "clz":
-                        processOp(new IROpCallBuiltin(current_block, "__CLZ__", 1, IRType.Int));
+                        processOp(instr.object == "i32" ?
+                            new IROpCallBuiltin(current_block, "__CLZ__", 1, IRType.Int) :
+                            new IROpCallMethod(current_block, "_clz", 1, IRType.LongInt));
                         break;
                     case "eq":
                     case "ne":
