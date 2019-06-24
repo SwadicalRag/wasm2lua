@@ -583,6 +583,11 @@ class IROpCompare extends IROperation {
             eq: "==",
             ne: "~=",
 
+            gt: ">",
+            lt: "<",
+            ge: ">=",
+            le: "<=",
+
             gt_s: ">",
             lt_s: "<",
             ge_s: ">=",
@@ -943,6 +948,12 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
                             new IROpCallBuiltin(current_block,"__IMUL__",2,IRType.Int) :
                             new IROpBinaryOperator(current_block, "*", convertWasmTypeToIRType(instr.object)));
                         break;
+
+                    // Float division
+                    case "div":
+                        processOp(new IROpBinaryOperator(current_block, "/", convertWasmTypeToIRType(instr.object)));
+                        break;
+
                     // Integer division (i32 and i64)
                     case "div_s":
                         processOp(instr.object == "i32" ?
@@ -1022,9 +1033,37 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
                             new IROpCallMethod(current_block,"_clz",1,IRType.LongInt));
                         break;
 
+                    // Float ops
+                    case "min":
+                        processOp(new IROpCallBuiltin(current_block,"__FLOAT__.min",2,IRType.Float));
+                        break;
+                    case "max":
+                        processOp(new IROpCallBuiltin(current_block,"__FLOAT__.max",2,IRType.Float));
+                        break;
+                    case "sqrt":
+                        processOp(new IROpCallBuiltin(current_block,"math_sqrt",1,IRType.Float));
+                        break;
+                    case "floor":
+                        processOp(new IROpCallBuiltin(current_block,"math_floor",1,IRType.Float));
+                        break;
+                    case "ceil":
+                        processOp(new IROpCallBuiltin(current_block,"math_ceil",1,IRType.Float));
+                        break;
+                    case "trunc":
+                        processOp(new IROpCallBuiltin(current_block,"__FLOAT__.truncate",1,IRType.Float));
+                        break;
+                    case "nearest":
+                        processOp(new IROpCallBuiltin(current_block,"__FLOAT__.nearest",1,IRType.Float));
+                        break;
+
                     // Comparisons
                     case "eq":
                     case "ne":
+
+                    case "gt":
+                    case "lt":
+                    case "ge":
+                    case "le":
 
                     case "gt_s":
                     case "lt_s":
