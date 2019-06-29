@@ -557,6 +557,16 @@ class IROpBinaryOperator extends IROperation {
     }
 }
 
+class IROpNegate extends IROperation {
+
+    arg_count = 1;
+    type = IRType.Float;
+
+    emit() {
+        return " - "+this.args[0].emit_value();
+    }
+}
+
 function unwrap_expr(expr: string) {
     if (!expr.startsWith("(") || !expr.endsWith(")")) {
         return expr;
@@ -1034,11 +1044,21 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
                         break;
 
                     // Float ops
+
+                    case "neg":
+                        processOp(new IROpNegate(current_block));
+                        break;
                     case "min":
                         processOp(new IROpCallBuiltin(current_block,"__FLOAT__.min",2,IRType.Float));
                         break;
                     case "max":
                         processOp(new IROpCallBuiltin(current_block,"__FLOAT__.max",2,IRType.Float));
+                        break;
+                    case "copysign":
+                        processOp(new IROpCallBuiltin(current_block,"__FLOAT__.copysign",2,IRType.Float));
+                        break;
+                    case "abs":
+                        processOp(new IROpCallBuiltin(current_block,"math_abs",1,IRType.Float));
                         break;
                     case "sqrt":
                         processOp(new IROpCallBuiltin(current_block,"math_sqrt",1,IRType.Float));
