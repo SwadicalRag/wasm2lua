@@ -290,7 +290,7 @@ class IROpBranchTable extends IROpBranchAlways {
     }
     emit() {
         let branch_count = this.parent.getNextBlockCount();
-        let generated_code = `local tmp = ${this.args[0].emit_value()} `;
+        let generated_code = `do local tmp = ${this.args[0].emit_value()} `;
         for (var i = 0; i < branch_count; i++) {
             if (i != 0) {
                 generated_code += "else";
@@ -306,6 +306,7 @@ class IROpBranchTable extends IROpBranchAlways {
         if (branch_count > 1) {
             generated_code += "end";
         }
+        generated_code += " end";
         return generated_code;
     }
 }
@@ -403,6 +404,24 @@ class IROpNegate extends IROperation {
     }
     emit() {
         return " - " + this.args[0].emit_value();
+    }
+}
+class IROpSelect extends IROperation {
+    constructor() {
+        super(...arguments);
+        this.arg_count = 3;
+    }
+    args_linked() {
+        this.type = this.args[1].type;
+    }
+    emit() {
+        if (this.args[1].type != this.args[2].type) {
+            return "error('bad select')";
+        }
+        let arg0 = this.args[0].emit_value();
+        let arg1 = this.args[1].emit_value();
+        let arg2 = this.args[2].emit_value();
+        return `(${arg0} == 0 and ${arg1} or ${arg2})`;
     }
 }
 function unwrap_expr(expr) {
@@ -595,10 +614,16 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
         else if (instr.type == "LoopInstruction") {
             let loop_block = new IRControlBlock(func_info, IRType.Void);
             current_block.addNextBlock(loop_block);
-            compileWASMBlockToIRBlocks(func_info, instr.instr, loop_block, branch_targets.concat([loop_block]), true);
+            let loop_result = compileWASMBlockToIRBlocks(func_info, instr.instr, loop_block, branch_targets.concat([loop_block]), true);
             if (instr.resulttype != null) {
+                if (loop_result.stack.length > 0) {
+                    value_stack.push(loop_result.stack.pop());
+                }
+                else {
+                    value_stack.push(new IROpError(current_block, "missing value in loop stack"));
+                }
             }
-            current_block = loop_block;
+            current_block = loop_result.block;
         }
         else if (instr.type == "IfInstruction") {
             let next_block = new IRControlBlock(func_info, convertWasmTypeToIRType(instr.result));
@@ -608,7 +633,7 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
             if (instr.alternate.length > 0) {
                 let block_false = new IRControlBlock(func_info, IRType.Void);
                 current_block.addNextBlock(block_false);
-                compileWASMBlockToIRBlocks(func_info, instr.consequent, block_false, branch_targets.concat([next_block]));
+                compileWASMBlockToIRBlocks(func_info, instr.alternate, block_false, branch_targets.concat([next_block]));
             }
             else {
                 current_block.addNextBlock(next_block);
@@ -636,12 +661,12 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
                 let blocks_to_exit = instr.args[0].value;
                 current_block.addNextBlock(branch_targets[branch_targets.length - 1 - blocks_to_exit]);
                 processOp(new IROpBranchAlways(current_block));
-                return;
+                return { block: current_block, stack: value_stack };
             }
             else if (instr.id == "return") {
                 current_block.addNextBlock(branch_targets[0]);
                 processOp(new IROpBranchAlways(current_block));
-                return;
+                return { block: current_block, stack: value_stack };
             }
             else if (instr.id == "br_if") {
                 let next_block = new IRControlBlock(func_info, IRType.Void);
@@ -657,7 +682,7 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
                     current_block.addNextBlock(branch_targets[branch_targets.length - 1 - blocks_to_exit]);
                 });
                 processOp(new IROpBranchTable(current_block));
-                return;
+                return { block: current_block, stack: value_stack };
             }
             else {
                 switch (instr.id) {
@@ -826,6 +851,9 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
                     case "eqz":
                         processOp(new IROpCompare(current_block, instr.id, instr.object));
                         break;
+                    case "select":
+                        processOp(new IROpSelect(current_block));
+                        break;
                     case "drop":
                         value_stack.pop();
                         break;
@@ -846,5 +874,6 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
         current_block.addNextBlock(branch_targets[branch_targets.length - 1]);
         processOp(new IROpBranchAlways(current_block));
     }
+    return { block: current_block, stack: value_stack };
 }
 //# sourceMappingURL=graph_ir.js.map

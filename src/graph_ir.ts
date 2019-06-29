@@ -436,7 +436,7 @@ class IROpBranchTable extends IROpBranchAlways {
         // get count of next blocks?
         let branch_count = this.parent.getNextBlockCount();
 
-        let generated_code = `local tmp = ${this.args[0].emit_value()} `;
+        let generated_code = `do local tmp = ${this.args[0].emit_value()} `;
 
         for (var i=0;i<branch_count;i++) {
 
@@ -455,6 +455,7 @@ class IROpBranchTable extends IROpBranchAlways {
         if (branch_count>1) {
             generated_code += "end";
         }
+        generated_code += " end";
 
         return generated_code;
     }
@@ -564,6 +565,28 @@ class IROpNegate extends IROperation {
 
     emit() {
         return " - "+this.args[0].emit_value();
+    }
+}
+
+class IROpSelect extends IROperation {
+    
+    arg_count = 3;
+    type: IRType;
+
+    args_linked() {
+        this.type = this.args[1].type;
+    }
+
+    emit() {
+        if (this.args[1].type != this.args[2].type) {
+            return "error('bad select')";
+        }
+
+        let arg0 = this.args[0].emit_value();
+        let arg1 = this.args[1].emit_value();
+        let arg2 = this.args[2].emit_value();
+
+        return `(${arg0} == 0 and ${arg1} or ${arg2})`;
     }
 }
 
@@ -741,7 +764,7 @@ export function compileFuncWithIR(node: Func, modState: WASMModuleState, str_bui
     return str_buffer.join("");
 }
 
-function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction[], current_block: IRControlBlock, branch_targets: IRControlBlock[], skip_link_next?: boolean) {
+function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction[], current_block: IRControlBlock, branch_targets: IRControlBlock[], skip_link_next?: boolean): {block: IRControlBlock, stack: IROperation[]} {
 
     let value_stack: IROperation[] = [];
 
@@ -819,13 +842,18 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
             // NOTE: The actual loop takes nothing as input. If the loop is supposed to return something, just push the stack at the end of the block.
             let loop_block = new IRControlBlock(func_info, IRType.Void );
             current_block.addNextBlock(loop_block);
-            compileWASMBlockToIRBlocks(func_info,instr.instr,loop_block,branch_targets.concat([loop_block]),true);
+            let loop_result = compileWASMBlockToIRBlocks(func_info,instr.instr,loop_block,branch_targets.concat([loop_block]),true);
             
             if (instr.resulttype != null) {
-                // TODO push result!
+                if (loop_result.stack.length > 0) {
+                    value_stack.push(loop_result.stack.pop());
+                } else {
+                    value_stack.push(new IROpError(current_block,"missing value in loop stack"));
+                }
             }
 
-            current_block = loop_block;
+            // todo is this even correct?
+            current_block = loop_result.block;
         } else if (instr.type == "IfInstruction") {
 
             let next_block = new IRControlBlock(func_info, convertWasmTypeToIRType(instr.result) );
@@ -839,7 +867,7 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
                 let block_false = new IRControlBlock(func_info, IRType.Void);
                 current_block.addNextBlock(block_false);
                 
-                compileWASMBlockToIRBlocks(func_info,instr.consequent,block_false,branch_targets.concat([next_block]));
+                compileWASMBlockToIRBlocks(func_info,instr.alternate,block_false,branch_targets.concat([next_block]));
             } else {
                 // just link to the next block if there's nothing to compile for the alternate.
                 current_block.addNextBlock(next_block);
@@ -873,14 +901,14 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
 
                 processOp(new IROpBranchAlways(current_block));
 
-                return;
+                return {block: current_block, stack: value_stack};
             } else if (instr.id == "return") {
 
                 current_block.addNextBlock(branch_targets[0]);
 
                 processOp(new IROpBranchAlways(current_block));
 
-                return;
+                return {block: current_block, stack: value_stack};
             } else if (instr.id == "br_if") {
 
                 let next_block = new IRControlBlock(func_info, IRType.Void);
@@ -904,7 +932,7 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
 
                 processOp(new IROpBranchTable(current_block));
 
-                return;
+                return {block: current_block, stack: value_stack};
             } else {
 
                 switch (instr.id) {
@@ -1044,7 +1072,6 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
                         break;
 
                     // Float ops
-
                     case "neg":
                         processOp(new IROpNegate(current_block));
                         break;
@@ -1099,6 +1126,11 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
                         processOp(new IROpCompare(current_block, instr.id, instr.object));
                         break;
                     
+                    // Misc
+                    case "select":
+                        processOp(new IROpSelect(current_block));
+                        break;
+
                     case "drop":
                         value_stack.pop();
                         break;
@@ -1116,7 +1148,6 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
         }
     }
 
-    
     // We don't auto-link to the next block for loops, since loop IR blocks don't end with the loop.
     if (!skip_link_next) {
         // Link to the next block.
@@ -1124,4 +1155,6 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
 
         processOp(new IROpBranchAlways(current_block));
     }
+
+    return {block: current_block, stack: value_stack};
 }
