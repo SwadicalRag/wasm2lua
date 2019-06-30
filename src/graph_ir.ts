@@ -291,6 +291,21 @@ class IROpConst extends IROperation {
     }
 }
 
+class IROpGetGlobal extends IROperation {
+
+    constructor(parent: IRControlBlock, private index, public type: IRType) {
+        super(parent);
+    }
+
+    emit() {
+        return "__GLOBALS__["+this.index+"]";
+    }
+    
+    arg_count = 0;
+
+    read_group = "G"+this.index;
+}
+
 class IROpSetGlobal extends IROperation {
     type = IRType.Void;
 
@@ -1015,6 +1030,13 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
                     // Globals
                     case "set_global":
                         processOp(new IROpSetGlobal(current_block, (instr.args[0] as NumberLiteral).value ));
+                        break;
+                    case "get_global":
+                    
+                        let global_index = (instr.args[0] as NumberLiteral).value;
+                        let global_type = convertWasmTypeToIRType(func_info.module.globalTypes[global_index]);
+
+                        processOp(new IROpGetGlobal(current_block, global_index, global_type ));
                         break;
                     
                     /*

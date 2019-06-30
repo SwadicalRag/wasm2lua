@@ -523,7 +523,8 @@ export class wasm2lua extends StringCompiler {
             funcIdentGen: initIdentGenerator(),
             exportIdentGen: initIdentGenerator(),
 
-            nextGlobalIndex: 0
+            nextGlobalIndex: 0,
+            globalTypes: []
         };
         this.modState = state;
 
@@ -638,6 +639,7 @@ export class wasm2lua extends StringCompiler {
                 this.newLine(buf);
 
                 state.nextGlobalIndex++;
+                state.globalTypes.push(field.globalType.valtype);
             }
             else if (field.type == "Elem") {
                 let table_index = field.table.value;

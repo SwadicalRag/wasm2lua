@@ -390,7 +390,8 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             func_tables: [],
             funcIdentGen: initIdentGenerator(),
             exportIdentGen: initIdentGenerator(),
-            nextGlobalIndex: 0
+            nextGlobalIndex: 0,
+            globalTypes: []
         };
         this.modState = state;
         for (let section of node.metadata.sections) {
@@ -485,6 +486,7 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
                 this.write(buf, "end");
                 this.newLine(buf);
                 state.nextGlobalIndex++;
+                state.globalTypes.push(field.globalType.valtype);
             }
             else if (field.type == "Elem") {
                 let table_index = field.table.value;

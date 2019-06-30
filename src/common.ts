@@ -15,6 +15,7 @@ export interface WASMModuleState {
     exportIdentGen: () => string;
 
     nextGlobalIndex: number;
+    globalTypes: Valtype[];
 }
 
 export interface WASMFuncState {
