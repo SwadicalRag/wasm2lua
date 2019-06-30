@@ -193,10 +193,10 @@ abstract class IROperation {
     // The code directly emitted into the generated code.
     emit_code() {
         //return "-- no code";
-        if (this.write_group != null) {
-            return this.emit();
-        } else if (this.var_name != null) {
+        if (this.var_name != null) {
             return this.var_name+" = "+this.emit();
+        } else if (this.write_group != null) {
+            return this.emit();
         }
         return "";
     };
@@ -509,6 +509,45 @@ class IROpCall extends IROperation {
     type: IRType;
 }
 
+class IROpCallIndirect extends IROperation {
+
+    too_many_returns = false;
+
+    constructor(parent: IRControlBlock, signature: Signature, private table_index) {
+        super(parent);
+
+        this.arg_count = signature.params.length+1;
+
+        let retCount = signature.results.length;
+        if (retCount == 1) {
+            this.type = convertWasmTypeToIRType(signature.results[0]);
+        } else if (retCount == 0) {
+            this.type = IRType.Void;
+        } else {
+            this.too_many_returns = true;
+        }
+    }
+
+    emit() {
+        if (this.too_many_returns) {
+            return "error('too many returns')"
+        }
+
+        let args = this.args.slice().reverse();
+
+        let index = args.pop();
+        let arg_str = args.map((arg)=>unwrap_expr(arg.emit_value())).join(", ");
+
+        let func = `__TABLE_FUNCS_${this.table_index}__[${index.emit_value()}+1]`;
+
+        return func+"("+arg_str+")";
+    }
+
+    write_group = WRITE_ALL;
+    
+    type: IRType;
+}
+
 class IROpCallBuiltin extends IROperation {
     constructor(parent: IRControlBlock, private fname: string, public arg_count: number, public type: IRType) {
         super(parent);
@@ -720,10 +759,10 @@ export function compileFuncWithIR(node: Func, modState: WASMModuleState, str_bui
     str_builder.write(str_buffer, `function __FUNCS__.${node.name.value}(`);
 
     // todo longs may require two args/locals in future?
-    for(let i=0;i<func_info.arg_count;i++) {
+    for(let i=func_info.arg_count-1;i>=0;i--) {
         str_builder.write(str_buffer, `var${i}`);
 
-        if((i+1) < func_info.arg_count) {
+        if (i > 0) {
             str_builder.write(str_buffer,", ");
         }
     }
@@ -733,8 +772,17 @@ export function compileFuncWithIR(node: Func, modState: WASMModuleState, str_bui
     str_builder.newLine(str_buffer);
 
     str_builder.write(str_buffer, "local blockres");
-    // todo write locals here
     str_builder.newLine(str_buffer);
+
+    str_builder.write(str_buffer, "local _TMP = {}");
+    str_builder.newLine(str_buffer);
+
+    for (let i=func_info.arg_count; i<func_info.local_types.length; i++) {
+        let type = func_info.local_types[i];
+        let value = ((type == IRType.LongInt) ? "__LONG_INT__(0,0)" : "0");
+        str_builder.write(str_buffer, `local var${i} = ${value}`);
+        str_builder.newLine(str_buffer);
+    }
 
     if (func_info.return_types.length>0) {
         if (func_info.return_types.length>1) {
@@ -776,8 +824,8 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
             if (arg == null) {
                 arg = new IROpError(error_block, "negative stack access");
             }
-            if (arg.blocked_by_write_barrier) {
-                arg.var_name = "_TMP"+(func_info.next_tmp_id++);
+            if (arg.blocked_by_write_barrier || arg.write_group != null) {
+                arg.var_name = "_TMP["+(func_info.next_tmp_id++)+"]";
             }
 
             op.args.push(arg);
@@ -789,8 +837,8 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
             if (arg == null) {
                 arg = new IROpError(error_block, "negative stack access");
             }
-            if (arg.blocked_by_write_barrier) {
-                arg.var_name = "_TMP"+(func_info.next_tmp_id++);
+            if (arg.blocked_by_write_barrier || arg.write_group != null) {
+                arg.var_name = "_TMP["+(func_info.next_tmp_id++)+"]";
             }
 
             op.args.push(arg);
@@ -891,7 +939,11 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
                 }
 
             } else {
-                processOp(new IROpError(current_block,"call indirect!"));
+                if (instr.signature.type=="Signature") {
+                    processOp(new IROpCallIndirect(current_block, instr.signature, 0));
+                } else {
+                    processOp(new IROpError(current_block,"bad indirect call"));
+                }
             }
         } else if (instr.type == "Instr") {
             if (instr.id == "br") {

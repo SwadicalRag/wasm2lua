@@ -116,11 +116,11 @@ class IROperation {
         parent._addOp(this);
     }
     emit_code() {
-        if (this.write_group != null) {
-            return this.emit();
-        }
-        else if (this.var_name != null) {
+        if (this.var_name != null) {
             return this.var_name + " = " + this.emit();
+        }
+        else if (this.write_group != null) {
+            return this.emit();
         }
         return "";
     }
@@ -347,6 +347,35 @@ class IROpCall extends IROperation {
         return this.func.id + "(" + arg_str + ")";
     }
 }
+class IROpCallIndirect extends IROperation {
+    constructor(parent, signature, table_index) {
+        super(parent);
+        this.table_index = table_index;
+        this.too_many_returns = false;
+        this.write_group = WRITE_ALL;
+        this.arg_count = signature.params.length + 1;
+        let retCount = signature.results.length;
+        if (retCount == 1) {
+            this.type = convertWasmTypeToIRType(signature.results[0]);
+        }
+        else if (retCount == 0) {
+            this.type = IRType.Void;
+        }
+        else {
+            this.too_many_returns = true;
+        }
+    }
+    emit() {
+        if (this.too_many_returns) {
+            return "error('too many returns')";
+        }
+        let args = this.args.slice().reverse();
+        let index = args.pop();
+        let arg_str = args.map((arg) => unwrap_expr(arg.emit_value())).join(", ");
+        let func = `__TABLE_FUNCS_${this.table_index}__[${index.emit_value()}+1]`;
+        return func + "(" + arg_str + ")";
+    }
+}
 class IROpCallBuiltin extends IROperation {
     constructor(parent, fname, arg_count, type) {
         super(parent);
@@ -520,9 +549,9 @@ function compileFuncWithIR(node, modState, str_builder) {
     let exit = new IRControlBlock(func_info, IRType.Void, true);
     compileWASMBlockToIRBlocks(func_info, node.body, entry, [exit]);
     str_builder.write(str_buffer, `function __FUNCS__.${node.name.value}(`);
-    for (let i = 0; i < func_info.arg_count; i++) {
+    for (let i = func_info.arg_count - 1; i >= 0; i--) {
         str_builder.write(str_buffer, `var${i}`);
-        if ((i + 1) < func_info.arg_count) {
+        if (i > 0) {
             str_builder.write(str_buffer, ", ");
         }
     }
@@ -531,6 +560,14 @@ function compileFuncWithIR(node, modState, str_builder) {
     str_builder.newLine(str_buffer);
     str_builder.write(str_buffer, "local blockres");
     str_builder.newLine(str_buffer);
+    str_builder.write(str_buffer, "local _TMP = {}");
+    str_builder.newLine(str_buffer);
+    for (let i = func_info.arg_count; i < func_info.local_types.length; i++) {
+        let type = func_info.local_types[i];
+        let value = ((type == IRType.LongInt) ? "__LONG_INT__(0,0)" : "0");
+        str_builder.write(str_buffer, `local var${i} = ${value}`);
+        str_builder.newLine(str_buffer);
+    }
     if (func_info.return_types.length > 0) {
         if (func_info.return_types.length > 1) {
             throw new Error("Fatal: Too many returns from function.");
@@ -561,8 +598,8 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
             if (arg == null) {
                 arg = new IROpError(error_block, "negative stack access");
             }
-            if (arg.blocked_by_write_barrier) {
-                arg.var_name = "_TMP" + (func_info.next_tmp_id++);
+            if (arg.blocked_by_write_barrier || arg.write_group != null) {
+                arg.var_name = "_TMP[" + (func_info.next_tmp_id++) + "]";
             }
             op.args.push(arg);
             arg.refs.push(op);
@@ -572,8 +609,8 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
             if (arg == null) {
                 arg = new IROpError(error_block, "negative stack access");
             }
-            if (arg.blocked_by_write_barrier) {
-                arg.var_name = "_TMP" + (func_info.next_tmp_id++);
+            if (arg.blocked_by_write_barrier || arg.write_group != null) {
+                arg.var_name = "_TMP[" + (func_info.next_tmp_id++) + "]";
             }
             op.args.push(arg);
             arg.refs.push(op);
@@ -653,7 +690,12 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
                 }
             }
             else {
-                processOp(new IROpError(current_block, "call indirect!"));
+                if (instr.signature.type == "Signature") {
+                    processOp(new IROpCallIndirect(current_block, instr.signature, 0));
+                }
+                else {
+                    processOp(new IROpError(current_block, "bad indirect call"));
+                }
             }
         }
         else if (instr.type == "Instr") {
