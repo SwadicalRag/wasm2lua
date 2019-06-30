@@ -500,7 +500,7 @@ class IROpCall extends IROperation {
         if (this.too_many_returns) {
             return "error('too many returns')"
         }
-        let arg_str = this.args.map((arg)=>unwrap_expr(arg.emit_value())).join(", ");
+        let arg_str = this.args.slice().reverse().map((arg)=>unwrap_expr(arg.emit_value())).join(", ");
         return this.func.id+"("+arg_str+")";
     }
 
@@ -759,10 +759,10 @@ export function compileFuncWithIR(node: Func, modState: WASMModuleState, str_bui
     str_builder.write(str_buffer, `function __FUNCS__.${node.name.value}(`);
 
     // todo longs may require two args/locals in future?
-    for(let i=func_info.arg_count-1;i>=0;i--) {
+    for(let i=0;i<func_info.arg_count;i++) {
         str_builder.write(str_buffer, `var${i}`);
 
-        if (i > 0) {
+        if ((i + 1) < func_info.arg_count) {
             str_builder.write(str_buffer,", ");
         }
     }
