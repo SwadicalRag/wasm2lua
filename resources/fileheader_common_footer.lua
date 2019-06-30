@@ -247,6 +247,8 @@ __LONG_INT_CLASS__ = {
 
             self[1] = low
             self[2] = high
+
+            return self
         end,
         store32 = function(self,mem,loc)
            __MEMORY_WRITE_32__(mem,loc,self[1])

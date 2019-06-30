@@ -16,9 +16,9 @@ enum IRConvertMode {
 }
 
 function convertWasmTypeToIRType(type: Valtype) {
-    if (type == "i32") {
+    if (type == "i32" || type == "u32") {
         return IRType.Int;
-    } else if (type == "i64") {
+    } else if (type == "i64" || type == "u64") {
         return IRType.LongInt;
     } else if (type == "f32" || type == "f64") {
         return IRType.Float;
@@ -717,6 +717,93 @@ class IROpCompare extends IROperation {
     }
 }
 
+class IROpReadMemory extends IROperation {
+    constructor(parent: IRControlBlock, private wasm_type: Valtype, private offset: number, private source_width?: number, signed = false) {
+        super(parent);
+
+        this.type = convertWasmTypeToIRType(wasm_type);
+    }
+
+    type: IRType;
+
+    arg_count = 1;
+
+    emit() {
+        let targ = this.parent.func_info.module.memoryAllocations.get(0);
+
+        let addr: string;
+        if (this.offset == 0) {
+            addr = unwrap_expr(this.args[0].emit_value());
+        } else {
+            addr = `${this.args[0].emit_value()}+${this.offset}`;
+        }
+
+        if (this.wasm_type == "u64") {
+            return `__LONG_INT__(0,0):load(${targ},${addr})`;
+        } else if (this.wasm_type == "u32") {
+            if (this.source_width == 16) {
+                return `__MEMORY_READ_16__(${targ},${addr})`;
+            } else {
+                return `__MEMORY_READ_32__(${targ},${addr})`;
+            }
+        } else if (this.wasm_type == "f32") {
+            return `__MEMORY_READ_32F__(${targ},${addr})`;
+        } else if (this.wasm_type == "f64") {
+            return `__MEMORY_READ_64F__(${targ},${addr})`;
+        }
+    }
+
+    read_group = "M";
+}
+
+class IROpWriteMemory extends IROperation {
+    constructor(parent: IRControlBlock, private wasm_type: Valtype, private offset: number, private dest_width?: number) {
+        super(parent);
+    }
+
+    type = IRType.Void;
+
+    arg_count = 2;
+
+    emit() {
+        let targ = this.parent.func_info.module.memoryAllocations.get(0);
+
+        let addr: string;
+        if (this.offset == 0) {
+            addr = unwrap_expr(this.args[1].emit_value());
+        } else {
+            addr = `${this.args[1].emit_value()}+${this.offset}`;
+        }
+
+        let value = unwrap_expr(this.args[0].emit_value());
+        let dest_width = this.dest_width;
+
+        if (this.wasm_type == "u64") {
+            if (dest_width != null) {
+                value = "("+value+")[1]";
+            } else {
+                return `(${value}):store(${targ},${addr})`;
+            }
+        } else if (this.wasm_type == "f32") {
+            return `__MEMORY_WRITE_32F__(${targ},${addr},${value})`;
+        } else if (this.wasm_type == "f64") {
+            return `__MEMORY_WRITE_64F__(${targ},${addr},${value})`;
+        }
+        
+        if (dest_width == 32 || dest_width == null) {
+            return `__MEMORY_WRITE_32__(${targ},${addr},${value})`;
+        } else if (dest_width == 16) {
+            return `__MEMORY_WRITE_16__(${targ},${addr},${value})`;
+        } else if (dest_width == 8) {
+            return `__MEMORY_WRITE_8__(${targ},${addr},${value})`;
+        }
+    }
+
+    write_group = "M";
+}
+
+
+
 class IRStackInfo extends IROperation {
 
     stack: IROperation[];
@@ -1198,6 +1285,42 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
 
                     case "eqz":
                         processOp(new IROpCompare(current_block, instr.id, instr.object));
+                        break;
+
+                    // Memory
+                    case "load":
+                        processOp(new IROpReadMemory(current_block, instr.object, (instr.args[0] as NumberLiteral).value));
+                        break;
+                    case "load32_u":
+                        processOp(new IROpReadMemory(current_block, instr.object, (instr.args[0] as NumberLiteral).value, 32));
+                        break;
+                    case "load32_s":
+                        processOp(new IROpReadMemory(current_block, instr.object, (instr.args[0] as NumberLiteral).value, 32, true));
+                        break;
+                    case "load16_u":
+                        processOp(new IROpReadMemory(current_block, instr.object, (instr.args[0] as NumberLiteral).value, 16));
+                        break;
+                    case "load16_s":
+                        processOp(new IROpReadMemory(current_block, instr.object, (instr.args[0] as NumberLiteral).value, 16, true));
+                        break;
+                    case "load8_u":
+                        processOp(new IROpReadMemory(current_block, instr.object, (instr.args[0] as NumberLiteral).value, 8));
+                        break;
+                    case "load8_s":
+                        processOp(new IROpReadMemory(current_block, instr.object, (instr.args[0] as NumberLiteral).value, 8, true));
+                        break;
+                    
+                    case "store":
+                        processOp(new IROpWriteMemory(current_block, instr.object, (instr.args[0] as NumberLiteral).value));
+                        break;
+                    case "store32":
+                        processOp(new IROpWriteMemory(current_block, instr.object, (instr.args[0] as NumberLiteral).value, 32));
+                        break;
+                    case "store16":
+                        processOp(new IROpWriteMemory(current_block, instr.object, (instr.args[0] as NumberLiteral).value, 16));
+                        break;
+                    case "store8":
+                        processOp(new IROpWriteMemory(current_block, instr.object, (instr.args[0] as NumberLiteral).value, 8));
                         break;
                     
                     // Misc
