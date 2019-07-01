@@ -444,8 +444,14 @@ __LONG_INT_CLASS__ = {
         --[[get_words = function(a)
             return a[1], a[2]
         end]]
-        to_double = function(a)
+        to_double_reinterpret = function(a)
             return UInt32sToDouble(a[1],a[2])
+        end,
+        to_double_signed = function(a)
+            return __UNSIGNED__(a[1]) + a[2] * 4294967296
+        end,
+        to_double_unsigned = function(a)
+            return __UNSIGNED__(a[1]) + __UNSIGNED__(a[2]) * 4294967296
         end
     }
 }

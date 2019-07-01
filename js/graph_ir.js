@@ -1088,12 +1088,34 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
                         break;
                     case "demote/f64":
                     case "promote/f32":
+                    case "convert_s/i32":
                         break;
+                    case "convert_u/i32":
+                        processOp(new IROpCallBuiltin(current_block, "__UNSIGNED__", 1, IRType.Int));
+                        break;
+                    case "convert_s/i64":
+                        processOp(new IROpCallMethod(current_block, "to_double_signed", 1, IRType.Float));
+                        break;
+                    case "convert_u/i64":
+                        processOp(new IROpCallMethod(current_block, "to_double_unsigned", 1, IRType.Float));
+                        break;
+                    case "trunc_s/f32":
+                    case "trunc_s/f64":
+                    case "trunc_u/f32":
+                    case "trunc_u/f64": {
+                        if (instr.object == "i64") {
+                            processOp(new IROpCallBuiltin(current_block, ["__TRUNC__", "__LONG_INT_N__"], 1, IRType.LongInt));
+                        }
+                        else {
+                            processOp(new IROpCallBuiltin(current_block, ["__TRUNC__", "bit_tobit"], 1, IRType.Int));
+                        }
+                        break;
+                    }
                     case "reinterpret/i32":
                         processOp(new IROpCallBuiltin(current_block, "UInt32ToFloat", 1, IRType.Float));
                         break;
                     case "reinterpret/i64":
-                        processOp(new IROpCallMethod(current_block, "to_double", 1, IRType.Float));
+                        processOp(new IROpCallMethod(current_block, "to_double_reinterpret", 1, IRType.Float));
                         break;
                     case "reinterpret/f32":
                         processOp(new IROpCallBuiltin(current_block, "FloatToUInt32", 1, IRType.Int));
