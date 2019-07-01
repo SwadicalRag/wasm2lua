@@ -440,6 +440,12 @@ __LONG_INT_CLASS__ = {
         sign_upper_word = function(a)
             a[2] = bit_arshift(a[1],31)
             return a
+        end,
+        --[[get_words = function(a)
+            return a[1], a[2]
+        end]]
+        to_double = function(a)
+            return UInt32sToDouble(a[1],a[2])
         end
     }
 }

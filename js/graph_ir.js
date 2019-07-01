@@ -396,8 +396,17 @@ class IROpCallBuiltin extends IROperation {
         this.type = type;
     }
     emit() {
-        let arg_str = this.args.slice().reverse().map((arg) => unwrap_expr(arg.emit_value())).join(", ");
-        return this.fname + "(" + arg_str + ")";
+        if (typeof this.fname == "string") {
+            let arg_str = this.args.slice().reverse().map((arg) => unwrap_expr(arg.emit_value())).join(", ");
+            return this.fname + "(" + arg_str + ")";
+        }
+        else {
+            let expr = this.args.slice().reverse().map((arg) => unwrap_expr(arg.emit_value())).join(", ");
+            this.fname.forEach((fname) => {
+                expr = fname + "(" + expr + ")";
+            });
+            return expr;
+        }
     }
 }
 class IROpCallMethod extends IROperation {
@@ -1076,6 +1085,21 @@ function compileWASMBlockToIRBlocks(func_info, body, current_block, branch_targe
                         break;
                     case "current_memory":
                         processOp(new IROpMemoryGetSize(current_block));
+                        break;
+                    case "demote/f64":
+                    case "promote/f32":
+                        break;
+                    case "reinterpret/i32":
+                        processOp(new IROpCallBuiltin(current_block, "UInt32ToFloat", 1, IRType.Float));
+                        break;
+                    case "reinterpret/i64":
+                        processOp(new IROpCallMethod(current_block, "to_double", 1, IRType.Float));
+                        break;
+                    case "reinterpret/f32":
+                        processOp(new IROpCallBuiltin(current_block, "FloatToUInt32", 1, IRType.Int));
+                        break;
+                    case "reinterpret/f64":
+                        processOp(new IROpCallBuiltin(current_block, ["DoubleToUInt32s", "__LONG_INT__"], 1, IRType.LongInt));
                         break;
                     case "select":
                         processOp(new IROpSelect(current_block));
