@@ -718,7 +718,7 @@ class IROpCompare extends IROperation {
 }
 
 class IROpReadMemory extends IROperation {
-    constructor(parent: IRControlBlock, private wasm_type: Valtype, private offset: number, private source_width?: number, signed = false) {
+    constructor(parent: IRControlBlock, private wasm_type: Valtype, private offset: number, private source_width?: number, private signed = false) {
         super(parent);
 
         this.type = convertWasmTypeToIRType(wasm_type);
@@ -738,18 +738,37 @@ class IROpReadMemory extends IROperation {
             addr = `${this.args[0].emit_value()}+${this.offset}`;
         }
 
-        if (this.wasm_type == "u64") {
-            return `__LONG_INT__(0,0):load(${targ},${addr})`;
-        } else if (this.wasm_type == "u32") {
-            if (this.source_width == 16) {
-                return `__MEMORY_READ_16__(${targ},${addr})`;
+        let expr: string;
+
+        if (this.wasm_type == "u32" || this.source_width != null) {
+            if (this.source_width == 8) {
+                expr = `__MEMORY_READ_8__(${targ},${addr})`;
+            } else if (this.source_width == 16) {
+                expr = `__MEMORY_READ_16__(${targ},${addr})`;
             } else {
-                return `__MEMORY_READ_32__(${targ},${addr})`;
+                expr = `__MEMORY_READ_32__(${targ},${addr})`;
             }
+        } else if (this.wasm_type == "u64") {
+            return `__LONG_INT__(0,0):load(${targ},${addr})`;
         } else if (this.wasm_type == "f32") {
             return `__MEMORY_READ_32F__(${targ},${addr})`;
         } else if (this.wasm_type == "f64") {
             return `__MEMORY_READ_64F__(${targ},${addr})`;
+        }
+
+        if (this.signed && this.source_width != null && this.source_width != 32) {
+            let shift = 32 - this.source_width;
+            expr = `bit_arshift(bit_lshift(${expr},${shift}),${shift})`;
+        }
+
+        if (this.wasm_type == "u64") {
+            if (this.signed) {
+                return `__LONG_INT__(${expr},0):sign_upper_word()`;
+            } else {
+                return `__LONG_INT__(${expr},0)`;
+            }
+        } else {
+            return expr;
         }
     }
 
@@ -802,7 +821,35 @@ class IROpWriteMemory extends IROperation {
     write_group = "M";
 }
 
+class IROpMemoryGrow extends IROperation {
 
+    type = IRType.Int;
+
+    arg_count = 1;
+
+    emit() {
+        let targ = this.parent.func_info.module.memoryAllocations.get(0);
+
+        let arg = unwrap_expr(this.args[0].emit_value());
+
+        return `__MEMORY_GROW__(${targ},__UNSIGNED__(${arg}))`;
+    }
+
+    write_group = "M";
+}
+
+class IROpMemoryGetSize extends IROperation {
+
+    type = IRType.Int;
+    
+    emit() {
+        let targ = this.parent.func_info.module.memoryAllocations.get(0);
+
+        return `${targ}._page_count;`;
+    }
+
+    read_group = "M";
+}
 
 class IRStackInfo extends IROperation {
 
@@ -1321,6 +1368,13 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
                         break;
                     case "store8":
                         processOp(new IROpWriteMemory(current_block, instr.object, (instr.args[0] as NumberLiteral).value, 8));
+                        break;
+
+                    case "grow_memory":
+                        processOp(new IROpMemoryGrow(current_block));
+                        break;
+                    case "current_memory":
+                        processOp(new IROpMemoryGetSize(current_block));
                         break;
                     
                     // Misc

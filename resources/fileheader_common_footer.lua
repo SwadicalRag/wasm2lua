@@ -437,5 +437,9 @@ __LONG_INT_CLASS__ = {
         _popcnt = function(a)
             return __LONG_INT__( __POPCNT__(a[1]) + __POPCNT__(a[2]), 0)
         end,
+        sign_upper_word = function(a)
+            a[2] = bit_arshift(a[1],31)
+            return a
+        end
     }
 }
