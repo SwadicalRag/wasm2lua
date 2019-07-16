@@ -582,6 +582,36 @@ class IROpCallBuiltin extends IROperation {
     }
 }
 
+class IROpGetLongWord extends IROperation {
+    constructor(parent: IRControlBlock, private word_num) {
+        super(parent);
+    }
+
+    arg_count = 1;
+    type = IRType.Int;
+
+    emit() {
+        return this.args[0].emit_value()+"["+this.word_num+"]";
+    }
+}
+
+class IROpExtendWord extends IROperation {
+    constructor(parent: IRControlBlock, private signed) {
+        super(parent);
+    }
+
+    arg_count = 1;
+    type = IRType.LongInt;
+
+    emit() {
+        let result = "__LONG_INT__("+unwrap_expr(this.args[0].emit_value())+",0)";
+        if (this.signed) {
+            return result+":sign_upper_word()";
+        }
+        return result;
+    }
+}
+
 class IROpCallMethod extends IROperation {
     constructor(parent: IRControlBlock, private fname: string, public arg_count: number, public type: IRType) {
         super(parent);
@@ -626,7 +656,7 @@ class IROpNegate extends IROperation {
     type = IRType.Float;
 
     emit() {
-        return " - "+this.args[0].emit_value();
+        return "(-"+this.args[0].emit_value()+")";
     }
 }
 
@@ -1390,6 +1420,13 @@ function compileWASMBlockToIRBlocks(func_info: IRFunctionInfo, body: Instruction
                     case "promote/f32":
                     case "convert_s/i32": // warning- type will be wrong
                         // nop
+                        break;
+                    case "extend_s/i32":
+                    case "extend_u/i32":
+                        processOp(new IROpExtendWord(current_block,instr.id=="extend_s/i32"));
+                        break;
+                    case "wrap/i64":
+                        processOp(new IROpGetLongWord(current_block,1));
                         break;
                     case "convert_u/i32":
                         processOp(new IROpCallBuiltin(current_block,"__UNSIGNED__",1,IRType.Int));
