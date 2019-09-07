@@ -824,7 +824,7 @@ export class WebIDLBinder {
             // ditto above (re: gc)
             this.luaC.write(buf,`local __obj = __BINDER__.resolveClass(__BINDINGS__.${argType.idlType},${argName},${luaOwned}) `);
             if(luaOwned) {
-                this.luaC.write(buf,`${argName}.__luaOwned = true `);
+                this.luaC.write(buf,`__obj.__luaOwned = true `);
             }
             this.luaC.write(buf,"return __obj");
         }
