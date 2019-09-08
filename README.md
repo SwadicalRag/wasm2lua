@@ -24,6 +24,8 @@ GOOD NEWS, fam: `wasm2lua` can compile WebAssembly modules to pure Lua (or with 
 
 (Run those commands with `--help` for other options)
 
+See `HOWTO-BINDINGS.md` in this repository for reference on how to use the WebIDL binder.
+
 ## Installation
 
 `npm i -g wasm2lua`
