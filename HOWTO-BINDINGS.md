@@ -63,3 +63,9 @@ ToWASMOwned|none|Compiler hint that the argument/return will be freed by C/C++ c
 ToLuaOwned|none|Compiler hint that the argument/return will be freed when no Lua code references it. (using \_\_gc)
 NoDelete|none|Compiler hint that even if an argument/return is owned by Lua, it MUST not be freed (disables automatic frees via \_\_gc)
 OverrideCanWrite|none|Makes the suffix argument (for attributes) writable, regardless of whether it was readonly. This exists due to a webidl limitation
+
+## Good-To-Know stuff
+
+ - For `[Array]`, we actually copy all lua values into WASM memory and create a duplicate instance in WASM memory. This means that modifications that WASM makes to the array will not be directly transferred back to lua UNLESS `[ConvertInputArray]` is used
+ - For most cases, any libraries you use will not have a `main()` function because they're libraries (duh). So, lua-webidl has `--libmode` which generates a stub main function and initialises libc for you. This stub function is used in `module.init()`, and this is why it's important to call that function.
+ - `namespace global {}` will actually reference the global C/C++ namespace. Using this, you can bind C libraries which populate their functions into the global C namespace. Otherwise, namespaces are analogous to C++ namespaces and can be used to reference a C++ namespace. When generating bindings, functions/classes inside a namespace will be put inside a Lua table. (e.g. `module.bindings.namespaceName.funcName`)
