@@ -121,6 +121,7 @@ interface WASMModuleState {
     funcStates: WASMFuncState[];
     funcMinificationLookup: Map<string,string>;
     exportMinificationLookup: Map<string,string>;
+    allExports: Map<string,string>;
     funcByName: Map<string,WASMFuncState>;
     funcByNameRaw: Map<string,WASMFuncState>;
     memoryAllocations: ArrayMap<string>;
@@ -535,10 +536,24 @@ export class wasm2lua extends StringCompiler {
             binder.luaC.outdent();
 
             this.newLine(this.outBuf);
-            let malloc = this.modState.funcByName.get(this.options.webidl.mallocName || "malloc");
-            let free = this.modState.funcByName.get(this.options.webidl.freeName || "free");
-            this.writeLn(this.outBuf,`local __MALLOC__ = ${malloc ? malloc.id : `function() error "${this.options.webidl.mallocName} is not defined" end`}`);
-            this.writeLn(this.outBuf,`local __FREE__ = ${free ? free.id : `function() error "${this.options.webidl.freeName} is not defined" end`}`);
+            let malloc: string;
+            let free: string;
+            let mallocFunc = this.modState.funcByName.get(this.options.webidl.mallocName || "malloc");
+            let freeFunc = this.modState.funcByName.get(this.options.webidl.freeName || "free");
+            if(mallocFunc) {
+                malloc = mallocFunc.id;
+            }
+            else {
+                malloc = this.modState.allExports.get(this.options.webidl.mallocName || "malloc");
+            }
+            if(freeFunc) {
+                free = freeFunc.id;
+            }
+            else {
+                free = this.modState.allExports.get(this.options.webidl.freeName || "free");
+            }
+            this.writeLn(this.outBuf,`local __MALLOC__ = ${malloc ? malloc : `function() error "${this.options.webidl.mallocName || "malloc"} is not defined" end`}`);
+            this.writeLn(this.outBuf,`local __FREE__ = ${free ? free : `function() error "${this.options.webidl.freeName || "malloc"} is not defined" end`}`);
 
             this.newLine(this.outBuf);
             this.write(this.outBuf,wasm2lua.binderHeader);
@@ -567,6 +582,7 @@ export class wasm2lua extends StringCompiler {
 
         let state: WASMModuleState = {
             funcStates: [],
+            allExports: new Map(),
             funcByName: new Map(),
             funcByNameRaw: new Map(),
             funcMinificationLookup: new Map(),
@@ -2782,6 +2798,8 @@ export class wasm2lua extends StringCompiler {
     processModuleExport(node: ModuleExport,modState: WASMModuleState) {
         let buf = [];
 
+        let exportKey: string;
+
         if(this.options.minify >= 3) {
             let minIdent = modState.exportMinificationLookup.get(node.name);
 
@@ -2789,12 +2807,16 @@ export class wasm2lua extends StringCompiler {
                 minIdent = modState.exportIdentGen();
                 modState.exportMinificationLookup.set(node.name,minIdent);
             }
+
+            exportKey = minIdent;
             
             this.write(buf,"__EXPORTS__.");
             this.write(buf,minIdent);
             this.write(buf," = ");
         }
         else {
+            exportKey = node.name;
+
             this.write(buf,"__EXPORTS__[\"");
             this.write(buf,node.name)
             this.write(buf,"\"] = ");
@@ -2804,6 +2826,7 @@ export class wasm2lua extends StringCompiler {
             case "Func": {
                 let fstate = this.getFuncByIndex(modState,node.descr.id);
                 if(fstate) {
+                    modState.allExports[exportKey] = fstate.id;
                     this.write(buf,fstate.id);
                 }
                 else {
@@ -2814,6 +2837,7 @@ export class wasm2lua extends StringCompiler {
             case "Mem": {
                 let targ = modState.memoryAllocations.get(node.descr.id.value);
                 if(targ) {
+                    modState.allExports[exportKey] = targ;
                     this.write(buf,targ);
                 }
                 else {
@@ -2827,6 +2851,7 @@ export class wasm2lua extends StringCompiler {
                 break;
             }
             case "Table": {
+                modState.allExports[exportKey] = `__TABLE_FUNCS_${node.descr.id.value}__`;
                 this.write(buf,`__TABLE_FUNCS_${node.descr.id.value}__`);
                 break;
             }
