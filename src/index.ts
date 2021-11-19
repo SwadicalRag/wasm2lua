@@ -559,7 +559,7 @@ export class wasm2lua extends StringCompiler {
             }
             else {
                 this.writeLn(this.outBuf,`local __MALLOC__ = ${malloc ? malloc : `function() error "${this.options.webidl.mallocName || "malloc"} is not defined" end`}`);
-                this.writeLn(this.outBuf,`local __FREE__ = ${free ? free : `function() error "${this.options.webidl.freeName || "malloc"} is not defined" end`}`);
+                this.writeLn(this.outBuf,`local __FREE__ = ${free ? free : `function() error "${this.options.webidl.freeName || "free"} is not defined" end`}`);
             }
 
             this.newLine(this.outBuf);
@@ -2833,7 +2833,7 @@ export class wasm2lua extends StringCompiler {
             case "Func": {
                 let fstate = this.getFuncByIndex(modState,node.descr.id);
                 if(fstate) {
-                    modState.allExports[exportKey] = fstate.id;
+                    modState.allExports.set(exportKey,fstate.id);
                     this.write(buf,fstate.id);
                 }
                 else {
@@ -2844,7 +2844,7 @@ export class wasm2lua extends StringCompiler {
             case "Mem": {
                 let targ = modState.memoryAllocations.get(node.descr.id.value);
                 if(targ) {
-                    modState.allExports[exportKey] = targ;
+                    modState.allExports.set(exportKey,targ);
                     this.write(buf,targ);
                 }
                 else {
@@ -2858,7 +2858,7 @@ export class wasm2lua extends StringCompiler {
                 break;
             }
             case "Table": {
-                modState.allExports[exportKey] = `__TABLE_FUNCS_${node.descr.id.value}__`;
+                modState.allExports.set(exportKey,`__TABLE_FUNCS_${node.descr.id.value}__`);
                 this.write(buf,`__TABLE_FUNCS_${node.descr.id.value}__`);
                 break;
             }
