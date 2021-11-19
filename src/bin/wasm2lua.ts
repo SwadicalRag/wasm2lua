@@ -17,6 +17,7 @@ program.version(manifest.version)
     .arguments("<in.wasm> <out.lua>")
     .option("--heapBase <__GLOBALS__[0]>","Specify custom `heapBase` symbol name")
     .option("--freeName <free>","Specify custom `free` symbol name")
+    .option("--nolibc","Assumes libc is absent and therefore ignores malloc/free")
     .option("--mallocName <malloc>","Specify custom `malloc` symbol name")
     .option("--pureLua","Compiles without using `ffi`")
     .option("-m, --minify <n>","Generates a minified Lua file (levels go from 0 to 3)")
@@ -53,7 +54,12 @@ let conf: WASM2LuaOptions = {
 if(program.bindings) {
     conf.webidl = {
         idlFilePath: program.bindings,
+        nolibc: false,
     }
+}
+
+if(program.bindings && program.nolibc) {
+    conf.webidl.nolibc = true;
 }
 
 if(program.bindings && program.mallocName) {

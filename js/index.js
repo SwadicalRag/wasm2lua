@@ -375,8 +375,14 @@ class wasm2lua extends stringcompiler_1.StringCompiler {
             else {
                 free = this.modState.allExports.get(this.options.webidl.freeName || "free");
             }
-            this.writeLn(this.outBuf, `local __MALLOC__ = ${malloc ? malloc : `function() error "${this.options.webidl.mallocName || "malloc"} is not defined" end`}`);
-            this.writeLn(this.outBuf, `local __FREE__ = ${free ? free : `function() error "${this.options.webidl.freeName || "malloc"} is not defined" end`}`);
+            if (this.options.webidl.nolibc) {
+                this.writeLn(this.outBuf, `local __MALLOC__ = ${malloc ? malloc : `function() return 0 end`}`);
+                this.writeLn(this.outBuf, `local __FREE__ = ${free ? free : `function() return 0 end`}`);
+            }
+            else {
+                this.writeLn(this.outBuf, `local __MALLOC__ = ${malloc ? malloc : `function() error "${this.options.webidl.mallocName || "malloc"} is not defined" end`}`);
+                this.writeLn(this.outBuf, `local __FREE__ = ${free ? free : `function() error "${this.options.webidl.freeName || "malloc"} is not defined" end`}`);
+            }
             this.newLine(this.outBuf);
             this.write(this.outBuf, wasm2lua.binderHeader);
             this.newLine(this.outBuf);
