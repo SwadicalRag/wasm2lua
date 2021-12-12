@@ -2727,22 +2727,6 @@ export class wasm2lua extends StringCompiler {
                 // no vars were declared.
                 return "";
             }
-            else {
-                // Zero initialise all non-parametric variables
-                this.write(t_buf," = ");    
-                
-                seen = {};
-                for(let i=(state.funcType ? state.funcType.params.length : 0);i < state.regManager.registerCache.length;i++) {
-                    let reg = state.regManager.registerCache[i];
-                    let name = state.regManager.getPhysicalRegisterName(reg);
-                    if(seen[name]) {continue;}
-                    seen[name] = true;
-                    this.write(t_buf,"0");
-                    this.write(t_buf,",");
-                }
-
-                t_buf.pop(); // remove trailing comma
-            }
 
             this.write(t_buf,";");
             this.newLine(t_buf);
@@ -2754,7 +2738,7 @@ export class wasm2lua extends StringCompiler {
             if(state.regManager.totalRegisters > VirtualRegisterManager.MAX_REG) {
                 this.write(t_buf,"local vreg = {")
                 for(let i=VirtualRegisterManager.MAX_REG;i < state.regManager.totalRegisters;i++) {
-                    this.write(t_buf,`0,`);
+                    this.write(t_buf,`nil,`);
                 }
                 this.writeLn(t_buf,"}")
             }
@@ -2779,21 +2763,6 @@ export class wasm2lua extends StringCompiler {
                 }
                 else {
                     console.log(`WARNING: [${state.id}] ${state.regManager.totalRegisters} REGISTERS USED`);
-                }
-            }
-
-            // Zero initialise all non-parametric variables
-            this.write(t_buf," = ");
-            for(let i=(state.funcType ? state.funcType.params.length : 0);i < state.regManager.totalRegisters;i++) {
-                if(i >= VirtualRegisterManager.MAX_REG) {
-                    if(t_buf[t_buf.length - 1] == ",") {t_buf.pop();}
-                    break;
-                }
-                else {
-                    this.write(t_buf,"0");
-                    if(i !== (state.regManager.totalRegisters - 1)) {
-                        this.write(t_buf,",");
-                    }
                 }
             }
 
