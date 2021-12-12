@@ -2323,6 +2323,9 @@ export class wasm2lua extends StringCompiler {
                             let loadOffsetStr = loadOffset != 0 ? `+${loadOffset}` : "";
 
                             if(targ) {
+                                let tempVar = this.fn_createTempRegister(buf,state);
+                                let vname = state.regManager.getPhysicalRegisterName(tempVar);
+
                                 let tmp = this.getPop(state);
                                 let tmp2 = this.getPop(state);
 
@@ -2342,10 +2345,7 @@ export class wasm2lua extends StringCompiler {
                                         this.write(buf,`(${tmp}):${ins.id}(${targ},${tmp2}${loadOffsetStr});`);
                                     }
                                     else {
-                                        let tempVar = this.fn_createTempRegister(buf,state);
-                                        let vname = state.regManager.getPhysicalRegisterName(tempVar);
                                         this.write(buf,`${vname} = ${tmp} or __LONG_INT__(0,0);(${vname}):${ins.id}(${targ},${tmp2}${loadOffsetStr});`);
-                                        this.fn_freeRegister(buf,state,tempVar);
                                     }
                                 } else if (ins.object == "f32") {
                                     this.write(buf,"__MEMORY_WRITE_32F__");
@@ -2356,6 +2356,8 @@ export class wasm2lua extends StringCompiler {
                                 } else {
                                     this.write(buf,"-- WARNING: UNSUPPORTED MEMORY OP ON TYPE: "+ins.object);
                                 }
+
+                                this.fn_freeRegister(buf,state,tempVar);
 
                                 this.newLine(buf);
                             }
