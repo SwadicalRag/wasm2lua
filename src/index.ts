@@ -2338,7 +2338,15 @@ export class wasm2lua extends StringCompiler {
                                     }
                                     this.write(buf,`(${targ},${tmp2}${loadOffsetStr},${tmp});`);
                                 } else if (ins.object == "u64") {
-                                    this.write(buf,`(${tmp}):${ins.id}(${targ},${tmp2}${loadOffsetStr});`);
+                                    if(tmp.startsWith("__LONG_INT__")) {
+                                        this.write(buf,`(${tmp}):${ins.id}(${targ},${tmp2}${loadOffsetStr});`);
+                                    }
+                                    else {
+                                        let tempVar = this.fn_createTempRegister(buf,state);
+                                        let vname = state.regManager.getPhysicalRegisterName(tempVar);
+                                        this.write(buf,`${vname} = ${tmp} or __LONG_INT__(0,0);(${vname}):${ins.id}(${targ},${tmp2}${loadOffsetStr});`);
+                                        this.fn_freeRegister(buf,state,tempVar);
+                                    }
                                 } else if (ins.object == "f32") {
                                     this.write(buf,"__MEMORY_WRITE_32F__");
                                     this.write(buf,`(${targ},${tmp2}${loadOffsetStr},${tmp});`);
