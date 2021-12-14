@@ -92,13 +92,11 @@ return function(memory)
 
         -- only stdio supported
         if fd == 0 then
-            local str = ""
             for i = 1,iovec_len do
                 local ptr = memory:read32(iovec)
                 local len = memory:read32(iovec+4)
 
                 for j=ptr,ptr+len-1 do
-                    if #str >= len then break end
 
                     local read = io.read(1)
                     if read == nil then break end
