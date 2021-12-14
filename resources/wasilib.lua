@@ -56,20 +56,21 @@ return function(memory)
 
         -- only stdio supported
         if fd == 1 or fd==2 then
-            local str = ""
+            local t = {}
+            local string_char = string.char;
             for i = 1,iovec_len do
                 local ptr = memory:read32(iovec)
                 local len = memory:read32(iovec+4)
 
                 for j=ptr,ptr+len-1 do
-                    str=str..string.char(memory:read8(j))
+                    t[#t+1]=string_char(memory:read8(j))
                 end
 
                 len_written = len_written + len
 
                 iovec = iovec + 8
             end
-
+            local str = table.concat(t)
             if fd == 1 then
                 io.stdout:write(str)
             else
